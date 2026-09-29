@@ -1,0 +1,1 @@
+{"name":"minecells:prison/chain_lower","fallback":"minecraft:empty","elements":[{"weight":1,"element":{"element_type":"minecraft:single_pool_element","projection":"rigid","location":"minecells:prison/chain_lower/0","processors":"minecells:brick_decay"}}]}

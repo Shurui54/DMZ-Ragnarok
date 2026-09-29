@@ -1,0 +1,7 @@
+{
+  "parent": "minecraft:block/cube_column",
+  "textures": {
+    "end": "dmz_ragnarok:block/race_item_spawner",
+    "side": "dmz_ragnarok:block/race_item_spawner"
+  }
+}

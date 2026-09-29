@@ -1,0 +1,60 @@
+{
+  "type": "dmz_ragnarok:planet_vegeta",
+  "generator": {
+    "type": "minecraft:noise",
+    "biome_source": {
+      "type": "minecraft:multi_noise",
+      "biomes": [
+        {
+          "biome": "dmz_ragnarok:vegeta_arid",
+          "parameters": {
+            "continentalness": 0.0,
+            "depth": 0.0,
+            "erosion": 0.0,
+            "humidity": 0.5,
+            "offset": 0.0,
+            "temperature": 0.5,
+            "weirdness": 0.0
+          }
+        },
+        {
+          "biome": "dmz_ragnarok:vegeta",
+          "parameters": {
+            "continentalness": 0.0,
+            "depth": 0.0,
+            "erosion": 0.0,
+            "humidity": -0.5,
+            "offset": 0.0,
+            "temperature": 0.5,
+            "weirdness": 0.0
+          }
+        },
+        {
+          "biome": "dmz_ragnarok:vegeta_meadow",
+          "parameters": {
+            "continentalness": 0.0,
+            "depth": 0.0,
+            "erosion": 0.0,
+            "humidity": 0.5,
+            "offset": 0.0,
+            "temperature": -0.5,
+            "weirdness": 0.0
+          }
+        },
+        {
+          "biome": "dmz_ragnarok:vegeta_deep",
+          "parameters": {
+            "continentalness": 0.0,
+            "depth": 0.0,
+            "erosion": 0.0,
+            "humidity": -0.5,
+            "offset": 0.0,
+            "temperature": -0.5,
+            "weirdness": 0.0
+          }
+        }
+      ]
+    },
+    "settings": "dmz_ragnarok:planet_vegeta"
+  }
+}

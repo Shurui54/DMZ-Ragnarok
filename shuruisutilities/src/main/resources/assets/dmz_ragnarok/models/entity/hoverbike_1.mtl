@@ -1,0 +1,22 @@
+# Authored MTL for Shurui's Utilities hoverbike_1 (multi-material, 3 textures)
+newmtl m_73ede92d-df23-06b7-6449-48c338f61152
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+d 1.0
+illum 1
+map_Kd #tex0
+newmtl m_176db8f8-90c0-0e2e-f2de-b6726d94649e
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+d 1.0
+illum 1
+map_Kd #tex1
+newmtl m_617c672c-1484-9191-9138-1ae56b52b70b
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+d 1.0
+illum 1
+map_Kd #tex2

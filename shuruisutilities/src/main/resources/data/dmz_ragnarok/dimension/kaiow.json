@@ -1,0 +1,54 @@
+{
+  "type": "dragonminez:sacredkaiplanet",
+  "generator": {
+    "type": "dmz_ragnarok:bounded",
+    "center_x": 0,
+    "center_z": 0,
+    "half_extent": 2048,
+    "generator": {
+      "type": "minecraft:noise",
+      "biome_source": {
+        "type": "minecraft:multi_noise",
+        "biomes": [
+          {
+            "biome": "dragonminez:sacredkai_plains",
+            "parameters": {
+              "continentalness": 0.15,
+              "depth": 0.0,
+              "erosion": 0.55,
+              "humidity": 0.0,
+              "offset": 0.0,
+              "temperature": 0.0,
+              "weirdness": 0.0
+            }
+          },
+          {
+            "biome": "dragonminez:sacredkai_hills",
+            "parameters": {
+              "continentalness": 0.55,
+              "depth": 0.0,
+              "erosion": -0.15,
+              "humidity": 0.0,
+              "offset": 0.0,
+              "temperature": 0.0,
+              "weirdness": 0.0
+            }
+          },
+          {
+            "biome": "dragonminez:sacredkai_rivers",
+            "parameters": {
+              "continentalness": -0.45,
+              "depth": 0.0,
+              "erosion": 0.0,
+              "humidity": 0.0,
+              "offset": 0.0,
+              "temperature": 0.0,
+              "weirdness": 0.0
+            }
+          }
+        ]
+      },
+      "settings": "dragonminez:sacredkaiplanet"
+    }
+  }
+}

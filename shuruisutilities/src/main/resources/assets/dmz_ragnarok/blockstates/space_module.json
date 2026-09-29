@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=north": {
+      "model": "dmz_ragnarok:block/space_module"
+    },
+    "facing=east": {
+      "model": "dmz_ragnarok:block/space_module",
+      "y": 90
+    },
+    "facing=south": {
+      "model": "dmz_ragnarok:block/space_module",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "dmz_ragnarok:block/space_module",
+      "y": 270
+    }
+  }
+}

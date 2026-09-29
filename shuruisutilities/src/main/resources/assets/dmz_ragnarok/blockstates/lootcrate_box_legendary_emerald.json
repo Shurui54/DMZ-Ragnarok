@@ -1,0 +1,8 @@
+{
+  "__comment": "Particle source only. The crate is a GeckoLib model drawn by SuCrateRenderer, and ROTATION is read by the renderer rather than selecting a baked variant.",
+  "variants": {
+    "": {
+      "model": "dmz_ragnarok:block/lootcrate_box_legendary_emerald"
+    }
+  }
+}

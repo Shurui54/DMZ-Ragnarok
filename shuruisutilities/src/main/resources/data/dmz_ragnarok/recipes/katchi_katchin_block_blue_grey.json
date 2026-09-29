@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "#": {
+      "item": "dmz_ragnarok:katchi_katchin_ore_blue_grey"
+    }
+  },
+  "pattern": [
+    "###",
+    "###",
+    "###"
+  ],
+  "result": {
+    "item": "dmz_ragnarok:katchi_katchin_block_blue_grey",
+    "count": 1
+  }
+}

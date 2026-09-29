@@ -1,0 +1,5 @@
+{
+  "__comment": "Planet Vegeta must spawn only Vegeta-appropriate creatures. DMZ's dinosaurs are a generic Earth fauna set, not a Vegeta species, so the Vegeta biomes are deliberately NOT members of has_dinosaurs (they were removed 2026-09-05). Saibamans, which ARE the canonical Saiyan-planet creature, stay in has_saibamans. This file remains as an intentional, empty merge override so nothing re-adds the Vegeta biomes here; DMZ's own has_dinosaurs (villages, mountains, hills, badlands) is untouched and still applies on Earth-like worlds. replace:false so it merges (adds nothing) rather than clearing DMZ's list.",
+  "replace": false,
+  "values": []
+}

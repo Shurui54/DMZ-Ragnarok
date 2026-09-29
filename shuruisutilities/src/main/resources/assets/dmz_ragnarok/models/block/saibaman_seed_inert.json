@@ -1,0 +1,4 @@
+{
+  "parent": "minecraft:block/cube_all",
+  "textures": { "all": "dmz_ragnarok:block/saibaman_seed_inert" }
+}

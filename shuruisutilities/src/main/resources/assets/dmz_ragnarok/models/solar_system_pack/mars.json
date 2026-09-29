@@ -1,0 +1,215 @@
+{
+	"credit": "Made with Blockbench",
+	"textures": {
+		"0": "dmz_ragnarok:solar_system_pack/mars",
+		"particle": "dmz_ragnarok:solar_system_pack/mars"
+	},
+	"elements": [
+		{
+			"from": [
+				2.5,
+				2.5,
+				2.5
+			],
+			"to": [
+				13.5,
+				13.5,
+				13.5
+			],
+			"rotation": {
+				"angle": 0,
+				"axis": "y",
+				"origin": [
+					7,
+					2.5,
+					7
+				]
+			},
+			"faces": {
+				"north": {
+					"uv": [
+						5.25,
+						5.25,
+						8,
+						8
+					],
+					"texture": "#0"
+				},
+				"east": {
+					"uv": [
+						2.5,
+						5.25,
+						5.25,
+						8
+					],
+					"texture": "#0"
+				},
+				"south": {
+					"uv": [
+						5.25,
+						5.25,
+						8,
+						8
+					],
+					"texture": "#0"
+				},
+				"west": {
+					"uv": [
+						2.5,
+						5.25,
+						5.25,
+						8
+					],
+					"texture": "#0"
+				},
+				"up": {
+					"uv": [
+						5.25,
+						2.5,
+						8,
+						5.25
+					],
+					"texture": "#0"
+				},
+				"down": {
+					"uv": [
+						8,
+						2.5,
+						10.75,
+						5.25
+					],
+					"texture": "#0"
+				}
+			}
+		}
+	],
+	"display": {
+		"thirdperson_righthand": {
+			"rotation": [
+				60,
+				135,
+				0
+			],
+			"translation": [
+				-0.25,
+				3,
+				1.5
+			],
+			"scale": [
+				0.5,
+				0.5,
+				0.5
+			]
+		},
+		"thirdperson_lefthand": {
+			"rotation": [
+				60,
+				135,
+				0
+			],
+			"translation": [
+				-0.25,
+				3,
+				1.5
+			],
+			"scale": [
+				0.5,
+				0.5,
+				0.5
+			]
+		},
+		"firstperson_righthand": {
+			"rotation": [
+				0,
+				135,
+				0
+			],
+			"translation": [
+				0,
+				3.5,
+				0
+			],
+			"scale": [
+				0.5,
+				0.5,
+				0.5
+			]
+		},
+		"firstperson_lefthand": {
+			"rotation": [
+				0,
+				135,
+				0
+			],
+			"translation": [
+				0,
+				3.5,
+				0
+			],
+			"scale": [
+				0.5,
+				0.5,
+				0.5
+			]
+		},
+		"ground": {
+			"translation": [
+				0,
+				3,
+				0
+			],
+			"scale": [
+				0.25,
+				0.25,
+				0.25
+			]
+		},
+		"gui": {
+			"rotation": [
+				30,
+				135,
+				0
+			],
+			"translation": [
+				0,
+				0.75,
+				0
+			],
+			"scale": [
+				0.50195,
+				0.50195,
+				0.50195
+			]
+		},
+		"head": {
+			"translation": [
+				0,
+				6.75,
+				0
+			],
+			"scale": [
+				1.85,
+				1.85,
+				1.85
+			]
+		},
+		"fixed": {
+			"rotation": [
+				-90,
+				0,
+				0
+			],
+			"translation": [
+				0,
+				0,
+				-16
+			],
+			"scale": [
+				2,
+				2,
+				2
+			]
+		}
+	},
+	"mcmodels": "45e49ee65f827f400fc303e7dbfe64f9"
+}

@@ -1,0 +1,21 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "equipment",
+  "group": "dmz_ragnarok",
+  "key": {
+    "K": {
+      "item": "dmz_ragnarok:katchin_ore"
+    },
+    "S": {
+      "item": "minecraft:stick"
+    }
+  },
+  "pattern": [
+    "KKK",
+    "KSK",
+    " S "
+  ],
+  "result": {
+    "item": "dmz_ragnarok:katchin_hammer"
+  }
+}

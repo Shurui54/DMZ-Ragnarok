@@ -1,0 +1,4 @@
+{
+  "_comment": "The item shows the statue itself rather than a flat sprite, so what you carry looks like what you place.",
+  "parent": "dmz_ragnarok:block/shenron_idol"
+}

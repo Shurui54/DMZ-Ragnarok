@@ -1,0 +1,299 @@
+// Parity guardrail checks for the 2.0 re-architecture (Stage A).
+//
+// Applied from the build target with a single line:  apply from: "${rootDir}/gradle/parity.gradle"
+// It registers a `parityGuardrails` aggregate task, wires it into `check`, and exposes each sub-check to be
+// run on its own. Every check FAILS the build with a clear message, except the event-bus modid rule, which is
+// WARN-only until the module split lands (flip it with -PparityGuardEventBusFail=true or ext.parityGuardEventBusFail).
+//
+// These checks are additive and read-only. They inspect this project's merged source set and the compiled class
+// output; nothing here changes what is built.
+
+import java.util.regex.Pattern
+
+// ---------------------------------------------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------------------------------------------
+
+// All main Java source roots for this project (the merged five trees).
+ext.parityJavaSrcDirs = {
+    sourceSets.main.java.srcDirs.findAll { it.isDirectory() }
+}
+
+// Every .java file under the source roots.
+ext.parityJavaFiles = {
+    def files = []
+    parityJavaSrcDirs().each { root ->
+        fileTree(root).matching { include '**/*.java' }.each { files << it }
+    }
+    return files
+}
+
+// The package declared by a Java file (or null).
+ext.parityPackageOf = { File f ->
+    def m = (f.getText('UTF-8') =~ /(?m)^\s*package\s+([\w.]+)\s*;/)
+    return m.find() ? m.group(1) : null
+}
+
+// Does a compiled class exist for this fully-qualified name in any output classes dir?
+ext.parityClassExists = { String fqn ->
+    def rel = fqn.replace('.', '/') + '.class'
+    // Nested classes written as a.b.C.D never compile to C/D.class; try the $-form too.
+    def relDollar = fqn.replace('.', '/') + '.class'
+    return sourceSets.main.output.classesDirs.any { dir ->
+        new File(dir, rel).isFile() || new File(dir, relDollar).isFile()
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Check 1: every @Mod.EventBusSubscriber has an explicit modid (WARN-only until the split lands).
+// ---------------------------------------------------------------------------------------------------------------
+tasks.register('parityGuardEventBusModid') {
+    group = 'verification'
+    description = 'Every @Mod.EventBusSubscriber must declare an explicit modid (warn-only until the split).'
+    doLast {
+        def annotation = Pattern.compile(/@Mod\s*\.\s*EventBusSubscriber\s*(\([^)]*\))?/, Pattern.DOTALL)
+        def violations = []
+        parityJavaFiles().each { File f ->
+            def text = f.getText('UTF-8')
+            def m = annotation.matcher(text)
+            while (m.find()) {
+                def args = m.group(1)
+                if (args == null || !(args =~ /modid\s*=/)) {
+                    violations << f.absolutePath
+                }
+            }
+        }
+        def fail = (findProperty('parityGuardEventBusFail') ?: (ext.has('parityGuardEventBusFail') ? ext.parityGuardEventBusFail : 'false')).toString() == 'true'
+        if (violations.isEmpty()) {
+            logger.lifecycle("parity: every @Mod.EventBusSubscriber declares an explicit modid.")
+        } else {
+            def msg = "parity: ${violations.size()} @Mod.EventBusSubscriber occurrence(s) without an explicit modid:\n  " +
+                    violations.unique().sort().join('\n  ')
+            if (fail) {
+                throw new GradleException(msg)
+            } else {
+                logger.warn("WARNING (warn-only, set -PparityGuardEventBusFail=true to fail):\n" + msg)
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Check 2: no Java package appears in two different Gradle projects' compiled outputs (JPMS split-package crash).
+// ---------------------------------------------------------------------------------------------------------------
+tasks.register('paritySplitPackages') {
+    group = 'verification'
+    description = 'No Java package may be produced by two different Gradle projects (split-package boot crash).'
+    doLast {
+        // The fat jar (:dmz_ragnarok) is the alternate WHOLE-SUITE distribution: it aggregates all five trees into
+        // one jar and is never on the same classpath as the modular set (installing both trips Forge's duplicate-mod
+        // error, by design). It therefore legitimately shares every package with the modular core and each module
+        // project. Excluding it leaves this guard doing its real job: no split package WITHIN the modular set
+        // (:dmz_ragnarok_core + the three module jars), which ARE loaded together and would otherwise hit a JPMS
+        // split-package boot crash. A single jar cannot split-package against itself, so nothing is lost.
+        def aggregateProjectPaths = [':dmz_ragnarok'] as Set
+        // package -> set of project paths that emit a class in it.
+        def pkgToProjects = [:].withDefault { new TreeSet<String>() }
+        rootProject.allprojects.each { p ->
+            if (aggregateProjectPaths.contains(p.path)) return
+            def ss = p.extensions.findByName('sourceSets')
+            if (ss == null) return
+            def main = ss.findByName('main')
+            if (main == null) return
+            main.output.classesDirs.each { dir ->
+                if (!dir.isDirectory()) return
+                fileTree(dir).matching { include '**/*.class' }.each { File cls ->
+                    def rel = dir.toPath().relativize(cls.toPath()).toString().replace(File.separatorChar, '/' as char)
+                    def idx = rel.lastIndexOf('/')
+                    def pkg = idx < 0 ? '' : rel.substring(0, idx).replace('/', '.')
+                    pkgToProjects[pkg].add(p.path)
+                }
+            }
+        }
+        def split = pkgToProjects.findAll { k, v -> v.size() > 1 }
+
+        // The Ragnarok Key (:dmz_ragnarok_key) is the ONE project not exempt from colliding with the fat jar: a
+        // keyed server runs the key BESIDE the fat jar (or beside the modular set), so unlike the modular projects
+        // the key must split-package against neither. The loop above already checked the key against the modular
+        // set (fat was the only exclusion). Check it against the fat aggregate here as well: read the fat jar's
+        // packages and flag any the key also emits.
+        def keyPath = ':dmz_ragnarok_key'
+        def fatPath = ':dmz_ragnarok'
+        def keyProject = rootProject.allprojects.find { it.path == keyPath }
+        def fatProject = rootProject.allprojects.find { it.path == fatPath }
+        def keyVsFat = [:].withDefault { new TreeSet<String>() }
+        if (keyProject != null && fatProject != null) {
+            def packagesOf = { p ->
+                def pkgs = new HashSet<String>()
+                def ss = p.extensions.findByName('sourceSets')?.findByName('main')
+                ss?.output?.classesDirs?.each { dir ->
+                    if (!dir.isDirectory()) return
+                    fileTree(dir).matching { include '**/*.class' }.each { File cls ->
+                        def rel = dir.toPath().relativize(cls.toPath()).toString().replace(File.separatorChar, '/' as char)
+                        def idx = rel.lastIndexOf('/')
+                        pkgs.add(idx < 0 ? '' : rel.substring(0, idx).replace('/', '.'))
+                    }
+                }
+                return pkgs
+            }
+            def keyPkgs = packagesOf(keyProject)
+            def fatPkgs = packagesOf(fatProject)
+            keyPkgs.retainAll(fatPkgs)
+            keyPkgs.each { pkg -> keyVsFat[pkg].addAll([keyPath, fatPath]) }
+        }
+
+        def allSplit = new TreeMap<String, TreeSet<String>>()
+        split.each { k, v -> allSplit[k] = v }
+        keyVsFat.each { k, v -> allSplit[k] = v }
+
+        if (allSplit.isEmpty()) {
+            logger.lifecycle("parity: no split packages across project outputs (modular set, and the key vs the fat jar).")
+        } else {
+            def msg = new StringBuilder("parity: ${allSplit.size()} package(s) emitted by more than one project (JPMS split-package):\n")
+            allSplit.each { k, v -> msg.append("  ${k}  ->  ${v}\n") }
+            throw new GradleException(msg.toString())
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Check 3: server-only packages must not register content or touch the client.
+//   No DeferredRegister / RegisterEvent / @ObjectHolder, and no net.minecraft.client import, in any *.server package.
+//   These packages do not exist yet, so this passes trivially now; it will bite once they do.
+// ---------------------------------------------------------------------------------------------------------------
+tasks.register('parityServerPackagePurity') {
+    group = 'verification'
+    description = 'No registration or client imports allowed in *.server packages.'
+    doLast {
+        def violations = []
+        def forbidden = [
+                'DeferredRegister': ~/\bDeferredRegister\b/,
+                'RegisterEvent'   : ~/\bRegisterEvent\b/,
+                '@ObjectHolder'   : ~/@\s*ObjectHolder\b/,
+                'client import'   : ~/(?m)^\s*import\s+net\.minecraft\.client\./,
+        ]
+        parityJavaFiles().each { File f ->
+            def pkg = parityPackageOf(f)
+            if (pkg == null) return
+            def isServerPkg = pkg.endsWith('.server') || pkg.contains('.server.')
+            if (!isServerPkg) return
+            def text = f.getText('UTF-8')
+            forbidden.each { label, pat ->
+                if (pat.matcher(text).find()) {
+                    violations << "${f.absolutePath}  (package ${pkg}): ${label}"
+                }
+            }
+        }
+        if (violations.isEmpty()) {
+            logger.lifecycle("parity: server packages are clean (no registration, no client imports).")
+        } else {
+            throw new GradleException("parity: ${violations.size()} server-package purity violation(s):\n  " +
+                    violations.sort().join('\n  '))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Check 4: class names written as string literals must resolve to a real compiled class.
+//   Covers ModuleTeardown's list, every Class.forName("...") literal in the suite, and the mixin JSON class lists.
+// ---------------------------------------------------------------------------------------------------------------
+tasks.register('parityStringClassLiterals') {
+    group = 'verification'
+    description = 'Every class named as a string literal (ModuleTeardown, Class.forName, mixin JSON) must exist in the build output.'
+    doLast {
+        // Allow-list of class names that are intentionally absent from this jar (separate mods reached by
+        // reflection, and legacy fallback names). See tools/parity/guardrail-allowlist.txt.
+        def allowFile = rootProject.file('tools/parity/guardrail-allowlist.txt')
+        def allow = new HashSet<String>()
+        if (allowFile.isFile()) {
+            allowFile.eachLine('UTF-8') { line ->
+                def t = line.trim()
+                if (!t.isEmpty() && !t.startsWith('#')) allow << t
+            }
+        }
+
+        // fqn -> where it was referenced (for the error message)
+        def refs = [:].withDefault { new TreeSet<String>() }
+
+        // (a) String literals that look like suite class names, anywhere in the merged source. This catches
+        //     ModuleTeardown's table and every other hand-written FQN (Class.forName targets, reflective bridges).
+        def suiteLiteral = Pattern.compile(/"(net\.shurui[\w.$]+)"/)
+        parityJavaFiles().each { File f ->
+            def m = suiteLiteral.matcher(f.getText('UTF-8'))
+            while (m.find()) {
+                def fqn = m.group(1)
+                // Skip package-only strings (no class segment) and obvious non-classes: require an uppercase segment.
+                if (fqn =~ /\.[A-Z]/) {
+                    refs[fqn].add(f.name)
+                }
+            }
+        }
+
+        // (b) Mixin config JSON class lists: package + each entry in mixins/client/server.
+        def jsonSlurper = new groovy.json.JsonSlurper()
+        parityJavaSrcDirs()  // ensure evaluated
+        sourceSets.main.resources.srcDirs.findAll { it.isDirectory() }.each { root ->
+            fileTree(root).matching { include '*.mixins.json'; include 'mixins.*.json' }.each { File jf ->
+                try {
+                    def cfg = jsonSlurper.parse(jf)
+                    def pkg = cfg.'package'
+                    if (pkg == null) return
+                    ['mixins', 'client', 'server'].each { key ->
+                        def arr = cfg[key]
+                        if (arr instanceof List) {
+                            arr.each { entry -> refs["${pkg}.${entry}".toString()].add(jf.name) }
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.warn("parity: could not parse mixin config ${jf.name}: ${e.message}")
+                }
+            }
+        }
+
+        def missing = []
+        refs.each { fqn, where ->
+            if (allow.contains(fqn)) return
+            // A nested class literal a.b.Outer.Inner will not exist as Outer/Inner.class; try resolving the outer.
+            if (!parityClassExists(fqn)) {
+                // Retry treating the last segment(s) as nested: replace trailing .X with $X progressively.
+                def resolved = false
+                def parts = fqn.tokenize('.')
+                for (int cut = parts.size() - 1; cut >= 1 && !resolved; cut--) {
+                    def outer = parts[0..<cut].join('.')
+                    def nested = outer + '$' + parts[cut..<parts.size()].join('$')
+                    if (parityClassExists(nested)) resolved = true
+                }
+                if (!resolved) {
+                    missing << "${fqn}  (referenced in: ${where.join(', ')})"
+                }
+            }
+        }
+        if (missing.isEmpty()) {
+            logger.lifecycle("parity: all ${refs.size()} string-literal class name(s) resolve to compiled classes.")
+        } else {
+            throw new GradleException("parity: ${missing.size()} string-literal class name(s) do not resolve to a compiled class:\n  " +
+                    missing.sort().join('\n  '))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Aggregate + wiring
+// ---------------------------------------------------------------------------------------------------------------
+tasks.register('parityGuardrails') {
+    group = 'verification'
+    description = 'Run all Stage A parity guardrail checks.'
+    dependsOn 'parityGuardEventBusModid', 'paritySplitPackages', 'parityServerPackagePurity', 'parityStringClassLiterals'
+}
+
+// The class-output checks need compiled classes. Depend on this project's classes, and on every other project's
+// classes for the split-package scan.
+def classesDeps = []
+rootProject.allprojects.each { p ->
+    if (p.tasks.findByName('classes') != null) classesDeps << "${p.path}:classes"
+}
+tasks.named('paritySplitPackages').configure { dependsOn classesDeps }
+tasks.named('parityStringClassLiterals').configure { dependsOn 'classes' }
+tasks.named('parityServerPackagePurity').configure { dependsOn 'classes' }
+
+tasks.named('check').configure { dependsOn 'parityGuardrails' }

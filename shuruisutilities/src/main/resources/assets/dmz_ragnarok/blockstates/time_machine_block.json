@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "facing=north": { "model": "dmz_ragnarok:block/time_machine_block" },
+    "facing=south": { "model": "dmz_ragnarok:block/time_machine_block" },
+    "facing=west": { "model": "dmz_ragnarok:block/time_machine_block" },
+    "facing=east": { "model": "dmz_ragnarok:block/time_machine_block" }
+  }
+}

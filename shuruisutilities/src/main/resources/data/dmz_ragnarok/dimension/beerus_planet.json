@@ -1,0 +1,13 @@
+{
+  "type": "dmz_ragnarok:beerus_planet",
+  "generator": {
+    "type": "minecraft:flat",
+    "settings": {
+      "biome": "dmz_ragnarok:beerus",
+      "lakes": false,
+      "features": false,
+      "layers": [],
+      "structure_overrides": []
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "net.shurui.dev.shuruis_raid_bosses.mixin",
+  "compatibilityLevel": "JAVA_8",
+  "refmap": "shuruis_raid_bosses.refmap.json",
+  "mixins": [
+  ],
+  "client": [
+    "ZSoulStatsScreenMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "overwrites": {
+    "requireAnnotations": true
+  }
+}

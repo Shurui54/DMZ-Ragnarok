@@ -1,0 +1,14 @@
+{
+  "structures": [
+    {
+      "structure": "dmz_ragnarok:saibaman_hut",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 20,
+    "separation": 6,
+    "salt": 4457219
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "carvers": {},
+  "downfall": 0.0,
+  "has_precipitation": false,
+  "temperature": 0.8,
+  "effects": {
+    "sky_color": 15913067,
+    "fog_color": 16771496,
+    "water_color": 5220552,
+    "water_fog_color": 3042434,
+    "grass_color": 9425738,
+    "foliage_color": 7317551
+  },
+  "spawners": {
+    "monster": [],
+    "creature": [],
+    "ambient": [],
+    "axolotls": [],
+    "underground_water_creature": [],
+    "water_creature": [],
+    "water_ambient": [],
+    "misc": []
+  },
+  "spawn_costs": {},
+  "features": [
+    [],
+    [
+      "dragonminez:sacredkai_water_lake_placed"
+    ],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [
+      "dragonminez:sacredkai_oak_tree_placed",
+      "dragonminez:sacredkai_grass_patch_placed",
+      "dragonminez:sacredkai_flowers_placed",
+      "dragonminez:sacredkai_rock_cluster_placed"
+    ]
+  ],
+  "creature_spawn_probability": 0.0
+}

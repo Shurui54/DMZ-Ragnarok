@@ -1,0 +1,1 @@
+{"name":"minecells:common/support_beam","fallback":"minecraft:empty","elements":[{"weight":1,"element":{"element_type":"minecraft:single_pool_element","projection":"rigid","location":"minecells:common/support_beam","processors":"minecraft:empty"}}]}

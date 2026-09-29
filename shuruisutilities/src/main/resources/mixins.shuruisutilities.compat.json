@@ -1,0 +1,24 @@
+{
+	"required": false,
+	"package": "net.shurui.shuruisutilities.compat.mixin",
+	"refmap": "mixins.shuruisutilities.refmap.json",
+	"compatibilityLevel": "JAVA_17",
+	"minVersion": "0.8",
+	"mixins": [
+		"MixinAe2SpatialTransition",
+		"MixinIronFurnacesList",
+		"MixinResourcefulFileUtils",
+		"MixinSophisticatedInventoryHandler",
+		"MixinTcNecrotic",
+		"MixinTcSpitting"
+	],
+	"client": [
+		"MixinXaeroWorldMapGui",
+		"AccessorXaeroWorldMap",
+		"MixinXaeroInfoDisplayRenderer",
+		"MixinXaeroMinimapHide"
+	],
+	"injectors": {
+		"defaultRequire": 0
+	}
+}

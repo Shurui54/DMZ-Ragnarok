@@ -1,0 +1,63 @@
+// DMZ Ragnarok: Space module (mod id dmz_ragnarok_space).
+//
+// A standalone module jar of the modular build. It compiles against :dmz_ragnarok_core as a real project
+// dependency (shared code lives ONCE, in core; this module never copies it) and depends on core at runtime
+// (mandatory, loads AFTER it). It registers into the dmz_ragnarok namespace, so an existing world is
+// unchanged whether the Space content arrives as its own jar or inside the fat jar. The same sources are
+// also compiled into the fat jar by :dmz_ragnarok.
+//
+// ALL Space data (dimension / dimension_type / biome / noise JSON, worldgen, damage types, assets and the
+// planet region seed data) stays IN CORE on purpose: level.dat and the WorldgenShim copy worldgen from the
+// core mod file, and PlanetRegionSeeder reads it there, so the core jar must stay byte-identical. This
+// module ships only the Space Java plus its own mixin config + refmap.
+
+// One suite version for every jar (root gradle.properties ragnarok_version; see gradle/ragnarok-version.gradle).
+apply from: "${rootDir}/gradle/ragnarok-version.gradle"
+
+ext {
+    mod_id = 'dmz_ragnarok_space'
+    mod_name = 'DMZ Ragnarok: Space'
+    mod_license = 'GNU General Public License v3.0'
+    mod_version = ragnarok_mod_version
+    mod_group_id = 'net.shurui.dev'
+    mod_authors = 'Shurui'
+    mod_description = 'The space travel, planet and planet-buster systems for DMZ Ragnarok. Registers into the dmz_ragnarok namespace; requires DMZ Ragnarok core.'
+}
+
+apply from: "${rootDir}/common.gradle"
+
+// Core is configured before this module (settings.gradle includes it first), but pin the ordering so this
+// module may read core's source-set output below at configuration time.
+evaluationDependsOn(':dmz_ragnarok_core')
+
+dependencies {
+    // Core (sdu + shuruisutilities + shared infra). Real project dependency: this is how the shared code is
+    // consumed once instead of copied. Not bundled; core is a separate mandatory jar at runtime.
+    implementation project(':dmz_ragnarok_core')
+}
+
+// COMPILE against core's Mojang-mapped classes, not its reobfuscated jar.
+//
+// common.gradle finalizes every jar with reobfJar, which reobfuscates core's jar IN PLACE to SRG names.
+// That renames the Minecraft-inherited members on core types too: e.g. the core interface
+// net.shurui.shuruisutilities.saiyan.RgNpcFallbackAppearance declares getUUID(), which reobf turns into
+// m_20148_(). This module's own Entity subclass (PlanetGarrisonDefenderEntity) implements that interface and
+// is compiled under the OFFICIAL mappings, so against the reobf jar its inherited getUUID() would not satisfy
+// the SRG m_20148_() and the build fails. Core's compiled classes (build/classes/java/main) are still
+// Mojang-mapped, so prepending them makes those members resolve under this module's mappings. The other three
+// modules do not implement a mapping-sensitive core type, so they never hit this and keep the plain dependency.
+// At runtime core is a separate mandatory jar (both this module and core reobf to SRG, so they agree there);
+// nothing here needs core's runtime jar, which the mods.toml dependency + AFTER load order provide.
+sourceSets.main.compileClasspath = project(':dmz_ragnarok_core').sourceSets.main.output + sourceSets.main.compileClasspath
+
+// This module's own mixin config + refmap (kept separate from core's, so the module jar ships its own).
+mixin {
+    add sourceSets.main, "dmz_ragnarok_space.refmap.json"
+    config 'dmz_ragnarok_space.mixins.json'
+}
+
+tasks.named('jar', Jar).configure {
+    manifest {
+        attributes(['MixinConfigs': 'dmz_ragnarok_space.mixins.json'])
+    }
+}

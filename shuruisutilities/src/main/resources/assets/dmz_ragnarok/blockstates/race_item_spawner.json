@@ -1,0 +1,5 @@
+{
+  "variants": {
+    "": { "model": "dmz_ragnarok:block/race_item_spawner" }
+  }
+}

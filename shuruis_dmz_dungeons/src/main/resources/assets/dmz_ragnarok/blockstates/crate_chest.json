@@ -1,0 +1,6 @@
+{
+  "__comment": "One entry for every state, for the same reason as the barrel: the visible crate is the GeckoLib model, and FACING/TIER/ROTATION are all read by the renderer rather than selecting a baked model here.",
+  "variants": {
+    "": { "model": "dmz_ragnarok:block/crate_chest" }
+  }
+}

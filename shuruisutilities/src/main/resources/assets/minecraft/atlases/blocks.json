@@ -1,0 +1,16 @@
+{
+  "sources": [
+    { "type": "single", "resource": "dmz_ragnarok:entity/hoverbike_1_0" },
+    { "type": "single", "resource": "dmz_ragnarok:entity/hoverbike_1_1" },
+    { "type": "single", "resource": "dmz_ragnarok:entity/hoverbike_1_2" },
+    { "type": "single", "resource": "dmz_ragnarok:entity/hoverbike_2" },
+    { "type": "single", "resource": "dmz_ragnarok:entity/hoverbike_3" },
+    { "type": "single", "resource": "dmz_ragnarok:entity/hoverbike_4" },
+    { "type": "single", "resource": "dmz_ragnarok:entity/hoverbike_1_0_e" },
+    { "type": "single", "resource": "dmz_ragnarok:entity/hoverbike_1_1_e" },
+    { "type": "single", "resource": "dmz_ragnarok:entity/hoverbike_3_e" },
+    { "type": "single", "resource": "dmz_ragnarok:entity/hoverbike_4_e" },
+    { "type": "single", "resource": "dmz_ragnarok:entity/hoverbike_blank" },
+    { "type": "directory", "source": "solar_system_pack", "prefix": "solar_system_pack/" }
+  ]
+}

@@ -1,0 +1,1 @@
+{"name":"minecells:promenade/spawn","fallback":"minecraft:empty","elements":[{"weight":1,"element":{"element_type":"minecraft:single_pool_element","projection":"rigid","location":"minecells:promenade/spawn","processors":"minecells:promenade"}}]}

@@ -1,0 +1,151 @@
+package net.shurui.shuruisutilities.util;
+
+import java.util.UUID;
+
+import javax.annotation.Nullable;
+
+import net.shurui.shuruisutilities.api.APIRegistry;
+import net.shurui.shuruisutilities.api.UserIdent;
+import net.shurui.shuruisutilities.util.output.ChatOutputHandler;
+import com.mojang.authlib.GameProfile;
+
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.level.GameRules;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraftforge.common.util.FakePlayer;
+import net.minecraftforge.server.ServerLifecycleHooks;
+
+public class DoAsCommandSender extends FakePlayer
+{
+    private static final UUID DOAS_UUID = UUID.fromString("35763490-CD67-428C-9A29-4DED4429A487");
+
+    protected CommandSourceStack sender;
+
+    protected UserIdent ident;
+
+    protected boolean hideChatMessages;
+
+    public DoAsCommandSender(ServerLevel world, GameProfile name, UserIdent ident)
+    {
+        super(world, name);
+        this.ident = ident;
+    }
+
+    public DoAsCommandSender()
+    {
+        this(ServerLifecycleHooks.getCurrentServer().getLevel(ServerLevel.OVERWORLD),
+                new GameProfile(DOAS_UUID, "@SERVER"), APIRegistry.IDENT_SERVER);
+        this.sender = getServer().createCommandSourceStack();
+    }
+
+    public DoAsCommandSender(UserIdent ident)
+    {
+        this(ident.getPlayerMP().serverLevel(), new GameProfile(DOAS_UUID, "@" + ident.getUsername()), ident);
+        this.sender = ident.getPlayerMP().createCommandSourceStack();
+    }
+
+    public DoAsCommandSender(UserIdent ident, CommandSourceStack sender)
+    {
+        this(sender.getLevel(), new GameProfile(DOAS_UUID, "@" + ident.getUsername()), ident);
+        this.sender = sender;
+    }
+
+    public CommandSourceStack getOriginalSender()
+    {
+        return sender;
+    }
+
+    public UserIdent getUserIdent()
+    {
+        return ident;
+    }
+
+    @Override
+    public Component getDisplayName()
+    {
+        return Component.literal(ident.getUsername());
+    }
+
+    @Override
+    public void sendSystemMessage(Component message)
+    {
+        if (!hideChatMessages)
+            ChatOutputHandler.sendMessageI(sender, message);
+
+    }
+
+    // NB: no longer overrides ICommandSource#getLevel (removed in 1.20); kept as a helper
+    public ServerLevel getLevel()
+    {
+        return sender.getLevel();
+    }
+
+    @Override
+    public BlockPos blockPosition()
+    {
+        return BlockPos.containing(position());
+    }
+
+    @Override
+    public Vec3 position()
+    {
+        return sender.getPosition();
+    }
+
+    // NB: no longer overrides ICommandSource#getEntity (removed in 1.20); kept as a helper
+    @Nullable
+    public Entity getEntity()
+    {
+        return sender.getEntity();
+    }
+
+    public MinecraftServer getServer()
+    {
+        return ServerLifecycleHooks.getCurrentServer();
+    }
+
+    public UserIdent getIdent()
+    {
+        return ident;
+    }
+
+    public void setIdent(UserIdent ident)
+    {
+        this.ident = ident;
+    }
+
+    public void setHideChatMessages(boolean hideChatMessages)
+    {
+        this.hideChatMessages = hideChatMessages;
+    }
+
+    public boolean isHideChatMessages()
+    {
+        return hideChatMessages;
+    }
+
+    @Override
+    public boolean acceptsSuccess()
+    {
+        return sender.getLevel().getGameRules().getBoolean(GameRules.RULE_SENDCOMMANDFEEDBACK);
+    }
+
+    @Override
+    public boolean acceptsFailure()
+    {
+        return true;
+    }
+
+    @Override
+    public boolean shouldInformAdmins()
+    {
+        return true;
+    }
+
+}

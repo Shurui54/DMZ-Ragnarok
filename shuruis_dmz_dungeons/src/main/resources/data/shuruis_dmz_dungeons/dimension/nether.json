@@ -1,0 +1,30 @@
+{ "__comment": "SHIM kept so pre-migration worlds still load. Live definition is now the dmz_ragnarok copy of this file. Prevents a hard datapack load failure only; it does not make an unmigrated world correct. Migration via world-tools/ns-rename is required.",
+  "type": "shuruis_dmz_dungeons:nether",
+  "generator": {
+    "type": "minecraft:flat",
+    "settings": {
+      "biome": "shuruis_dmz_dungeons:nether",
+      "lakes": false,
+      "features": false,
+      "layers": [
+        {
+          "block": "minecraft:bedrock",
+          "height": 1
+        },
+        {
+          "block": "minecraft:basalt",
+          "height": 59
+        },
+        {
+          "block": "minecraft:soul_soil",
+          "height": 3
+        },
+        {
+          "block": "minecraft:netherrack",
+          "height": 1
+        }
+      ],
+      "structure_overrides": []
+    }
+  }
+}

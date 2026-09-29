@@ -1,0 +1,4 @@
+{
+  "__comment": "Drawn by the GeckoLib crate renderer; see item/crate_base for the transforms and why there is no geometry here.",
+  "parent": "dmz_ragnarok:item/crate_base"
+}

@@ -1,0 +1,55 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        maven {
+            name = 'MinecraftForge'
+            url = 'https://maven.minecraftforge.net/'
+        }
+    }
+}
+
+plugins {
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '0.7.0'
+}
+
+rootProject.name = 'dmz-ragnarok'
+
+// SLICE 1 merge target: one container aggregating the five addons into a single jar. Its source sets
+// point at the five existing trees BY PATH (see dmz_ragnarok/build.gradle), which does not require those
+// trees to be Gradle projects. So the five former addon subprojects (sdu, shuruisutilities,
+// shuruis_dmz_dungeons, shuruis_raid_bosses, shuruis_dmz_tournaments) are NO LONGER registered here: their
+// content is compiled by dmz_ragnarok, and registering them again would only rebuild vestigial jars whose
+// mods.toml declare mod ids that no longer have a @Mod class (loading such a jar crashes the client). Their
+// source trees stay on disk; only the Gradle project registration is gone. Each retired build.gradle is a
+// tripwire that throws if a stale include is ever re-added, so one cannot silently rejoin the build.
+// The FAT jar: one file that declares all four mods (core + the three modules). Aggregates every tree.
+include ':dmz_ragnarok'
+
+// The MODULAR build. Same sources, built differently: a standalone core jar plus three module jars.
+//   :dmz_ragnarok_core       - sdu + shuruisutilities + the shared entrypoint (mod id dmz_ragnarok)
+//   :dmz_ragnarok_dungeons   - the Dungeons module (mod id dmz_ragnarok_dungeons)
+//   :dmz_ragnarok_raids      - the Raid Bosses module (mod id dmz_ragnarok_raids)
+//   :dmz_ragnarok_tournaments- the Tournaments module (mod id dmz_ragnarok_tournaments)
+//   :dmz_ragnarok_space      - the Space module (mod id dmz_ragnarok_space)
+// The module projects compile against :dmz_ragnarok_core as a real project dependency (shared code
+// lives ONCE, in core), and each depends on core at runtime (mandatory, loads AFTER it). sdu and
+// shuruisutilities stay path-referenced source sets of core (and the fat jar), so their build.gradle
+// tripwires remain: they are NOT Gradle projects.
+include ':dmz_ragnarok_core'
+include ':dmz_ragnarok_dungeons'
+include ':dmz_ragnarok_raids'
+include ':dmz_ragnarok_tournaments'
+// Space is the fourth module project. Unlike the other three, its directory name already matches its project
+// name (dmz_ragnarok_space), so it needs no projectDir override. Its Space source was carved out of the
+// shuruisutilities tree (whole packages, class names unchanged) and lives here now.
+include ':dmz_ragnarok_space'
+project(':dmz_ragnarok_dungeons').projectDir = file('shuruis_dmz_dungeons')
+project(':dmz_ragnarok_raids').projectDir = file('shuruis_raid_bosses')
+project(':dmz_ragnarok_tournaments').projectDir = file('shuruis_dmz_tournaments')
+
+
+// The standalone mods that used to be built here (the older key mods, the mod blacklist and the
+// Mohist melee patch) are no longer part of this repository. dmz_ragnarok is the suite's main build
+// target.
+
+

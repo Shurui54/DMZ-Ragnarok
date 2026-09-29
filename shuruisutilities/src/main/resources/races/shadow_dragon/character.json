@@ -1,0 +1,46 @@
+{
+  "configVersion": "2.1.3",
+  "raceName": "shadow_dragon",
+  "hasGender": false,
+  "useVanillaSkin": false,
+  "customModel": "omega2",
+  "isLayered": true,
+  "headBones": [],
+  "racialSkill": "malice",
+  "hasSaiyanTail": false,
+  "auraType": "kakarot",
+  "defaultModelScaling": [
+    0.9375,
+    0.9375,
+    0.9375
+  ],
+  "defaultBodyType": 0,
+  "defaultHairType": 0,
+  "defaultEyesType": 0,
+  "defaultNoseType": 0,
+  "defaultMouthType": 0,
+  "defaultTattooType": 0,
+  "defaultBodyColor": "#FCEFD7",
+  "defaultBodyColor2": "#002B80",
+  "defaultBodyColor3": "#222629",
+  "defaultHairColor": "#222629",
+  "defaultEye1Color": "#222629",
+  "defaultEye2Color": "#222629",
+  "defaultAuraColor": "#7FFFFF",
+  "formSkillsCosts": {
+    "legendaryforms": {
+      "buyFromMaster": false,
+      "prices": []
+    },
+    "godforms": {
+      "buyFromMaster": false,
+      "prices": []
+    },
+    "superforms": {
+      "buyFromMaster": false,
+      "prices": [
+        -1
+      ]
+    }
+  }
+}

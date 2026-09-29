@@ -1,0 +1,48 @@
+{
+  "_comment": "RETAINED. Referenced by dmz_ragnarok:stony dimension (fixed biome source), which bakes this reference into level.dat at world creation. STONY is retired from the theme picker (VEGETA is the Saiyan theme now) but deleting this biome would break every existing world that has the stony dimension, not just stony floors. Keep as a shim.",
+  "carvers": {},
+  "downfall": 0.0,
+  "has_precipitation": false,
+  "temperature": 0.4,
+  "effects": {
+    "sky_color": 12742204,
+    "fog_color": 14264440,
+    "water_color": 5008496,
+    "water_fog_color": 2767422,
+    "grass_color": 10390351,
+    "foliage_color": 9074502
+  },
+  "spawners": {
+    "monster": [],
+    "creature": [],
+    "ambient": [],
+    "axolotls": [],
+    "underground_water_creature": [],
+    "water_creature": [],
+    "water_ambient": [],
+    "misc": []
+  },
+  "spawn_costs": {},
+  "features": [
+    [],
+    [
+      "dragonminez:sacredkai_water_lake_placed"
+    ],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [
+      "dragonminez:rocky_peak_placed",
+      "dragonminez:rocky_cliff_placed",
+      "dragonminez:sacredkai_rock_cluster_placed",
+      "dragonminez:stone_spike_placed",
+      "minecraft:patch_grass_plain",
+      "minecraft:patch_dead_bush"
+    ]
+  ],
+  "creature_spawn_probability": 0.0
+}

@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:block/cube_all",
+  "textures": {
+    "all": "dmz_ragnarok:block/deepslate_katchi_katchin_ore_cream"
+  }
+}

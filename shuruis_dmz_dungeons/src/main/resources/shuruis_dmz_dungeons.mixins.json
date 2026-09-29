@@ -1,0 +1,18 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "net.shurui.dev.shuruis_dmz_dungeons.mixin",
+  "compatibilityLevel": "JAVA_8",
+  "refmap": "shuruis_dmz_dungeons.refmap.json",
+  "mixins": [
+    "MixinDmzKiGriefDungeon"
+  ],
+  "client": [
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "overwrites": {
+    "requireAnnotations": true
+  }
+}

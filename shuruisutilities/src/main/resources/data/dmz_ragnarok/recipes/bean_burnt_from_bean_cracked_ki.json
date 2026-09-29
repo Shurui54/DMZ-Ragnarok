@@ -1,0 +1,7 @@
+{
+  "type": "minecraft:smelting",
+  "ingredient": { "item": "dmz_ragnarok:bean_cracked_ki" },
+  "result": "dmz_ragnarok:bean_burnt",
+  "experience": 0.1,
+  "cookingtime": 200
+}

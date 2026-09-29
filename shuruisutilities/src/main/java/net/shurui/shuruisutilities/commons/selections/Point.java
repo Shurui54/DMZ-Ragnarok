@@ -1,0 +1,210 @@
+package net.shurui.shuruisutilities.commons.selections;
+
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import net.minecraft.world.entity.Entity;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.phys.Vec3;
+
+public class Point
+{
+
+    /**
+     * Lazy cache for {@link #getBlockPos()}, rebuilt from x/y/z on demand and nulled by every mutator, so it
+     * holds nothing the three ints below do not already hold.
+     *
+     * <p>It MUST stay {@code transient}, and that is a crash fix rather than tidiness. This was the ONLY field
+     * anywhere in the permission zone graph whose type came from Minecraft, and the permission tree is written
+     * with {@code DataManager.getGson().toJson(serverZone)}, which walks DECLARED field types to build its
+     * adapters: ServerZone.worldZones to WorldZone.areaZones to AreaZone.area to AreaBase.high/low to
+     * Point.blockPos, and from there into whatever BlockPos happens to carry. On a plain Forge classpath
+     * BlockPos is three ints and the walk stops, which is why this never showed up here. On a 1.1.72 install
+     * on 2026-08-27 it did not stop: Gson followed a field on BlockPos onward and reached
+     * {@code java.lang.Thread}, where {@code setAccessible} is refused because java.base does not open
+     * java.lang to Gson. The resulting JsonIOException is UNCHECKED, it escaped
+     * {@code SingleFileProvider.save}, and since that save runs from the ServerStarted handler it killed the
+     * server tick loop outright.
+     *
+     * <p>Serializing a cache was always pointless: {@code getBlockPos()} rebuilds it from x/y/z in one line.
+     * Excluding it also means no future mixin into a Minecraft class can drag the permission file back into
+     * the game object graph, because after this there is no edge from a persisted zone into Minecraft at all
+     * ({@code WorldPoint.world} is already {@code @Expose(serialize = false)}).
+     */
+    protected transient BlockPos blockPos;
+
+    protected int x;
+
+    protected int y;
+
+    protected int z;
+
+    public Point(int x, int y, int z)
+    {
+        this.x = x;
+        this.y = y;
+        this.z = z;
+    }
+
+    public Point(double x, double y, double z)
+    {
+        this.x = ((int) x);
+        this.y = ((int) y);
+        this.z = ((int) z);
+    }
+
+    public Point(Entity entity)
+    {
+        x = (int) Math.floor(entity.position().x);
+        y = (int) Math.floor(entity.position().y);
+        z = (int) Math.floor(entity.position().z);
+    }
+
+    public Point(Vec3 vector)
+    {
+        this((int) vector.x, (int) vector.y, (int) vector.z);
+    }
+
+    public Point(Point other)
+    {
+        this(other.x, other.y, other.z);
+    }
+
+    public BlockPos getBlockPos()
+    {
+        if (blockPos == null)
+            blockPos = new BlockPos(x, y, z);
+        return blockPos;
+    }
+
+    public int getX()
+    {
+        return x;
+    }
+
+    public int getY()
+    {
+        return y;
+    }
+
+    public int getZ()
+    {
+        return z;
+    }
+
+    public Point setX(int x)
+    {
+        this.x = x;
+        blockPos = null;
+        return this;
+    }
+
+    public Point setY(int y)
+    {
+        this.y = y;
+        blockPos = null;
+        return this;
+    }
+
+    public Point setZ(int z)
+    {
+        this.z = z;
+        blockPos = null;
+        return this;
+    }
+
+    public double length()
+    {
+        return Math.sqrt(x * x + y * y + z * z);
+    }
+
+    public double distance(Point v)
+    {
+        return Math.sqrt((x - v.x) * (x - v.x) + (y - v.y) * (y - v.y) + (z - v.z) * (z - v.z));
+    }
+
+    public void add(Point v)
+    {
+        x += v.x;
+        y += v.y;
+        z += v.z;
+        blockPos = null;
+    }
+
+    public void subtract(Point v)
+    {
+        x -= v.x;
+        y -= v.y;
+        z -= v.z;
+        blockPos = null;
+    }
+
+    // shares a coordinate on at least one axis
+    public boolean alignsWith(Point point)
+    {
+        return x == point.x || y == point.y || z == point.z;
+    }
+
+    // >= on all axes
+    public boolean isGreaterEqualThan(Point p)
+    {
+        return x >= p.x && y >= p.y && z >= p.z;
+    }
+
+    // <= on all axes
+    public boolean isLessEqualThan(Point p)
+    {
+        return x <= p.x && y <= p.y && z <= p.z;
+    }
+
+    public void validatePositiveY()
+    {
+        if (y < 0)
+            y = 0;
+        blockPos = null;
+    }
+
+    public Vec3 toVec3()
+    {
+        return new Vec3(x, y, z);
+    }
+
+    @Override
+    public String toString()
+    {
+        return "[" + x + ", " + y + ", " + z + "]";
+    }
+
+    private static final Pattern pattern = Pattern
+            .compile("\\s*\\[\\s*(-?\\d+)\\s*,\\s*(-?\\d+)\\s*,\\s*(-?\\d+)\\s*\\]\\s*");
+
+    public static Point fromString(String value)
+    {
+        Matcher match = pattern.matcher(value);
+        if (!match.matches())
+            return null;
+        return new Point(Integer.parseInt(match.group(1)), Integer.parseInt(match.group(2)),
+                Integer.parseInt(match.group(3)));
+    }
+
+    @Override
+    public boolean equals(Object object)
+    {
+        if (object instanceof Point)
+        {
+            Point p = (Point) object;
+            return x == p.x && y == p.y && z == p.z;
+        }
+        return false;
+    }
+
+    @Override
+    public int hashCode()
+    {
+        int h = 1 + x;
+        h = h * 31 + y;
+        h = h * 31 + z;
+        return h;
+    }
+
+}

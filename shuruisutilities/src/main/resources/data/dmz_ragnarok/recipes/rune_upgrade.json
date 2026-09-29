@@ -1,0 +1,4 @@
+{
+  "_comment": "Nine runes of one tier, same stat and grade, become one of the next tier. Dynamic because a rune's tier lives in its NBT: a JSON shape can neither read it off the inputs nor stamp it onto the result.",
+  "type": "dmz_ragnarok:rune_upgrade"
+}

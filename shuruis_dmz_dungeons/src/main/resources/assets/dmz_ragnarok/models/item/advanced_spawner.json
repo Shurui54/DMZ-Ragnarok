@@ -1,0 +1,4 @@
+{
+  "__comment": "Inventory/hand appearance: reuse the vanilla mob spawner model so the item reads as a spawner.",
+  "parent": "minecraft:block/spawner"
+}

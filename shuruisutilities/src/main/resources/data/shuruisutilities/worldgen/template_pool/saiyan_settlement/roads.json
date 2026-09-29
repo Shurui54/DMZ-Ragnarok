@@ -1,0 +1,86 @@
+{ "__comment": "SHIM kept so pre-migration worlds still load. Live definition is now the dmz_ragnarok copy of this file. Prevents a hard datapack load failure only; it does not make an unmigrated world correct. Migration via world-tools/ns-rename is required.",
+  "fallback": "minecraft:empty",
+  "elements": [
+    {
+      "weight": 6,
+      "element": {
+        "element_type": "minecraft:single_pool_element",
+        "location": "shuruisutilities:saiyan_settlement/path/straight/0",
+        "processors": "minecraft:empty",
+        "projection": "rigid"
+      }
+    },
+    {
+      "weight": 3,
+      "element": {
+        "element_type": "minecraft:single_pool_element",
+        "location": "shuruisutilities:saiyan_settlement/path/straight/1",
+        "processors": "minecraft:empty",
+        "projection": "rigid"
+      }
+    },
+    {
+      "weight": 3,
+      "element": {
+        "element_type": "minecraft:single_pool_element",
+        "location": "shuruisutilities:saiyan_settlement/path/straight/2",
+        "processors": "minecraft:empty",
+        "projection": "rigid"
+      }
+    },
+    {
+      "weight": 2,
+      "element": {
+        "element_type": "minecraft:single_pool_element",
+        "location": "shuruisutilities:saiyan_settlement/path/straight/special/0",
+        "processors": "minecraft:empty",
+        "projection": "rigid"
+      }
+    },
+    {
+      "weight": 4,
+      "element": {
+        "element_type": "minecraft:single_pool_element",
+        "location": "shuruisutilities:saiyan_settlement/path/turn/0",
+        "processors": "minecraft:empty",
+        "projection": "rigid"
+      }
+    },
+    {
+      "weight": 4,
+      "element": {
+        "element_type": "minecraft:single_pool_element",
+        "location": "shuruisutilities:saiyan_settlement/path/turn/1",
+        "processors": "minecraft:empty",
+        "projection": "rigid"
+      }
+    },
+    {
+      "weight": 2,
+      "element": {
+        "element_type": "minecraft:single_pool_element",
+        "location": "shuruisutilities:saiyan_settlement/path/crossroads",
+        "processors": "minecraft:empty",
+        "projection": "rigid"
+      }
+    },
+    {
+      "weight": 3,
+      "element": {
+        "element_type": "minecraft:single_pool_element",
+        "location": "shuruisutilities:saiyan_settlement/path/building/0",
+        "processors": "minecraft:empty",
+        "projection": "rigid"
+      }
+    },
+    {
+      "weight": 3,
+      "element": {
+        "element_type": "minecraft:single_pool_element",
+        "location": "shuruisutilities:saiyan_settlement/path/building/1",
+        "processors": "minecraft:empty",
+        "projection": "rigid"
+      }
+    }
+  ]
+}

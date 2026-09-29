@@ -1,0 +1,6 @@
+{
+  "variants": {
+    "axis=x": { "model": "dmz_ragnarok:block/empty_portal" },
+    "axis=z": { "model": "dmz_ragnarok:block/empty_portal" }
+  }
+}

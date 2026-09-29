@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:block/cube_all",
+  "textures": {
+    "all": "dmz_ragnarok:block/namek_sacred_door_bottom"
+  }
+}

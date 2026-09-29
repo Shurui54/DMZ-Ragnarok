@@ -1,0 +1,26 @@
+{ "__comment": "SHIM kept so pre-migration worlds still load. Live definition is now the dmz_ragnarok copy of this file. Prevents a hard datapack load failure only; it does not make an unmigrated world correct. Migration via world-tools/ns-rename is required.",
+  "type": "shuruis_dmz_dungeons:end",
+  "generator": {
+    "type": "minecraft:flat",
+    "settings": {
+      "biome": "shuruis_dmz_dungeons:end",
+      "lakes": false,
+      "features": false,
+      "layers": [
+        {
+          "block": "minecraft:bedrock",
+          "height": 1
+        },
+        {
+          "block": "minecraft:purpur_block",
+          "height": 59
+        },
+        {
+          "block": "minecraft:end_stone",
+          "height": 4
+        }
+      ],
+      "structure_overrides": []
+    }
+  }
+}

@@ -1,0 +1,334 @@
+{
+  "biden_blast": {
+    "subtitle": "sound.dmz_ragnarok.npc.biden_blast",
+    "sounds": [
+      "dmz_ragnarok:biden_blast"
+    ]
+  },
+  "hakai": {
+    "subtitle": "sound.dmz_ragnarok.npc.hakai",
+    "sounds": [
+      "dmz_ragnarok:hakai"
+    ]
+  },
+  "hoverbike_rev_1": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "dmz_ragnarok:hoverbike_rev_1",
+        "stream": false
+      }
+    ]
+  },
+  "hoverbike_rev_2": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "dmz_ragnarok:hoverbike_rev_2",
+        "stream": false
+      }
+    ]
+  },
+  "hoverbike_rev_3": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "dmz_ragnarok:hoverbike_rev_3",
+        "stream": false
+      }
+    ]
+  },
+  "hoverbike_rev_4": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "dmz_ragnarok:hoverbike_rev_4",
+        "stream": false
+      }
+    ]
+  },
+  "shadow_dragon_intro": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "dmz_ragnarok:shadow_dragon_intro",
+        "stream": true
+      }
+    ]
+  },
+  "shadow_dragon_behold": {
+    "category": "neutral",
+    "sounds": [
+      {
+        "name": "dmz_ragnarok:shadow_dragon_behold",
+        "stream": false
+      }
+    ]
+  },
+  "cosmetic_fx_cadavercurse_in": {
+    "category": "master",
+    "sounds": [
+      "dmz_ragnarok:cosmetic/fx_cadavercurse-in"
+    ]
+  },
+  "cosmetic_fx_cadavercurse_out": {
+    "category": "master",
+    "sounds": [
+      "dmz_ragnarok:cosmetic/fx_cadavercurse-out"
+    ]
+  },
+  "cosmetic_fx_hellgate_in": {
+    "category": "master",
+    "sounds": [
+      "dmz_ragnarok:cosmetic/fx_hellgate-in"
+    ]
+  },
+  "cosmetic_fx_hellgate_out": {
+    "category": "master",
+    "sounds": [
+      "dmz_ragnarok:cosmetic/fx_hellgate-out"
+    ]
+  },
+  "cosmetic_fx_midnightlord_in": {
+    "category": "master",
+    "sounds": [
+      "dmz_ragnarok:cosmetic/fx_midnightlord-in"
+    ]
+  },
+  "cosmetic_fx_midnightlord_out": {
+    "category": "master",
+    "sounds": [
+      "dmz_ragnarok:cosmetic/fx_midnightlord-out"
+    ]
+  },
+  "cosmetic_fx_ragdollpossession_in": {
+    "category": "master",
+    "sounds": [
+      "dmz_ragnarok:cosmetic/fx_ragdollpossession-in"
+    ]
+  },
+  "cosmetic_fx_ragdollpossession_out": {
+    "category": "master",
+    "sounds": [
+      "dmz_ragnarok:cosmetic/fx_ragdollpossession-out"
+    ]
+  },
+  "cosmetic_fx_risendread_in": {
+    "category": "master",
+    "sounds": [
+      "dmz_ragnarok:cosmetic/fx_risendread-in"
+    ]
+  },
+  "cosmetic_fx_risendread_out": {
+    "category": "master",
+    "sounds": [
+      "dmz_ragnarok:cosmetic/fx_risendread-out"
+    ]
+  },
+  "cosmetic_mount_summon": {
+    "category": "neutral",
+    "sounds": [
+      "dmz_ragnarok:cosmetic/mount/summon"
+    ]
+  },
+  "cosmetic_mount_dismiss": {
+    "category": "neutral",
+    "sounds": [
+      "dmz_ragnarok:cosmetic/mount/dismiss"
+    ]
+  },
+  "cosmetic_mount_deadhorse_idle": {
+    "category": "neutral",
+    "sounds": [
+      "dmz_ragnarok:cosmetic/mount/deadhorse_idle"
+    ]
+  },
+  "cosmetic_mount_deadhorse_move": {
+    "category": "neutral",
+    "sounds": [
+      "dmz_ragnarok:cosmetic/mount/deadhorse_move"
+    ]
+  },
+  "cosmetic_mount_broomstick_idle": {
+    "category": "neutral",
+    "sounds": [
+      "dmz_ragnarok:cosmetic/mount/broomstick_idle"
+    ]
+  },
+  "cosmetic_mount_broomstick_move": {
+    "category": "neutral",
+    "sounds": [
+      "dmz_ragnarok:cosmetic/mount/broomstick_move"
+    ]
+  },
+  "cosmetic_mount_ghostship_idle": {
+    "category": "neutral",
+    "sounds": [
+      "dmz_ragnarok:cosmetic/mount/ghostship_idle"
+    ]
+  },
+  "cosmetic_mount_ghostship_move": {
+    "category": "neutral",
+    "sounds": [
+      "dmz_ragnarok:cosmetic/mount/ghostship_move"
+    ]
+  },
+  "cosmetic_mount_skeleptor_idle": {
+    "category": "neutral",
+    "sounds": [
+      "dmz_ragnarok:cosmetic/mount/skeleptor_idle"
+    ]
+  },
+  "cosmetic_mount_skeleptor_move": {
+    "category": "neutral",
+    "sounds": [
+      "dmz_ragnarok:cosmetic/mount/skeleptor_move"
+    ]
+  },
+  "cosmetic_mount_watcher_idle": {
+    "category": "neutral",
+    "sounds": [
+      "dmz_ragnarok:cosmetic/mount/watcher_idle"
+    ]
+  },
+  "cosmetic_mount_watcher_move": {
+    "category": "neutral",
+    "sounds": [
+      "dmz_ragnarok:cosmetic/mount/watcher_move"
+    ]
+  },
+  "music.boss_snipperjack": {
+    "category": "music",
+    "sounds": [
+      {
+        "name": "dmz_ragnarok:music/boss_snipperjack",
+        "stream": true
+      }
+    ]
+  },
+  "race.countdown": {
+    "category": "master",
+    "subtitle": "subtitle.dmz_ragnarok.race.countdown",
+    "sounds": [ "minecraft:note/pling" ]
+  },
+  "race.go": {
+    "category": "master",
+    "subtitle": "subtitle.dmz_ragnarok.race.go",
+    "sounds": [ "minecraft:note/bell" ]
+  },
+  "race.roulette": {
+    "category": "master",
+    "subtitle": "subtitle.dmz_ragnarok.race.roulette",
+    "sounds": [ { "name": "minecraft:ui.button.click", "type": "event" } ]
+  },
+  "race.item_get": {
+    "category": "master",
+    "subtitle": "subtitle.dmz_ragnarok.race.item_get",
+    "sounds": [ "dragonminez:confirm_menu" ]
+  },
+  "race.lap": {
+    "category": "master",
+    "subtitle": "subtitle.dmz_ragnarok.race.lap",
+    "sounds": [ "minecraft:ui/toast/challenge_complete" ]
+  },
+  "race.final_lap": {
+    "category": "master",
+    "subtitle": "subtitle.dmz_ragnarok.race.final_lap",
+    "sounds": [ "dragonminez:transform_on" ]
+  },
+  "race.finish": {
+    "category": "master",
+    "subtitle": "subtitle.dmz_ragnarok.race.finish",
+    "sounds": [ "minecraft:ui/toast/challenge_complete" ]
+  },
+  "race.drift": {
+    "category": "master",
+    "subtitle": "subtitle.dmz_ragnarok.race.drift",
+    "sounds": [ "dragonminez:ki_sparks" ]
+  },
+  "race.mini_turbo": {
+    "category": "master",
+    "subtitle": "subtitle.dmz_ragnarok.race.mini_turbo",
+    "sounds": [ "dragonminez:tp_short" ]
+  },
+  "race.boost": {
+    "category": "master",
+    "subtitle": "subtitle.dmz_ragnarok.race.boost",
+    "sounds": [ "dragonminez:zanzoken" ]
+  },
+  "race.hit": {
+    "category": "master",
+    "subtitle": "subtitle.dmz_ragnarok.race.hit",
+    "sounds": [ "dragonminez:knockback_character" ]
+  },
+  "race.rescue": {
+    "category": "master",
+    "subtitle": "subtitle.dmz_ragnarok.race.rescue",
+    "sounds": [ "dragonminez:tp" ]
+  },
+  "race.senzu": {
+    "category": "master",
+    "subtitle": "subtitle.dmz_ragnarok.race.senzu",
+    "sounds": [ "dragonminez:senzu" ]
+  },
+  "race.aura_start": {
+    "category": "master",
+    "subtitle": "subtitle.dmz_ragnarok.race.aura_start",
+    "sounds": [ "dragonminez:aura_start" ]
+  },
+  "race.kaioken": {
+    "category": "master",
+    "subtitle": "subtitle.dmz_ragnarok.race.kaioken",
+    "sounds": [ "dragonminez:transform_on" ]
+  },
+  "race.nimbus": {
+    "category": "master",
+    "subtitle": "subtitle.dmz_ragnarok.race.nimbus",
+    "sounds": [ "dragonminez:nube" ]
+  },
+  "race.afterimage": {
+    "category": "master",
+    "subtitle": "subtitle.dmz_ragnarok.race.afterimage",
+    "sounds": [ "dragonminez:zanzoken" ]
+  },
+  "race.zeni": {
+    "category": "master",
+    "subtitle": "subtitle.dmz_ragnarok.race.zeni",
+    "sounds": [ { "name": "minecraft:entity.experience_orb.pickup", "type": "event" } ]
+  },
+  "race.spirit_bomb": {
+    "category": "master",
+    "subtitle": "subtitle.dmz_ragnarok.race.spirit_bomb",
+    "sounds": [ "dragonminez:ki_spiritbomb_fire" ]
+  },
+  "race.spirit_bomb_charge": {
+    "category": "master",
+    "subtitle": "subtitle.dmz_ragnarok.race.spirit_bomb_charge",
+    "sounds": [ "dragonminez:ki_spiritbomb_charge" ]
+  },
+  "race.kiai": {
+    "category": "master",
+    "subtitle": "subtitle.dmz_ragnarok.race.kiai",
+    "sounds": [ "dragonminez:knockback_character" ]
+  },
+  "race.gravity": {
+    "category": "master",
+    "subtitle": "subtitle.dmz_ragnarok.race.gravity",
+    "sounds": [ "dragonminez:anchor_slam" ]
+  },
+  "race.solar_flare": {
+    "category": "master",
+    "subtitle": "subtitle.dmz_ragnarok.race.solar_flare",
+    "sounds": [ "dragonminez:ki_sparks" ]
+  },
+  "race.saibaman": {
+    "category": "master",
+    "subtitle": "subtitle.dmz_ragnarok.race.saibaman",
+    "sounds": [ "dragonminez:ki_explosion_charge" ]
+  },
+  "race.impact": {
+    "category": "master",
+    "subtitle": "subtitle.dmz_ragnarok.race.impact",
+    "sounds": [ "dragonminez:ki_explosion_impact" ]
+  }
+}

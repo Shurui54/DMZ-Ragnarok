@@ -1,0 +1,33 @@
+{ "__comment": "SHIM kept so pre-migration worlds still load. Live definition is now the dmz_ragnarok copy of this file. Prevents a hard datapack load failure only; it does not make an unmigrated world correct. Migration via world-tools/ns-rename is required.",
+  "temperature": 0.5,
+  "downfall": 0.5,
+  "has_precipitation": true,
+  "category": "none",
+  "effects": {
+    "fog_color": 15910110,
+    "water_color": 6445168,
+    "water_fog_color": 3814216,
+    "sky_color": 9427442,
+    "grass_color": 10937564,
+    "foliage_color": 15044542,
+    "mood_sound": {
+      "sound": "minecraft:ambient.cave",
+      "tick_delay": 6000,
+      "block_search_extent": 8,
+      "offset": 2.0
+    }
+  },
+  "spawners": {
+    "monster": [],
+    "creature": [],
+    "ambient": [],
+    "axolotls": [],
+    "underground_water_creature": [],
+    "water_creature": [],
+    "water_ambient": [],
+    "misc": []
+  },
+  "spawn_costs": {},
+  "carvers": {},
+  "features": []
+}

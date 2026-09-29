@@ -1,0 +1,14 @@
+{
+  "_comment": "Overrides vanilla's flower pot recipe so the brick pattern yields the bean pot instead. Ours used the identical shape and ingredients, so the two recipes collided and whichever loaded first won, which is why crafting bricks kept producing a plain flower pot. Replacing vanilla's file by its own id resolves it in one direction instead of leaving it to load order.",
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "# #",
+    " # "
+  ],
+  "key": {
+    "#": { "item": "minecraft:brick" }
+  },
+  "result": { "item": "dmz_ragnarok:bean_pot", "count": 1 },
+  "show_notification": true
+}

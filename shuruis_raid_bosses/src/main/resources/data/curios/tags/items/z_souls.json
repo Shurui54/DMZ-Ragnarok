@@ -1,0 +1,33 @@
+{
+  "replace": false,
+  "values": [
+    "dmz_ragnarok:z_soul_vitality_bronze",
+    "dmz_ragnarok:z_soul_vitality_silver",
+    "dmz_ragnarok:z_soul_vitality_gold",
+    "dmz_ragnarok:z_soul_vitality_prismatic",
+    "dmz_ragnarok:z_soul_stamina_bronze",
+    "dmz_ragnarok:z_soul_stamina_silver",
+    "dmz_ragnarok:z_soul_stamina_gold",
+    "dmz_ragnarok:z_soul_stamina_prismatic",
+    "dmz_ragnarok:z_soul_strength_bronze",
+    "dmz_ragnarok:z_soul_strength_silver",
+    "dmz_ragnarok:z_soul_strength_gold",
+    "dmz_ragnarok:z_soul_strength_prismatic",
+    "dmz_ragnarok:z_soul_ki_power_bronze",
+    "dmz_ragnarok:z_soul_ki_power_silver",
+    "dmz_ragnarok:z_soul_ki_power_gold",
+    "dmz_ragnarok:z_soul_ki_power_prismatic",
+    "dmz_ragnarok:z_soul_strike_power_bronze",
+    "dmz_ragnarok:z_soul_strike_power_silver",
+    "dmz_ragnarok:z_soul_strike_power_gold",
+    "dmz_ragnarok:z_soul_strike_power_prismatic",
+    "dmz_ragnarok:z_soul_energy_bronze",
+    "dmz_ragnarok:z_soul_energy_silver",
+    "dmz_ragnarok:z_soul_energy_gold",
+    "dmz_ragnarok:z_soul_energy_prismatic",
+    "dmz_ragnarok:z_soul_rainbow_bronze",
+    "dmz_ragnarok:z_soul_rainbow_silver",
+    "dmz_ragnarok:z_soul_rainbow_gold",
+    "dmz_ragnarok:z_soul_rainbow_prismatic"
+  ]
+}

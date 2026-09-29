@@ -1,0 +1,6 @@
+{
+  "__comment": "Break particles only; the visible crate is the GeckoLib model.",
+  "textures": {
+    "particle": "dmz_ragnarok:block/crate/lootcrate/normal/amethyst_box"
+  }
+}

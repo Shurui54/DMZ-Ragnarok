@@ -1,0 +1,266 @@
+# DMZ Ragnarok: the FAT jar. One file that declares FIVE mods (a multi-mod jar):
+#   dmz_ragnarok             - core (sdu + shuruisutilities), always present
+#   dmz_ragnarok_dungeons    - the Dungeons module
+#   dmz_ragnarok_raids       - the Raid Bosses module
+#   dmz_ragnarok_tournaments - the Tournaments module
+#   dmz_ragnarok_space       - the Space module
+#
+# Same sources build both the fat jar and the separate module jars; this file is what makes the fat jar
+# carry everything in one download. Because it DECLARES the three module ids, installing the fat jar
+# alongside any standalone module jar double-declares that id and Forge stops with its own clear
+# "Mod ID is defined in multiple mods" error, which is the intended collision guard.
+#
+# Every registry id, dimension, asset, sound, lang and packet stays in the dmz_ragnarok namespace in both
+# builds; the module ids above are Forge CONTAINER ids only, never a registry namespace.
+modLoader = "javafml" #mandatory
+loaderVersion = "${loader_version_range}" #mandatory
+license = "${mod_license}"
+
+[[mods]] #mandatory
+modId = "${mod_id}" #mandatory
+version = "${mod_version}" #mandatory
+displayName = "${mod_name}" #mandatory
+authors = "${mod_authors}" #optional
+credits = "Kiba, CalamityKage, Rradly, WolfyKip"
+description = '''${mod_description}'''
+# NOTE: no displayTest is set here on purpose. Shurui's Utilities registers an
+# IExtensionPoint.DisplayTest (IGNORESERVERONLY) in code from its initialiser, which runs inside THIS
+# container, so the merged mod inherits that server-only display behaviour. Declaring a displayTest here as
+# well would double-register the extension point and crash loading.
+
+[[mods]]
+modId = "dmz_ragnarok_dungeons"
+version = "${mod_version}"
+displayName = "DMZ Ragnarok: Dungeons"
+authors = "${mod_authors}"
+description = '''Instanced dungeons, the advanced spawner and WorldEdit tools for DMZ Ragnarok. Registers into the dmz_ragnarok namespace; requires DMZ Ragnarok core.'''
+
+[[mods]]
+modId = "dmz_ragnarok_raids"
+version = "${mod_version}"
+displayName = "DMZ Ragnarok: Raid Bosses"
+authors = "${mod_authors}"
+description = '''The automated raid boss manager (and rifts / Z-Souls) for DMZ Ragnarok. Registers into the dmz_ragnarok namespace; requires DMZ Ragnarok core.'''
+
+[[mods]]
+modId = "dmz_ragnarok_tournaments"
+version = "${mod_version}"
+displayName = "DMZ Ragnarok: Tournaments"
+authors = "${mod_authors}"
+description = '''The automated tournament manager for DMZ Ragnarok. Registers into the dmz_ragnarok namespace; requires DMZ Ragnarok core.'''
+
+[[mods]]
+modId = "dmz_ragnarok_space"
+version = "${mod_version}"
+displayName = "DMZ Ragnarok: Space"
+authors = "${mod_authors}"
+description = '''The space travel, planet and planet-buster systems for DMZ Ragnarok. Registers into the dmz_ragnarok namespace; requires DMZ Ragnarok core.'''
+
+# All eight mixin configs contributed by the trees (Space now has its own, dmz_ragnarok_space.mixins.json). In the fat jar they all resolve the single generated
+# dmz_ragnarok.refmap.json (the module jars each ship their own refmap). Mixins into DMZ classes stay
+# require = 0 in their configs.
+[[mixins]]
+config = "sdu.mixins.json"
+[[mixins]]
+config = "sdu.cnpc.mixins.json"
+[[mixins]]
+config = "mixins.shuruisutilities.json"
+[[mixins]]
+config = "mixins.shuruisutilities.compat.json"
+[[mixins]]
+config = "dmz_ragnarok_space.mixins.json"
+[[mixins]]
+config = "shuruis_dmz_dungeons.mixins.json"
+[[mixins]]
+config = "shuruis_raid_bosses.mixins.json"
+[[mixins]]
+config = "shuruis_dmz_tournaments.mixins.json"
+
+# ---------------------------------------------------------------------------------------------------
+# Dependencies for core (dmz_ragnarok).
+# ---------------------------------------------------------------------------------------------------
+[[dependencies."${mod_id}"]]
+modId = "forge" #mandatory
+mandatory = true
+versionRange = "${forge_version_range}"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies."${mod_id}"]]
+modId = "minecraft"
+mandatory = true
+versionRange = "${minecraft_version_range}"
+ordering = "NONE"
+side = "BOTH"
+
+# DragonMine Z: the base mod. Load AFTER it so its registries / stats capability / content exist.
+[[dependencies."${mod_id}"]]
+modId = "dragonminez"
+mandatory = true
+versionRange = "[2.1.1b,)"
+ordering = "AFTER"
+side = "BOTH"
+
+# GeckoLib, HARD: sdu's NPCs, SU's rgnpc display entity and other GeckoLib entities register unconditionally.
+[[dependencies."${mod_id}"]]
+modId = "geckolib"
+mandatory = true
+versionRange = "[4.8.3,)"
+ordering = "AFTER"
+side = "BOTH"
+
+# Curios, HARD: SU's hoverbike / dragon-ball-bag / senzu-bag and raid bosses' z_souls charms are Curios items.
+[[dependencies."${mod_id}"]]
+modId = "curios"
+mandatory = true
+versionRange = "[5,)"
+ordering = "AFTER"
+side = "BOTH"
+
+# CustomNPCs-Unofficial, SOFT: sdu's DMZ x Custom NPCs bridge and SU's trader-NPC Zeni balance. Absent -> those disable.
+[[dependencies."${mod_id}"]]
+modId = "customnpcs"
+mandatory = false
+versionRange = "[1.20.1,)"
+ordering = "AFTER"
+side = "BOTH"
+
+# CNPC-Gecko-Addon, SOFT: supplies the GeckoLib model type sdu feeds DMZ assets into.
+[[dependencies."${mod_id}"]]
+modId = "cnpcgeckoaddon"
+mandatory = false
+versionRange = "[1.20.1,)"
+ordering = "AFTER"
+side = "BOTH"
+
+# WorldEdit, SOFT: dungeons schematic pasting, raid / tournament arena bounds, SU's WE tools. Absent -> those degrade.
+[[dependencies."${mod_id}"]]
+modId = "worldedit"
+mandatory = false
+versionRange = "[7.2,)"
+ordering = "AFTER"
+side = "BOTH"
+
+# Cosmetic Armor Reworked, SOFT: SU's KeepPartialInventory cancels CAR's cosmetic drops on death when present.
+[[dependencies."${mod_id}"]]
+modId = "cosmeticarmorreworked"
+mandatory = false
+versionRange = "[1.0,)"
+ordering = "AFTER"
+side = "BOTH"
+
+# Tinkers' Construct, SOFT.
+[[dependencies."${mod_id}"]]
+modId = "tconstruct"
+mandatory = false
+versionRange = "[3.11,)"
+ordering = "AFTER"
+side = "BOTH"
+
+# Distant Horizons - SOFT, CLIENT only.
+[[dependencies."${mod_id}"]]
+modId = "distanthorizons"
+mandatory = false
+versionRange = "[2.0,)"
+ordering = "AFTER"
+side = "CLIENT"
+
+# Iron Furnaces - SOFT.
+[[dependencies."${mod_id}"]]
+modId = "ironfurnaces"
+mandatory = false
+versionRange = "[4.0,)"
+ordering = "AFTER"
+side = "BOTH"
+
+# JEI - SOFT, CLIENT only. The compat.jei plugin hides private items; JEI loads it itself when present.
+[[dependencies."${mod_id}"]]
+modId = "jei"
+mandatory = false
+versionRange = "[15.0,)"
+ordering = "AFTER"
+side = "CLIENT"
+
+# ---------------------------------------------------------------------------------------------------
+# Dependencies for the three modules. Each requires core (dmz_ragnarok) and loads AFTER it and DMZ.
+# In the fat jar core is in the same file, so the mandatory dep is satisfied; the ordering still applies.
+# The core range is this jar's own version or newer (one suite version for every jar of a build).
+# WorldEdit is a soft dep of all three (arena bounds / schematic pasting), guarded behind compat.
+# ---------------------------------------------------------------------------------------------------
+[[dependencies."dmz_ragnarok_dungeons"]]
+modId = "dmz_ragnarok"
+mandatory = true
+versionRange = "[${mod_version},)"
+ordering = "AFTER"
+side = "BOTH"
+[[dependencies."dmz_ragnarok_dungeons"]]
+modId = "dragonminez"
+mandatory = true
+versionRange = "[2.1.1b,)"
+ordering = "AFTER"
+side = "BOTH"
+[[dependencies."dmz_ragnarok_dungeons"]]
+modId = "worldedit"
+mandatory = false
+versionRange = "[7.2,)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies."dmz_ragnarok_raids"]]
+modId = "dmz_ragnarok"
+mandatory = true
+versionRange = "[${mod_version},)"
+ordering = "AFTER"
+side = "BOTH"
+[[dependencies."dmz_ragnarok_raids"]]
+modId = "dragonminez"
+mandatory = true
+versionRange = "[2.1.1b,)"
+ordering = "AFTER"
+side = "BOTH"
+[[dependencies."dmz_ragnarok_raids"]]
+modId = "worldedit"
+mandatory = false
+versionRange = "[7.2,)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies."dmz_ragnarok_tournaments"]]
+modId = "dmz_ragnarok"
+mandatory = true
+versionRange = "[${mod_version},)"
+ordering = "AFTER"
+side = "BOTH"
+[[dependencies."dmz_ragnarok_tournaments"]]
+modId = "dragonminez"
+mandatory = true
+versionRange = "[2.1.1b,)"
+ordering = "AFTER"
+side = "BOTH"
+[[dependencies."dmz_ragnarok_tournaments"]]
+modId = "worldedit"
+mandatory = false
+versionRange = "[7.2,)"
+ordering = "AFTER"
+side = "BOTH"
+
+# Space module: requires core (dmz_ragnarok) and loads AFTER it and DMZ. GeckoLib is a hard dep (its entity
+# renderers are GeckoLib models). In the fat jar core is in the same file, so the mandatory dep is satisfied.
+[[dependencies."dmz_ragnarok_space"]]
+modId = "dmz_ragnarok"
+mandatory = true
+versionRange = "[${mod_version},)"
+ordering = "AFTER"
+side = "BOTH"
+[[dependencies."dmz_ragnarok_space"]]
+modId = "dragonminez"
+mandatory = true
+versionRange = "[2.1.1b,)"
+ordering = "AFTER"
+side = "BOTH"
+[[dependencies."dmz_ragnarok_space"]]
+modId = "geckolib"
+mandatory = true
+versionRange = "[4.8.3,)"
+ordering = "AFTER"
+side = "BOTH"

@@ -1,0 +1,23 @@
+{
+  "_comment": "Turns 3.58% of this hut's 11 rocky_dirt blocks into a buried saibaman seed. The per-block figure is derived, not guessed: (1-p)^11 = 0.67, so two huts in three hold none and the rest hold 1 to 3. More than 3 is under a fifth of a percent.",
+  "processors": [
+    {
+      "processor_type": "minecraft:rule",
+      "rules": [
+        {
+          "input_predicate": {
+            "predicate_type": "minecraft:random_block_match",
+            "block": "dragonminez:rocky_dirt",
+            "probability": 0.0358
+          },
+          "location_predicate": {
+            "predicate_type": "minecraft:always_true"
+          },
+          "output_state": {
+            "Name": "dmz_ragnarok:saibaman_seed_inert"
+          }
+        }
+      ]
+    }
+  ]
+}

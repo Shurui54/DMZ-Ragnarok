@@ -1,0 +1,15 @@
+{
+  "type": "minecraft:smithing_transform",
+  "template": {
+    "item": "dmz_ragnarok:katchi_katchin_upgrade_smithing_template"
+  },
+  "base": {
+    "item": "dmz_ragnarok:katchin_shovel"
+  },
+  "addition": {
+    "tag": "dmz_ragnarok:katchi_katchin"
+  },
+  "result": {
+    "item": "dmz_ragnarok:katchi_katchin_shovel"
+  }
+}

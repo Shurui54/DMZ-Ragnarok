@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "axis=x": { "model": "dmz_ragnarok:block/colored_portal" },
+    "axis=z": { "model": "dmz_ragnarok:block/colored_portal", "y": 90 },
+    "axis=y": { "model": "dmz_ragnarok:block/colored_portal_horizontal" }
+  }
+}

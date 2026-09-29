@@ -1,0 +1,23 @@
+{
+  "multipart": [
+    {
+      "apply": { "model": "dmz_ragnarok:block/bean_pot_golden" }
+    },
+    {
+      "when": { "planted": "true", "age": "0" },
+      "apply": { "model": "dmz_ragnarok:block/bean_plant_golden_stage0" }
+    },
+    {
+      "when": { "planted": "true", "age": "1" },
+      "apply": { "model": "dmz_ragnarok:block/bean_plant_golden_stage1" }
+    },
+    {
+      "when": { "planted": "true", "age": "2" },
+      "apply": { "model": "dmz_ragnarok:block/bean_plant_golden_stage2" }
+    },
+    {
+      "when": { "planted": "true", "age": "3" },
+      "apply": { "model": "dmz_ragnarok:block/bean_plant_golden_stage3" }
+    }
+  ]
+}

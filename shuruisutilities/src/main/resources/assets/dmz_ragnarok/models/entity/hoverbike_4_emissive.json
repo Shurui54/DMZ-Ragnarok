@@ -1,0 +1,8 @@
+{
+  "loader": "forge:obj",
+  "model": "dmz_ragnarok:models/entity/hoverbike_4.obj",
+  "flip_v": true,
+  "textures": {
+    "particle": "dmz_ragnarok:entity/hoverbike_4_e"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "replace": false,
+  "values": [
+    "dmz_ragnarok:katchin_ore",
+    "dmz_ragnarok:deepslate_katchin_ore",
+    "dmz_ragnarok:katchin_block"
+  ]
+}

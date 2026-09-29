@@ -1,0 +1,4 @@
+{
+  "_comment": "The Namek idol in hand. Same block as the Shenron idol, different blockstate; this model shows the porunga statue so what you carry matches what you place.",
+  "parent": "dmz_ragnarok:block/porunga_idol"
+}

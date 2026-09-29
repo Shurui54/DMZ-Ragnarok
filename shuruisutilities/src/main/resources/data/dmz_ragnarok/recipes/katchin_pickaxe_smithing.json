@@ -1,0 +1,15 @@
+{
+  "type": "minecraft:smithing_transform",
+  "template": {
+    "item": "dmz_ragnarok:katchin_upgrade_smithing_template"
+  },
+  "base": {
+    "item": "dragonminez:gete_pickaxe"
+  },
+  "addition": {
+    "item": "dmz_ragnarok:katchin_ore"
+  },
+  "result": {
+    "item": "dmz_ragnarok:katchin_pickaxe"
+  }
+}

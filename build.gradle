@@ -1,0 +1,240 @@
+// Root project of the DMZ Ragnarok mod suite.
+//
+// Responsibilities:
+//  1. Put ForgeGradle + MixinGradle on the build classpath for every subproject
+//     (subprojects apply them by id inside common.gradle).
+//  2. Define the UNIFIED runClient / runServer: one launch loads all five addons
+//     (from their source sets) + DragonMineZ (deobf jar) together, working out of
+//     the shared ./run directory so worlds/configs/datapacks persist across all
+//     addon work.
+//
+// The runs are defined here at the root (not in a :runtime subproject) because it
+// works fine as long as the root is itself a ForgeGradle project (it needs its own
+// `minecraft` dependency + mappings for the deobf runtime classpath) and the
+// children are evaluated first — see evaluationDependsOnChildren() below. A
+// :runtime subproject would only be needed if root-level FG misbehaved; it doesn't.
+
+buildscript {
+    repositories {
+        maven { url = 'https://repo.spongepowered.org/repository/maven-public/' }
+        mavenCentral()
+    }
+    dependencies {
+        // MixinGradle — inherited by all subprojects via the root build classpath.
+        classpath 'org.spongepowered:mixingradle:0.7.+'
+    }
+}
+
+plugins {
+    id 'eclipse'
+    id 'idea'
+    id 'net.minecraftforge.gradle' version '[6.0.16,6.2)'
+}
+
+// Evaluate the addon subprojects first: the run configs below reference their
+// source sets, which only exist after common.gradle has been applied to them.
+evaluationDependsOnChildren()
+
+group = 'net.shurui.dev'
+version = '1.0.0'
+
+base {
+    archivesName = 'dmz-ragnarok-runtime'
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(17)
+}
+
+// The suite can be loaded in dev either as the FAT aggregate (one :dmz_ragnarok source set spanning every
+// tree) or as the MODULAR set (:dmz_ragnarok_core plus a chosen subset of the three module projects), so
+// the launch-test matrix can be run without leaving the dev runtime. Select with -PmodSet=<name>:
+//   fat (default)  the fat multi-mod aggregate           -> :dmz_ragnarok
+//   core           core alone                            -> :dmz_ragnarok_core
+//   dungeons       core + Dungeons                       -> core + :dmz_ragnarok_dungeons
+//   raids          core + Raid Bosses                    -> core + :dmz_ragnarok_raids
+//   tournaments    core + Tournaments                    -> core + :dmz_ragnarok_tournaments
+//   space          core + Space                          -> core + :dmz_ragnarok_space
+//   all            core + all four modules               -> core + the four module projects
+// The translator (a separate mod) is always loaded alongside, as before, so the SU chat hook is exercised.
+//
+// Each set also passes exactly the mixin configs whose classes are on that set's classpath: passing a
+// module's config when its source set is not loaded would make the config fail to find its own classes.
+// Space's mixin config (dmz_ragnarok_space.mixins.json) is NO LONGER a core mixin: its mixin classes moved to
+// the :dmz_ragnarok_space module, so it is loaded only for modSets that include Space (space / all / fat).
+def modSet = (findProperty('modSet') ?: 'fat').toString()
+def coreMixins = ['sdu.mixins.json', 'sdu.cnpc.mixins.json',
+                  'mixins.shuruisutilities.json', 'mixins.shuruisutilities.compat.json']
+def dungeonsMixins = ['shuruis_dmz_dungeons.mixins.json']
+def raidsMixins = ['shuruis_raid_bosses.mixins.json']
+def tournamentsMixins = ['shuruis_dmz_tournaments.mixins.json']
+def spaceMixins = ['dmz_ragnarok_space.mixins.json']
+
+def dmzPaths
+def addonMixinConfigs
+switch (modSet) {
+    case 'fat':
+        dmzPaths = [':dmz_ragnarok']
+        addonMixinConfigs = coreMixins + dungeonsMixins + raidsMixins + tournamentsMixins + spaceMixins
+        break
+    case 'core':
+        dmzPaths = [':dmz_ragnarok_core']
+        addonMixinConfigs = coreMixins
+        break
+    case 'dungeons':
+        dmzPaths = [':dmz_ragnarok_core', ':dmz_ragnarok_dungeons']
+        addonMixinConfigs = coreMixins + dungeonsMixins
+        break
+    case 'raids':
+        dmzPaths = [':dmz_ragnarok_core', ':dmz_ragnarok_raids']
+        addonMixinConfigs = coreMixins + raidsMixins
+        break
+    case 'tournaments':
+        dmzPaths = [':dmz_ragnarok_core', ':dmz_ragnarok_tournaments']
+        addonMixinConfigs = coreMixins + tournamentsMixins
+        break
+    case 'space':
+        dmzPaths = [':dmz_ragnarok_core', ':dmz_ragnarok_space']
+        addonMixinConfigs = coreMixins + spaceMixins
+        break
+    case 'all':
+        dmzPaths = [':dmz_ragnarok_core', ':dmz_ragnarok_dungeons', ':dmz_ragnarok_raids', ':dmz_ragnarok_tournaments', ':dmz_ragnarok_space']
+        addonMixinConfigs = coreMixins + dungeonsMixins + raidsMixins + tournamentsMixins + spaceMixins
+        break
+    default:
+        throw new GradleException("Unknown -PmodSet='${modSet}'. Use one of: fat, core, dungeons, raids, tournaments, space, all.")
+}
+def addonPaths = dmzPaths
+logger.lifecycle("Dev run modSet=${modSet}: loading ${dmzPaths}")
+
+minecraft {
+    mappings channel: mapping_channel, version: mapping_version
+    copyIdeResources = true
+
+    runs {
+        configureEach {
+            // ONE shared run directory at the root: world saves, configs and datapacks
+            // persist across all addon work (dungeon/quest testing needs stable worlds).
+            //
+            // Overridable with -PrunDir=run2 so a SECOND server can be started against the same shard
+            // database, which is the only way to test cross server convergence for real: one server plus
+            // hand written rows proves the poll and apply path, it does not prove two servers agreeing.
+            // Defaults to 'run', so the ordinary runClient and runServer are unchanged.
+            workingDirectory rootProject.file(findProperty('runDir') ?: 'run')
+
+            property 'forge.logging.markers', 'REGISTRIES'
+            // 'info', not 'debug'. Debug console logging buries the lines that matter (mixin apply failures,
+            // shard handovers) under thousands of routine ones, and it is what made a real CustomNPCs mixin
+            // failure easy to miss in a live log. Raise it back to 'debug' temporarily when chasing something
+            // that genuinely needs it.
+            property 'forge.logging.console.level', 'info'
+
+            // DMZ (and the other production mod jars on the runtime classpath) ship
+            // SRG-mapped mixin refmaps; the dev runtime uses official names. Without
+            // this remap DMZ's GuiGraphicsMixin misses its target and the game crashes.
+            property 'mixin.env.remapRefMap', 'true'
+            property 'mixin.env.refMapRemappingFile', "${projectDir}/build/createSrgToMcp/output.srg"
+
+            // Event engine fake clock (dev only). The scheduler reads this system property; when true it may use
+            // EventClock.fake instead of the DB clock, which is how a single dev run drives an event through its
+            // window (start/END) without waiting real days. Off by default; arm THIS run with -PfakeClock=true.
+            // Applied to both client and server runs (this block is shared) so a fake-clock test can drive either.
+            // Refused at runtime while ShardSync is active, so it is safe to leave wired.
+            property 'dmzr.events.allowFakeClock', (findProperty('fakeClock') ?: 'false').toString()
+
+            addonMixinConfigs.each { cfg -> args '--mixin.config', cfg }
+
+            // Register every addon as a dev mod backed by its subproject source set.
+            mods {
+                addonPaths.each { path ->
+                    def p = project(path)
+                    create(p.name) { source p.sourceSets.main }
+                }
+            }
+        }
+
+        client {
+            // Real Microsoft login via DevAuth (account "main" from ~/.config/devauth).
+            property 'devauth.enabled', 'true'
+            property 'devauth.account', 'main'
+
+            // DEV-ONLY visual test harness hook. Passing -Pvisualtest=<scenario list> (or -Pvisualtest=all) arms the
+            // harness for THIS runClient only: it sets the -Ddmzr.visualtest property the harness gates on, and quick
+            // plays straight into the dedicated VisualTest world so the run is unattended. With the property absent,
+            // this block does nothing and a normal runClient is byte-for-byte unchanged.
+            if (project.hasProperty('visualtest')) {
+                def scenarioList = (findProperty('visualtest') ?: 'all').toString()
+                property 'dmzr.visualtest', scenarioList
+                args '--quickPlaySingleplayer', 'VisualTest'
+            }
+
+            // Plain launch test: -PquickPlay=<save name> quick plays into that singleplayer save under the run dir's
+            // saves/ folder. Vanilla argument only, it does NOT arm the visual test harness.
+            if (project.hasProperty('quickPlay') && !project.hasProperty('visualtest')) {
+                args '--quickPlaySingleplayer', findProperty('quickPlay').toString()
+            }
+
+            // Plain launch test into MULTIPLAYER: -PquickPlayServer=host:port auto-joins that dedicated server on
+            // start (vanilla --quickPlayMultiplayer), so a test client can drive a player against a local keyed
+            // server for the in-world event checks. Vanilla argument only, it does NOT arm the visual test harness.
+            if (project.hasProperty('quickPlayServer') && !project.hasProperty('visualtest')) {
+                args '--quickPlayMultiplayer', findProperty('quickPlayServer').toString()
+            }
+        }
+
+        server {
+            args '--nogui'
+        }
+    }
+}
+
+repositories {
+    flatDir { dirs "${rootDir}/libs" }
+    maven { url = 'https://dl.cloudsmith.io/public/geckolib3/geckolib/maven/' }
+    maven { url = 'https://maven.blamejared.com/' }
+    maven { url = 'https://maven.theillusivec4.top/' }
+    maven { url = 'https://modmaven.dev' }
+    maven {
+        name = 'Modrinth'
+        url = 'https://api.modrinth.com/maven'
+        content { includeGroup 'maven.modrinth' }
+    }
+    maven {
+        name = 'DevAuth'
+        url = 'https://pkgs.dev.azure.com/djtheredstoner/DevAuth/_packaging/public/maven/v1'
+        content { includeGroup 'me.djtheredstoner' }
+    }
+}
+
+// Runtime classpath of the unified runs. The run tasks use THIS project's runtime
+// classpath (+ the addon source sets registered above), so everything any addon
+// needs loaded in dev must be declared here.
+dependencies {
+    minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
+
+    // DragonMineZ + its hard deps — the core of every run.
+    implementation fg.deobf("blank:dragonminez:${dmz_version}")
+    implementation fg.deobf("software.bernie.geckolib:geckolib-forge-${minecraft_version}:${geckolib_version}")
+    implementation fg.deobf("com.github.glitchfiend:TerraBlender-forge:${terrablender_version}")
+    implementation fg.deobf("top.theillusivec4.curios:curios-forge:${curios_version}")
+
+    // Optional mods the addons integrate with — loaded in dev so the compat paths are testable:
+    // WorldEdit fat jar (raid bosses / tournaments arena bounds, SU WE tools)
+    runtimeOnly fg.deobf("blank:worldedit-mod:${worldedit_version}")
+    // CustomNPCs + Gecko addon (sdu's CNPC bridge)
+    runtimeOnly fg.deobf("maven.modrinth:customnpcs-unofficial:${customnpcs_version}")
+    runtimeOnly fg.deobf("maven.modrinth:cnpc-geckolib-addon:${cnpc_gecko_version}")
+    // Xaero's maps (SU guild-claim overlay)
+    runtimeOnly fg.deobf("maven.modrinth:xaeros-minimap:${xaero_minimap_version}")
+    runtimeOnly fg.deobf("maven.modrinth:xaeros-world-map:${xaero_worldmap_version}")
+
+    // DevAuth — real MS login on runClient.
+    runtimeOnly "me.djtheredstoner:DevAuth-forge-latest:${devauth_version}"
+}
+
+// Forward the console's stdin to the dev run tasks so the dedicated-server console
+// accepts typed commands (op, stop, ...) when launched from a terminal.
+tasks.matching { it.name in ['runClient', 'runServer'] }.configureEach {
+    standardInput = System.in
+}
+

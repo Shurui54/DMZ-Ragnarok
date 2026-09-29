@@ -1,0 +1,18 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "net.shurui.dev.shuruis_dmz_tournaments.mixin",
+  "compatibilityLevel": "JAVA_8",
+  "refmap": "shuruis_dmz_tournaments.refmap.json",
+  "mixins": [
+    "StatsDataTournamentFormMixin"
+  ],
+  "client": [
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "overwrites": {
+    "requireAnnotations": true
+  }
+}

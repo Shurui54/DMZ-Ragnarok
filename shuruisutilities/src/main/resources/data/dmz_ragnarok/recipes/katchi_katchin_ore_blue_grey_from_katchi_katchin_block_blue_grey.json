@@ -1,0 +1,13 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "building",
+  "ingredients": [
+    {
+      "item": "dmz_ragnarok:katchi_katchin_block_blue_grey"
+    }
+  ],
+  "result": {
+    "item": "dmz_ragnarok:katchi_katchin_ore_blue_grey",
+    "count": 9
+  }
+}

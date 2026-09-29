@@ -1,0 +1,30 @@
+{
+  "type": "dmz_ragnarok:nether",
+  "generator": {
+    "type": "minecraft:flat",
+    "settings": {
+      "biome": "dmz_ragnarok:nether",
+      "lakes": false,
+      "features": false,
+      "layers": [
+        {
+          "block": "minecraft:bedrock",
+          "height": 1
+        },
+        {
+          "block": "minecraft:basalt",
+          "height": 59
+        },
+        {
+          "block": "minecraft:soul_soil",
+          "height": 3
+        },
+        {
+          "block": "minecraft:netherrack",
+          "height": 1
+        }
+      ],
+      "structure_overrides": []
+    }
+  }
+}

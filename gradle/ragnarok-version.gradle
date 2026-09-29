@@ -1,0 +1,36 @@
+// The DMZ Ragnarok suite version, computed ONCE per Gradle invocation and shared by every suite jar:
+// the fat dmz_ragnarok jar, the modular core, dungeons, raids, tournaments and space jars, and the Ragnarok Key.
+// Each of those build.gradle files applies this script and sets mod_version = ragnarok_mod_version.
+//
+// Release builds (the default): the version is exactly ragnarok_version from the root gradle.properties, for
+// example 1.5.0. A release build never reads or writes dmz_ragnarok/build-number.txt.
+//
+// Test builds (-PtestBuild): the version is <ragnarok_version>-test.<n>, where <n> is the counter in
+// dmz_ragnarok/build-number.txt. The counter advances by one only when the invocation assembles a jar (build, jar,
+// assemble), so no two test jars share a version. A "-test.<n>" version sorts BELOW the plain release of the same
+// number in Forge's version ordering, so a tester's jar is never read as newer than the release it leads to.
+//
+// Why it is computed once: the old per-project counter read let the fat jar bump build-number.txt while the other
+// projects read it, so core and the fat jar could differ by one within one build. The value is now memoised on
+// the Gradle object, so every jar of one invocation carries the same version.
+//
+// TO RELEASE THE NEXT VERSION (for example 1.5.1): change ragnarok_version in the root gradle.properties, add a
+// CHANGELOG-<version>.html for each shipped jar, and build. Nothing else holds the version. Never commit
+// build-number.txt.
+
+if (!gradle.ext.has('ragnarokModVersion')) {
+    String base = rootProject.property('ragnarok_version').toString().trim()
+    String computed = base
+    if (rootProject.hasProperty('testBuild')) {
+        def counterFile = rootProject.file('dmz_ragnarok/build-number.txt')
+        int n = counterFile.exists() ? (counterFile.text.trim() as Integer) : 0
+        def assembling = gradle.startParameter.taskNames.any { t -> ['build', 'jar', 'assemble'].any { t.contains(it) } }
+        if (assembling) {
+            counterFile.text = (n + 1).toString()
+        }
+        computed = "${base}-test.${n}".toString()
+    }
+    gradle.ext.ragnarokModVersion = computed
+}
+
+ext.ragnarok_mod_version = gradle.ext.ragnarokModVersion

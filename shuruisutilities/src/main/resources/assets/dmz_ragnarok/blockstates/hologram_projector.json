@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=north": {
+      "model": "dmz_ragnarok:block/hologram_projector"
+    },
+    "facing=east": {
+      "model": "dmz_ragnarok:block/hologram_projector",
+      "y": 90
+    },
+    "facing=south": {
+      "model": "dmz_ragnarok:block/hologram_projector",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "dmz_ragnarok:block/hologram_projector",
+      "y": 270
+    }
+  }
+}

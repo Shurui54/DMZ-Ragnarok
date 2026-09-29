@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "facing=north": { "model": "dmz_ragnarok:block/race_boost_pad" },
+    "facing=east":  { "model": "dmz_ragnarok:block/race_boost_pad", "y": 90 },
+    "facing=south": { "model": "dmz_ragnarok:block/race_boost_pad", "y": 180 },
+    "facing=west":  { "model": "dmz_ragnarok:block/race_boost_pad", "y": 270 }
+  }
+}

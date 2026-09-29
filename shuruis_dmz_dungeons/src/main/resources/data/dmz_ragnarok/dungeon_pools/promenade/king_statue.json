@@ -1,0 +1,1 @@
+{"name":"minecells:promenade/king_statue","fallback":"minecraft:empty","elements":[{"weight":1,"element":{"element_type":"minecraft:single_pool_element","projection":"terrain_matching","location":"minecells:promenade/king_statue","processors":"minecells:promenade"}}]}

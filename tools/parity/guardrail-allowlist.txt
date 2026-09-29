@@ -1,0 +1,11 @@
+# Parity guardrail allow-list: string-literal class names that are INTENTIONALLY not present in the
+# dmz_ragnarok build output. The parityStringClassLiterals check treats these as expected and does not fail.
+#
+# Only two kinds of entry belong here:
+#   1. A class that lives in a SEPARATE mod jar and is reached reflectively (never compiled into this jar).
+#   2. A legacy class name kept in a reflective "try these names" fallback list for old saves/entities.
+#
+# Everything else must resolve to a real compiled class. Blank lines and lines starting with # are ignored.
+
+# --- Legacy entity class name, kept as a fallback candidate alongside the current CosmeticPetEntity ---
+net.shurui.shuruisutilities.cosmetics.wardrobe.pet.PetEntity

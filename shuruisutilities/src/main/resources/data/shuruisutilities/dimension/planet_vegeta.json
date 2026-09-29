@@ -1,0 +1,60 @@
+{ "__comment": "SHIM kept so pre-migration worlds still load. Live definition is now the dmz_ragnarok copy of this file. Prevents a hard datapack load failure only; it does not make an unmigrated world correct. Migration via world-tools/ns-rename is required.",
+  "type": "shuruisutilities:planet_vegeta",
+  "generator": {
+    "type": "minecraft:noise",
+    "biome_source": {
+      "type": "minecraft:multi_noise",
+      "biomes": [
+        {
+          "biome": "shuruisutilities:vegeta_arid",
+          "parameters": {
+            "continentalness": 0.0,
+            "depth": 0.0,
+            "erosion": 0.0,
+            "humidity": 0.5,
+            "offset": 0.0,
+            "temperature": 0.5,
+            "weirdness": 0.0
+          }
+        },
+        {
+          "biome": "shuruisutilities:vegeta",
+          "parameters": {
+            "continentalness": 0.0,
+            "depth": 0.0,
+            "erosion": 0.0,
+            "humidity": -0.5,
+            "offset": 0.0,
+            "temperature": 0.5,
+            "weirdness": 0.0
+          }
+        },
+        {
+          "biome": "shuruisutilities:vegeta_meadow",
+          "parameters": {
+            "continentalness": 0.0,
+            "depth": 0.0,
+            "erosion": 0.0,
+            "humidity": 0.5,
+            "offset": 0.0,
+            "temperature": -0.5,
+            "weirdness": 0.0
+          }
+        },
+        {
+          "biome": "shuruisutilities:vegeta_deep",
+          "parameters": {
+            "continentalness": 0.0,
+            "depth": 0.0,
+            "erosion": 0.0,
+            "humidity": -0.5,
+            "offset": 0.0,
+            "temperature": -0.5,
+            "weirdness": 0.0
+          }
+        }
+      ]
+    },
+    "settings": "shuruisutilities:planet_vegeta"
+  }
+}

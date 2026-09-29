@@ -1,0 +1,22 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "net.shurui.dev.sdu.mixin.cnpc",
+  "plugin": "net.shurui.dev.sdu.compat.cnpc.CnpcMixinPlugin",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "sdu.refmap.json",
+  "mixins": [
+    "DataDisplayHairMixin",
+    "DataDisplayModelPersistMixin"
+  ],
+  "client": [
+    "GuiCreationEntitiesTabMixin",
+    "RenderCustomModelMixin",
+    "NpcTextureUtilsMixin",
+    "EntityCustomModelHairMixin",
+    "ModelDataHairMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

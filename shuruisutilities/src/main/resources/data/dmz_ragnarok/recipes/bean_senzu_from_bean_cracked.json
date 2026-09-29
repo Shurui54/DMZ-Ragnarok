@@ -1,0 +1,10 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "ingredients": [
+    { "item": "dmz_ragnarok:bean_cracked" },
+    { "item": "dmz_ragnarok:bean_cracked" },
+    { "item": "dmz_ragnarok:bean_cracked" },
+    { "item": "dmz_ragnarok:bean_cracked" }
+  ],
+  "result": { "item": "dmz_ragnarok:bean_senzu", "count": 1 }
+}

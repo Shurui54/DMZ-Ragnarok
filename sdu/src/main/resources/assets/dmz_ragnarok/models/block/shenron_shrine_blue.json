@@ -1,0 +1,6 @@
+{
+	"parent": "dmz_ragnarok:block/shenron_shrine",
+	"textures": {
+		"shrine": "dmz_ragnarok:block/shenron_shrine_blue"
+	}
+}

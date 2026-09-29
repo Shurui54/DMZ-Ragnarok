@@ -1,0 +1,8 @@
+# Authored MTL for Shurui's Utilities hoverbike_3
+newmtl m_9b79bb34-d962-cde2-c94e-e1adc5879949
+Ka 1.000 1.000 1.000
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+d 1.0
+illum 1
+map_Kd #particle

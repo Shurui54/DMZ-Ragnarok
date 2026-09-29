@@ -1,0 +1,1 @@
+{"name":"minecells:promenade/underground_end","fallback":"minecraft:empty","elements":[{"weight":1,"element":{"element_type":"minecraft:single_pool_element","projection":"rigid","location":"minecells:promenade/underground_end/0","processors":"minecells:promenade"}}]}

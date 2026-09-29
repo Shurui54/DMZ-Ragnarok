@@ -1,0 +1,316 @@
+{
+  "parent": "minecraft:block/block",
+  "_comment": "Converted from the artist's Blockbench model: vanilla block geometry, not a GeckoLib rig. The dragon face's UVs stop short of 16 because its sprite is padded out to a multiple of 16 so it does not cost the block atlas its mipmaps. Parented to block/block purely for the standard display transforms, which the ITEM model inherits through this one; without them the idol in hand and in the inventory would be drawn untransformed.",
+  "textures": {
+    "glass": "dmz_ragnarok:block/idol_glass",
+    "gold": "dmz_ragnarok:block/idol_gold",
+    "dragon": "dmz_ragnarok:block/porunga_idol_art",
+    "particle": "dmz_ragnarok:block/idol_gold"
+  },
+  "elements": [
+    {
+      "from": [
+        4,
+        1,
+        4
+      ],
+      "to": [
+        12,
+        7,
+        12
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0.0,
+            2,
+            16,
+            14
+          ],
+          "texture": "#glass"
+        },
+        "east": {
+          "uv": [
+            0.0,
+            2,
+            16,
+            14
+          ],
+          "texture": "#glass"
+        },
+        "south": {
+          "uv": [
+            0.0,
+            2,
+            16,
+            14
+          ],
+          "texture": "#glass"
+        },
+        "west": {
+          "uv": [
+            0.0,
+            2,
+            16,
+            14
+          ],
+          "texture": "#glass"
+        },
+        "up": {
+          "uv": [
+            0.0,
+            0.0,
+            16,
+            16
+          ],
+          "texture": "#glass"
+        },
+        "down": {
+          "uv": [
+            0.0,
+            0.0,
+            16,
+            16
+          ],
+          "texture": "#glass"
+        }
+      }
+    },
+    {
+      "from": [
+        4,
+        7,
+        4
+      ],
+      "to": [
+        12,
+        8,
+        12
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0.0,
+            0.0,
+            16,
+            2
+          ],
+          "texture": "#gold"
+        },
+        "east": {
+          "uv": [
+            0.0,
+            0.0,
+            16,
+            2
+          ],
+          "texture": "#gold"
+        },
+        "south": {
+          "uv": [
+            0.0,
+            0.0,
+            16,
+            2
+          ],
+          "texture": "#gold"
+        },
+        "west": {
+          "uv": [
+            0.0,
+            0.0,
+            16,
+            2
+          ],
+          "texture": "#gold"
+        },
+        "up": {
+          "uv": [
+            0.0,
+            0.0,
+            16,
+            16
+          ],
+          "texture": "#gold"
+        },
+        "down": {
+          "uv": [
+            0.0,
+            0.0,
+            16,
+            16
+          ],
+          "texture": "#gold"
+        }
+      }
+    },
+    {
+      "from": [
+        4,
+        0,
+        4
+      ],
+      "to": [
+        12,
+        1,
+        12
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0.0,
+            0.0,
+            16,
+            2
+          ],
+          "texture": "#gold"
+        },
+        "east": {
+          "uv": [
+            0.0,
+            0.0,
+            16,
+            2
+          ],
+          "texture": "#gold"
+        },
+        "south": {
+          "uv": [
+            0.0,
+            0.0,
+            16,
+            2
+          ],
+          "texture": "#gold"
+        },
+        "west": {
+          "uv": [
+            0.0,
+            0.0,
+            16,
+            2
+          ],
+          "texture": "#gold"
+        },
+        "up": {
+          "uv": [
+            0.0,
+            0.0,
+            16,
+            16
+          ],
+          "texture": "#gold"
+        },
+        "down": {
+          "uv": [
+            0.0,
+            0.0,
+            16,
+            16
+          ],
+          "texture": "#gold"
+        }
+      }
+    },
+    {
+      "from": [
+        5.5,
+        8,
+        5
+      ],
+      "to": [
+        10.5,
+        9,
+        11
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            3,
+            0.0,
+            13,
+            2
+          ],
+          "texture": "#gold"
+        },
+        "east": {
+          "uv": [
+            2,
+            0.0,
+            14,
+            2
+          ],
+          "texture": "#gold"
+        },
+        "south": {
+          "uv": [
+            3,
+            0.0,
+            13,
+            2
+          ],
+          "texture": "#gold"
+        },
+        "west": {
+          "uv": [
+            2,
+            0.0,
+            14,
+            2
+          ],
+          "texture": "#gold"
+        },
+        "up": {
+          "uv": [
+            3,
+            2,
+            13,
+            14
+          ],
+          "texture": "#gold"
+        }
+      }
+    },
+    {
+      "from": [
+        4.35485,
+        1,
+        7.99515
+      ],
+      "to": [
+        11.65485,
+        7,
+        7.99515
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0.0,
+            0.0,
+            15.8235,
+            15.78
+          ],
+          "texture": "#dragon"
+        },
+        "south": {
+          "uv": [
+            0.0,
+            0.0,
+            15.8235,
+            15.78
+          ],
+          "texture": "#dragon"
+        }
+      },
+      "rotation": {
+        "angle": 45,
+        "axis": "y",
+        "origin": [
+          8.00485,
+          4,
+          7.99515
+        ]
+      }
+    }
+  ]
+}

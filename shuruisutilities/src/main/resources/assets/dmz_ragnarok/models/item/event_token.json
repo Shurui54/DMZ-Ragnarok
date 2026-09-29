@@ -1,0 +1,14 @@
+{
+  "parent": "item/generated",
+  "textures": {
+    "layer0": "dmz_ragnarok:item/event_token"
+  },
+  "overrides": [
+    {
+      "predicate": {
+        "custom_model_data": 1
+      },
+      "model": "dmz_ragnarok:item/event_token_candy"
+    }
+  ]
+}

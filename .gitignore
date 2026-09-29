@@ -1,0 +1,129 @@
+# Build output
+.gradle/
+build/
+*/build/
+out/
+bin/
+*.class
+
+# Dev run dirs (worlds, logs, crash reports, never source)
+run/
+run-client/
+**/run-client/
+*.log
+*.log.gz
+crash-reports/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+# Heavy non-code stuff (world saves, media, shared jars), not part of the source
+worldbuild/
+tts-narrator/
+video-editor/
+world-tools/
+schematics/
+libs/
+
+# OS
+.DS_Store
+
+# Old local history from before this went on github (safe to delete once you're happy)
+.git-backup-pre-github/
+
+# public server website lives here, kept out of the private mod repo (its own repo/deploy)
+website/
+
+# not part of the mod source
+/dist/
+/err.txt
+/docs/
+# tools/ is local scratch except for the pack publisher, which is real
+# infrastructure: it holds the live version map, the CurseForge project ids and the
+# config exclusion list, so it needs history. Note the contents have to be ignored
+# with /tools/* rather than /tools/, because git cannot re-include a file whose
+# parent directory is itself excluded.
+/tools/*
+!/tools/publish-pack.py
+# slice-web-ui.py regenerates the website's UI art FROM the in-game textures, so the site
+# and the game cannot drift apart. Same reasoning as the publisher: it is the definition of
+# a build step, not scratch, and it needs history.
+!/tools/slice-web-ui.py
+# rank-badges-rebuild.py is the ONLY way to add or change a rank badge: it trims the commissioned art,
+# assigns each rank its codepoint by list position, and regenerates rank_index.json plus both font
+# providers. Losing it would not just cost a script, it would strand the badge set exactly the way the
+# Kakarot converter's mapping.json was stranded: the outputs survive and become unmaintainable. It holds
+# no credentials, only the rank table and paths to local art.
+!/tools/rank-badges-rebuild.py
+# visualtest.sh is the entry point to the dev-only visual test harness (docs/visual-test-harness.md).
+# It is real, versioned tooling like the scripts above, not scratch, so it is tracked.
+!/tools/visualtest.sh
+# check-eventbus-modids.py is a build guard for the core-plus-modules split: it fails the build if any
+# @Mod.EventBusSubscriber lacks the correct explicit modid, or if a module presence check is hardcoded
+# outside ModulePresence. common.gradle wires it into every project's `check`, so it is real build
+# infrastructure and must be in history, not scratch.
+!/tools/check-eventbus-modids.py
+# check-client-key-reads.py is a build guard for the "private UI is not rendered without the key" rule: it
+# fails the build if client-scoped code reads a server-side key/tier gate (RagnarokKey, KeyGate.unlocked/present,
+# PublicContent, ...) instead of ClientGate. Wired into every project's `check`, so it is real
+# build infrastructure and must be in history, not scratch.
+!/tools/check-client-key-reads.py
+# tools/parity is the 2.0 parity harness (run/diff scripts, guardrail allow-list, committed baselines): real
+# infrastructure that needs history, not scratch. Re-include the directory so its contents are tracked; the
+# per-run _server.log stays ignored via the pattern added near the run-dir rules above.
+!/tools/parity/
+# tools/s-phase holds the S-phase proof scripts (save-hash.sh, proof P6): real tooling, tracked.
+!/tools/s-phase/
+# tools/events-tests is the standalone event-model test harness (schedule math + byte-identical NBT codec).
+# It compiles the shipped event sources against the mapped Minecraft jar and runs on plain Java, no Gradle.
+# Real infrastructure that needs history, so re-include the directory.
+!/tools/events-tests/
+/staff-forums/
+shuruisutilities/PORT_NOTES.md
+shuruisutilities/TESTING_GUIDE.md
+shuruisutilities/REWORK-GUI-PROMPT.txt
+shuruis_raid_bosses/REWORK-GUI-PROMPT.txt
+shuruis_raid_bosses/RESOURCEPACK-STRUCTURE-PROMPT.txt
+shuruis_raid_bosses/RAID-CONFIGS-raditz-and-great-ape-vegeta.md
+sdu/CUSTOM_MODELS.md
+sdu/DISCORD_WIKI.md
+sdu/GUIDE.md
+
+# Local working area: decompiled sources, extracted third-party assets, montages and one-off
+# probes. 4,500 of these were DragonMineZ's own extracted files, which are not ours to carry and
+# have nothing to do with the suite. Kept on disk, out of the repo.
+scratchpad/
+
+# Projects that no longer belong to this repository. Their working copies are still on disk, and
+# without these rules a plain `git add -A` silently re-adds them, which is exactly what happened
+# once and dragged patreon-link/.dev.vars (worker secrets) back in with it.
+/patreon-link/
+/wolfskey/
+/poposkey/
+/world-tools/
+/shuruis_mod_blacklist/
+/dmz_mohist_melee_fix/
+run2/
+.gradle-run2/
+
+# Parity harness (tools/parity): isolated per-label dev-run dirs at the repo root, and the per-run server
+# log written next to each baseline. The baseline dump .txt files themselves ARE committed.
+run-parity-*/
+tools/parity/baselines/**/_server.log
+
+# Local working dumps: decompiled DMZ sources and world/log scratch. Regenerated on demand,
+# 233 MB and 2 MB respectively, and nothing in the build reads them.
+scratchpad_dmz/
+scratchpad_amb/
+
+# Agent launch-test run dirs (fat/modular matrix); never commit dev-run output.
+/run-core/
+/run-all/
+/run-dungeons/
+/run-raids/
+/run-tournaments/
+/run-existing/

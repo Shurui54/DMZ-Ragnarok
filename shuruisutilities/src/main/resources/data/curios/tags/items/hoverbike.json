@@ -1,0 +1,12 @@
+{
+  "replace": false,
+  "values": [
+    "dmz_ragnarok:hoverbike_1",
+    "dmz_ragnarok:hoverbike_2",
+    "dmz_ragnarok:hoverbike_3",
+    "dmz_ragnarok:hoverbike_4",
+    "dmz_ragnarok:space_pod_chip",
+    "dmz_ragnarok:nimbus_chip",
+    "dmz_ragnarok:time_machine_chip"
+  ]
+}

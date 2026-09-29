@@ -1,0 +1,1 @@
+{"name":"minecells:promenade/path/crossroads_post","fallback":"minecraft:empty","elements":[{"weight":1,"element":{"element_type":"minecraft:single_pool_element","projection":"rigid","location":"minecells:promenade/path/crossroads_post","processors":"minecells:promenade"}}]}

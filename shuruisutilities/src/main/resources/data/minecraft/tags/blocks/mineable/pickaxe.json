@@ -1,0 +1,18 @@
+{
+  "replace": false,
+  "values": [
+    "dmz_ragnarok:corrupted_shrine",
+    "dmz_ragnarok:katchin_ore",
+    "dmz_ragnarok:deepslate_katchin_ore",
+    "dmz_ragnarok:katchin_block",
+    "dmz_ragnarok:katchi_katchin_ore_blue_grey",
+    "dmz_ragnarok:deepslate_katchi_katchin_ore_blue_grey",
+    "dmz_ragnarok:katchi_katchin_block_blue_grey",
+    "dmz_ragnarok:katchi_katchin_ore_orange",
+    "dmz_ragnarok:deepslate_katchi_katchin_ore_orange",
+    "dmz_ragnarok:katchi_katchin_block_orange",
+    "dmz_ragnarok:katchi_katchin_ore_cream",
+    "dmz_ragnarok:deepslate_katchi_katchin_ore_cream",
+    "dmz_ragnarok:katchi_katchin_block_cream"
+  ]
+}

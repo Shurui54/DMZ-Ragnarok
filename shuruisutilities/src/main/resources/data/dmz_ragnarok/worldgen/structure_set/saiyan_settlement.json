@@ -1,0 +1,14 @@
+{
+  "structures": [
+    {
+      "structure": "dmz_ragnarok:saiyan_settlement",
+      "weight": 1
+    }
+  ],
+  "placement": {
+    "type": "minecraft:random_spread",
+    "spacing": 40,
+    "separation": 12,
+    "salt": 7654321
+  }
+}

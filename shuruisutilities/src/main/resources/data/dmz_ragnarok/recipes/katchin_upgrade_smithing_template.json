@@ -1,0 +1,25 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "group": "dmz_ragnarok",
+  "key": {
+    "G": {
+      "item": "dmz_ragnarok:katchin_ore"
+    },
+    "I": {
+      "item": "minecraft:iron_ingot"
+    },
+    "T": {
+      "item": "dragonminez:gete_smithing_template"
+    }
+  },
+  "pattern": [
+    "IGI",
+    "GTG",
+    "IGI"
+  ],
+  "result": {
+    "item": "dmz_ragnarok:katchin_upgrade_smithing_template"
+  },
+  "show_notification": true
+}

@@ -1,0 +1,12 @@
+{
+  "_comment": "RETAINED. STONY was retired from the dungeon theme picker (VEGETA carries the Saiyan label now), but this dimension and everything it references by name (its dimension_type dmz_ragnarok:surface, its noise_settings dmz_ragnarok:stony, its biome dmz_ragnarok:stony) is COPIED into level.dat at world creation and never re-read. Deleting any of them does not break just this dimension, it breaks the ENTIRE WORLD with a datapack-looking load error. Existing stony floors still generate here, so keep this file (and its referenced files) in place as a shim even though no new floor can select STONY.",
+  "type": "dmz_ragnarok:surface",
+  "generator": {
+    "type": "minecraft:noise",
+    "settings": "dmz_ragnarok:stony",
+    "biome_source": {
+      "type": "minecraft:fixed",
+      "biome": "dmz_ragnarok:stony"
+    }
+  }
+}

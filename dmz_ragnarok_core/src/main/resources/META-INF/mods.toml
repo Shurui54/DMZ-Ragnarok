@@ -1,0 +1,122 @@
+# DMZ Ragnarok CORE (sdu + shuruisutilities), the standalone core jar of the modular build. Declares ONE
+# mod, dmz_ragnarok, and must load and run on its own (client and dedicated server). The three optional
+# modules ship as their own jars (dmz_ragnarok_dungeons / _raids / _tournaments) and depend on this. The
+# SAME sources also build the fat jar, which packs core plus the three modules into one file with a
+# four-mod mods.toml; this core-only manifest is what the modular install uses.
+modLoader = "javafml" #mandatory
+loaderVersion = "${loader_version_range}" #mandatory
+license = "${mod_license}"
+
+[[mods]] #mandatory
+modId = "${mod_id}" #mandatory
+version = "${mod_version}" #mandatory
+displayName = "${mod_name}" #mandatory
+authors = "${mod_authors}" #optional
+credits = "Kiba, CalamityKage, Rradly, WolfyKip"
+description = '''${mod_description}'''
+# No displayTest here on purpose: Shurui's Utilities registers an IExtensionPoint.DisplayTest
+# (IGNORESERVERONLY) in code, so declaring one here would double-register and crash loading.
+
+# Only the core (sdu + shuruisutilities) mixin configs. The module mixin configs ship in the module jars.
+[[mixins]]
+config = "sdu.mixins.json"
+[[mixins]]
+config = "sdu.cnpc.mixins.json"
+[[mixins]]
+config = "mixins.shuruisutilities.json"
+[[mixins]]
+config = "mixins.shuruisutilities.compat.json"
+[[mixins]]
+config = "dmz_ragnarok_space.mixins.json"
+
+[[dependencies."${mod_id}"]]
+modId = "forge" #mandatory
+mandatory = true
+versionRange = "${forge_version_range}"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies."${mod_id}"]]
+modId = "minecraft"
+mandatory = true
+versionRange = "${minecraft_version_range}"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies."${mod_id}"]]
+modId = "dragonminez"
+mandatory = true
+versionRange = "[2.1.1b,)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies."${mod_id}"]]
+modId = "geckolib"
+mandatory = true
+versionRange = "[4.8.3,)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies."${mod_id}"]]
+modId = "curios"
+mandatory = true
+versionRange = "[5,)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies."${mod_id}"]]
+modId = "customnpcs"
+mandatory = false
+versionRange = "[1.20.1,)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies."${mod_id}"]]
+modId = "cnpcgeckoaddon"
+mandatory = false
+versionRange = "[1.20.1,)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies."${mod_id}"]]
+modId = "worldedit"
+mandatory = false
+versionRange = "[7.2,)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies."${mod_id}"]]
+modId = "cosmeticarmorreworked"
+mandatory = false
+versionRange = "[1.0,)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies."${mod_id}"]]
+modId = "tconstruct"
+mandatory = false
+versionRange = "[3.11,)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies."${mod_id}"]]
+modId = "distanthorizons"
+mandatory = false
+versionRange = "[2.0,)"
+ordering = "AFTER"
+side = "CLIENT"
+
+[[dependencies."${mod_id}"]]
+modId = "ironfurnaces"
+mandatory = false
+versionRange = "[4.0,)"
+ordering = "AFTER"
+side = "BOTH"
+
+# JEI - SOFT, CLIENT only. The compat.jei plugin hides private items; JEI loads it itself when present.
+[[dependencies."${mod_id}"]]
+modId = "jei"
+mandatory = false
+versionRange = "[15.0,)"
+ordering = "AFTER"
+side = "CLIENT"

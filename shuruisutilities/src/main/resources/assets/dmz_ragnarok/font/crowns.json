@@ -1,0 +1,58 @@
+{
+ "providers": [
+  {
+   "type": "bitmap",
+   "file": "dmz_ragnarok:font/crown/bronze.png",
+   "ascent": 7,
+   "height": 9,
+   "chars": [
+    ""
+   ]
+  },
+  {
+   "type": "bitmap",
+   "file": "dmz_ragnarok:font/crown/silver.png",
+   "ascent": 7,
+   "height": 9,
+   "chars": [
+    ""
+   ]
+  },
+  {
+   "type": "bitmap",
+   "file": "dmz_ragnarok:font/crown/gold.png",
+   "ascent": 7,
+   "height": 9,
+   "chars": [
+    ""
+   ]
+  },
+  {
+   "type": "bitmap",
+   "file": "dmz_ragnarok:font/crown/diamond.png",
+   "ascent": 7,
+   "height": 9,
+   "chars": [
+    ""
+   ]
+  },
+  {
+   "type": "bitmap",
+   "file": "dmz_ragnarok:font/crown/prismatic.png",
+   "ascent": 7,
+   "height": 9,
+   "chars": [
+    ""
+   ]
+  },
+  {
+   "type": "bitmap",
+   "file": "dmz_ragnarok:font/crown/developer.png",
+   "ascent": 7,
+   "height": 9,
+   "chars": [
+    ""
+   ]
+  }
+ ]
+}

@@ -1,0 +1,193 @@
+{
+ "providers": [
+  {
+   "type": "bitmap",
+   "file": "dmz_ragnarok:font/rank/newbie.png",
+   "ascent": 9,
+   "height": 12,
+   "chars": [
+    ""
+   ]
+  },
+  {
+   "type": "bitmap",
+   "file": "dmz_ragnarok:font/rank/veteran.png",
+   "ascent": 9,
+   "height": 12,
+   "chars": [
+    ""
+   ]
+  },
+  {
+   "type": "bitmap",
+   "file": "dmz_ragnarok:font/rank/anim_citizen.png",
+   "ascent": 9,
+   "height": 12,
+   "chars": [
+    ""
+   ]
+  },
+  {
+   "type": "bitmap",
+   "file": "dmz_ragnarok:font/rank/anim_citizen_plus.png",
+   "ascent": 9,
+   "height": 12,
+   "chars": [
+    ""
+   ]
+  },
+  {
+   "type": "bitmap",
+   "file": "dmz_ragnarok:font/rank/anim_vip.png",
+   "ascent": 9,
+   "height": 12,
+   "chars": [
+    ""
+   ]
+  },
+  {
+   "type": "bitmap",
+   "file": "dmz_ragnarok:font/rank/anim_vip_plus.png",
+   "ascent": 9,
+   "height": 12,
+   "chars": [
+    ""
+   ]
+  },
+  {
+   "type": "bitmap",
+   "file": "dmz_ragnarok:font/rank/anim_mvp.png",
+   "ascent": 9,
+   "height": 12,
+   "chars": [
+    ""
+   ]
+  },
+  {
+   "type": "bitmap",
+   "file": "dmz_ragnarok:font/rank/anim_mvp_plus.png",
+   "ascent": 9,
+   "height": 12,
+   "chars": [
+    ""
+   ]
+  },
+  {
+   "type": "bitmap",
+   "file": "dmz_ragnarok:font/rank/helper.png",
+   "ascent": 9,
+   "height": 12,
+   "chars": [
+    ""
+   ]
+  },
+  {
+   "type": "bitmap",
+   "file": "dmz_ragnarok:font/rank/trial_mod.png",
+   "ascent": 9,
+   "height": 12,
+   "chars": [
+    ""
+   ]
+  },
+  {
+   "type": "bitmap",
+   "file": "dmz_ragnarok:font/rank/mod.png",
+   "ascent": 9,
+   "height": 12,
+   "chars": [
+    ""
+   ]
+  },
+  {
+   "type": "bitmap",
+   "file": "dmz_ragnarok:font/rank/head_mod.png",
+   "ascent": 9,
+   "height": 12,
+   "chars": [
+    ""
+   ]
+  },
+  {
+   "type": "bitmap",
+   "file": "dmz_ragnarok:font/rank/admin.png",
+   "ascent": 9,
+   "height": 12,
+   "chars": [
+    ""
+   ]
+  },
+  {
+   "type": "bitmap",
+   "file": "dmz_ragnarok:font/rank/head_admin.png",
+   "ascent": 9,
+   "height": 12,
+   "chars": [
+    ""
+   ]
+  },
+  {
+   "type": "bitmap",
+   "file": "dmz_ragnarok:font/rank/builder.png",
+   "ascent": 9,
+   "height": 12,
+   "chars": [
+    ""
+   ]
+  },
+  {
+   "type": "bitmap",
+   "file": "dmz_ragnarok:font/rank/head_builder.png",
+   "ascent": 9,
+   "height": 12,
+   "chars": [
+    ""
+   ]
+  },
+  {
+   "type": "bitmap",
+   "file": "dmz_ragnarok:font/rank/anim_server_manager.png",
+   "ascent": 9,
+   "height": 12,
+   "chars": [
+    ""
+   ]
+  },
+  {
+   "type": "bitmap",
+   "file": "dmz_ragnarok:font/rank/anim_owner.png",
+   "ascent": 9,
+   "height": 12,
+   "chars": [
+    ""
+   ]
+  },
+  {
+   "type": "bitmap",
+   "file": "dmz_ragnarok:font/rank/artist.png",
+   "ascent": 9,
+   "height": 12,
+   "chars": [
+    ""
+   ]
+  },
+  {
+   "type": "bitmap",
+   "file": "dmz_ragnarok:font/rank/trial_admin.png",
+   "ascent": 9,
+   "height": 12,
+   "chars": [
+    ""
+   ]
+  },
+  {
+   "type": "bitmap",
+   "file": "dmz_ragnarok:font/rank/youtuber.png",
+   "ascent": 9,
+   "height": 12,
+   "chars": [
+    ""
+   ]
+  }
+ ]
+}

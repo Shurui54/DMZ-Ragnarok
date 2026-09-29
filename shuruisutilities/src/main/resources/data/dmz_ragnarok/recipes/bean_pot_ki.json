@@ -1,0 +1,8 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "ingredients": [
+    { "item": "dmz_ragnarok:bean_pot" },
+    { "item": "dmz_ragnarok:bean_ki" }
+  ],
+  "result": { "item": "dmz_ragnarok:bean_pot_ki", "count": 1 }
+}

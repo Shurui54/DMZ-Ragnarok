@@ -1,0 +1,20 @@
+{
+  "required": true,
+  "package": "net.shurui.shuruisutilities.space.mixin",
+  "plugin": "net.shurui.shuruisutilities.core.mixin.SUMixinConfig",
+  "refmap": "dmz_ragnarok_space.refmap.json",
+  "compatibilityLevel": "JAVA_17",
+  "minVersion": "0.8",
+  "client": [
+    "client.MixinDmzClashCamera",
+    "client.MixinDmzSpaceRadarDraw"
+  ],
+  "mixins": [
+    "dmz.MixinDmzClashParticipant",
+    "dmz.MixinDmzSpacePodVerticalSpeed",
+    "dmz.MixinDmzTravelToPlanet"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

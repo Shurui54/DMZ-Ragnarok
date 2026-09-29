@@ -1,0 +1,125 @@
+{
+  "__comment": "Shurui's Utilities override of DMZ's space pod destination list. Ships under the dragonminez namespace so it deterministically replaces DMZ's own file. Every destination lives HERE, including our own planets, because this file sets replace true and therefore clears the list: anything shipped in a separate file whose id sorts before dragonminez: is added and then wiped. Our namespace used to sort after it and now sorts before, which is exactly how Vegeta and Beerus went missing. Dimension ids now use the dmz_ragnarok namespace: the SU dimensions were renamed out of shuruisutilities in the dimension/biome rename stage, so beerus_planet, planet_vegeta and the multiworld dims kaiow/namekow are addressed as dmz_ragnarok here. A pre-migration world still holds those dims under shuruisutilities and must be migrated with world-tools/ns-rename for these teleports to land on the existing builds. If DMZ adds new stock destinations in an update, mirror them here. The smp entry is STRIPPED at datapack load on any install that is not a dedicated server running Shurui's Key (see MixinDmzSpacePodDestinations), so it is absent from the pod menu and from the planet ring everywhere else, singleplayer included.",
+  "destinations": [
+    {
+      "dimension": "minecraft:overworld",
+      "icon_index": 0,
+      "id": "overworld",
+      "name": "gui.dragonminez.spacepod.overworld",
+      "show_when_locked": true,
+      "translate": true,
+      "unlock_rules": "ALWAYS"
+    },
+    {
+      "dimension": "dmz_ragnarok:smp",
+      "icon_index": 0,
+      "id": "smp",
+      "name": "gui.dmz_ragnarok.core.spacepod.smp",
+      "show_when_locked": true,
+      "translate": true,
+      "unlock_rules": "ALWAYS"
+    },
+    {
+      "dimension": "dragonminez:namek",
+      "icon_index": 1,
+      "id": "namek",
+      "name": "gui.dragonminez.spacepod.namek",
+      "show_when_locked": true,
+      "translate": true,
+      "unlock_rules": "ALWAYS"
+    },
+    {
+      "dimension": "dmz_ragnarok:namekow",
+      "icon_index": 1,
+      "id": "namekow",
+      "name": "Namek OW",
+      "show_when_locked": true,
+      "translate": false,
+      "unlock_rules": "ALWAYS",
+      "x": 1976.0,
+      "y": 64.0,
+      "z": 1784.0
+    },
+    {
+      "dimension": "dmz_ragnarok:kaiow",
+      "icon_index": 1,
+      "id": "kaiow",
+      "name": "gui.dmz_ragnarok.core.spacepod.kaiow",
+      "show_when_locked": true,
+      "translate": true,
+      "unlock_rules": "ALWAYS",
+      "x": 0.0,
+      "y": 105.0,
+      "z": -64.0
+    },
+    {
+      "dimension": "dragonminez:otherworld",
+      "icon_index": 2,
+      "id": "otherworld",
+      "name": "gui.dragonminez.spacepod.otherworld",
+      "show_when_locked": false,
+      "translate": true,
+      "unlock_rules": {
+        "and": [
+          "OTHERWORLD_ENABLED",
+          {
+            "quest": "bulma_otherworld_drive"
+          }
+        ]
+      },
+      "x": 54.0,
+      "y": 210.0,
+      "z": 1082.0
+    },
+    {
+      "dimension": "dragonminez:sacredkaiplanet",
+      "icon_index": 3,
+      "id": "sacredkaiplanet",
+      "name": "gui.dragonminez.spacepod.sacredkaiplanet",
+      "show_when_locked": true,
+      "translate": true,
+      "unlock_rules": {
+        "quest": "buu_saga:23"
+      }
+    },
+    {
+      "dimension": "dragonminez:time_chamber",
+      "icon_index": 2,
+      "id": "time_chamber",
+      "name": "gui.dragonminez.spacepod.time_chamber",
+      "show_when_locked": false,
+      "translate": true,
+      "unlock_rules": {
+        "quest": "bulma_time_chamber_link"
+      },
+      "x": 0.5,
+      "y": 130.0,
+      "z": 0.5
+    },
+    {
+      "dimension": "dmz_ragnarok:beerus_planet",
+      "id": "beerus_planet",
+      "name": "gui.dmz_ragnarok.core.spacepod.beerus_planet",
+      "translate": true,
+      "icon_texture": "dmz_ragnarok:textures/entity/space/planet/beerus_icon.png",
+      "show_when_locked": true,
+      "unlock_rules": "ALWAYS",
+      "x": -449.0,
+      "y": 8.0,
+      "z": -14.0
+    },
+    {
+      "dimension": "dmz_ragnarok:planet_vegeta",
+      "id": "planet_vegeta",
+      "name": "gui.dmz_ragnarok.core.spacepod.planet_vegeta",
+      "translate": true,
+      "icon_texture": "dmz_ragnarok:textures/entity/space/planet/vegeta_icon.png",
+      "show_when_locked": true,
+      "unlock_rules": "ALWAYS",
+      "x": 155.0,
+      "y": 65.0,
+      "z": -75.0
+    }
+  ],
+  "replace": true
+}

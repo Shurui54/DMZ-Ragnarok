@@ -1,0 +1,19 @@
+// RETIRED SUBPROJECT TRIPWIRE (shuruisutilities).
+//
+// This addon is no longer a Gradle subproject. Its source tree (shuruisutilities/src/main/java and
+// shuruisutilities/src/main/resources) is still on disk and is compiled by the dmz_ragnarok aggregate,
+// whose source sets point at these trees BY PATH (see dmz_ragnarok/build.gradle). Building this as its
+// own project would only produce a vestigial jar whose mods.toml declares the mod id "shuruisutilities",
+// which no longer has a @Mod class behind it; loading such a jar crashes the client ("has mods that were
+// not found").
+//
+// The include for this project was removed from settings.gradle on purpose. If Gradle is evaluating this
+// file, someone re-added that include. Do NOT do that: add the content to dmz_ragnarok instead. This throw
+// is the loud stop so a stale project can never silently rejoin the build.
+//
+// NOTE for maintainers: the weFatJar / genChatLang / checkChatLang helper tasks that used to live here are
+// gone with this project. If any is still needed, port it onto dmz_ragnarok (its source set already spans
+// this tree), do not re-register this project to get them back.
+throw new GradleException(
+        "The 'shuruisutilities' subproject is retired. Its sources are compiled by the dmz_ragnarok aggregate. " +
+        "Remove \"include ':shuruisutilities'\" from settings.gradle. See dmz_ragnarok/build.gradle for the source-set wiring.")

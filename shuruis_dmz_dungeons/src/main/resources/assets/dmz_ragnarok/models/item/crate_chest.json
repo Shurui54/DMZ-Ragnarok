@@ -1,0 +1,4 @@
+{
+  "__comment": "Drawn by the GeckoLib crate renderer, which picks the look off the stack CrateVariant; see item/crate_base for the transforms.",
+  "parent": "dmz_ragnarok:item/crate_base"
+}

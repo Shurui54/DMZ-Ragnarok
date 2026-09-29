@@ -1,0 +1,11 @@
+{
+  "type": "dmz_ragnarok:otherworld",
+  "generator": {
+    "type": "minecraft:noise",
+    "settings": "dmz_ragnarok:otherworld",
+    "biome_source": {
+      "type": "minecraft:fixed",
+      "biome": "dmz_ragnarok:otherworld"
+    }
+  }
+}

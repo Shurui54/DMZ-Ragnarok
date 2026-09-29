@@ -1,0 +1,6 @@
+{
+  "__comment": "Intentionally empty (no elements). The block's RenderShape is INVISIBLE and AdvancedSpawnerRenderer draws the mob-spawner / disguise appearance. Only the particle texture (used for break/step particles) is defined.",
+  "textures": {
+    "particle": "minecraft:block/spawner"
+  }
+}

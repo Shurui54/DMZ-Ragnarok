@@ -1,0 +1,18 @@
+{
+  "level_display": "tconstruct:default",
+  "modules": [
+    {
+      "type": "tconstruct:enderclearance",
+      "chance": {
+        "flat": 0.0
+      },
+      "diameter": {
+        "flat": 0
+      },
+      "teleport_chances": {
+        "flat": 0
+      }
+    }
+  ],
+  "tooltip_display": "always"
+}

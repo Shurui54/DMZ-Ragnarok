@@ -1,0 +1,19 @@
+{
+  "display_name": "Default",
+  "geo": "geo/npc_default.geo.json",
+  "texture": "textures/entity/npc_default.png",
+  "animation": "animations/npc_default.animation.json",
+  "scale": 1.0,
+  "animations": {
+    "idle": "base.idle",
+    "walk": "base.walk",
+    "attack": "base.attack1",
+    "hurt": "base.faint_horizontal",
+    "death": "base.faint_vertical"
+  },
+  "extra_animations": [
+    "dragonminez:animations/entity/races/movement.animation.json",
+    "dragonminez:animations/entity/races/combat.animation.json",
+    "dragonminez:animations/entity/races/ki.animation.json"
+  ]
+}

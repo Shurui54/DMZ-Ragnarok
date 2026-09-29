@@ -1,0 +1,173 @@
+{
+ "default": "newbie",
+ "ranks": [
+  {
+   "name": "newbie",
+   "display": "Newbie",
+   "codepoint": 57344,
+   "animStart": 57344,
+   "frames": 1,
+   "frameTime": 100
+  },
+  {
+   "name": "veteran",
+   "display": "Veteran",
+   "codepoint": 57345,
+   "animStart": 57345,
+   "frames": 1,
+   "frameTime": 100
+  },
+  {
+   "name": "anim_citizen",
+   "display": "Citizen",
+   "codepoint": 57346,
+   "animStart": 57346,
+   "frames": 1,
+   "frameTime": 100
+  },
+  {
+   "name": "anim_citizen_plus",
+   "display": "Citizen+",
+   "codepoint": 57347,
+   "animStart": 57347,
+   "frames": 1,
+   "frameTime": 100
+  },
+  {
+   "name": "anim_vip",
+   "display": "VIP",
+   "codepoint": 57348,
+   "animStart": 57348,
+   "frames": 1,
+   "frameTime": 100
+  },
+  {
+   "name": "anim_vip_plus",
+   "display": "VIP+",
+   "codepoint": 57349,
+   "animStart": 57349,
+   "frames": 1,
+   "frameTime": 100
+  },
+  {
+   "name": "anim_mvp",
+   "display": "MVP",
+   "codepoint": 57350,
+   "animStart": 57350,
+   "frames": 1,
+   "frameTime": 100
+  },
+  {
+   "name": "anim_mvp_plus",
+   "display": "MVP+",
+   "codepoint": 57351,
+   "animStart": 57351,
+   "frames": 1,
+   "frameTime": 100
+  },
+  {
+   "name": "helper",
+   "display": "Helper",
+   "codepoint": 57352,
+   "animStart": 57352,
+   "frames": 1,
+   "frameTime": 100
+  },
+  {
+   "name": "trial_mod",
+   "display": "Trial Mod",
+   "codepoint": 57353,
+   "animStart": 57353,
+   "frames": 1,
+   "frameTime": 100
+  },
+  {
+   "name": "mod",
+   "display": "Mod",
+   "codepoint": 57354,
+   "animStart": 57354,
+   "frames": 1,
+   "frameTime": 100
+  },
+  {
+   "name": "head_mod",
+   "display": "Head Mod",
+   "codepoint": 57355,
+   "animStart": 57355,
+   "frames": 1,
+   "frameTime": 100
+  },
+  {
+   "name": "admin",
+   "display": "Admin",
+   "codepoint": 57356,
+   "animStart": 57356,
+   "frames": 1,
+   "frameTime": 100
+  },
+  {
+   "name": "head_admin",
+   "display": "Head Admin",
+   "codepoint": 57357,
+   "animStart": 57357,
+   "frames": 1,
+   "frameTime": 100
+  },
+  {
+   "name": "builder",
+   "display": "Builder",
+   "codepoint": 57358,
+   "animStart": 57358,
+   "frames": 1,
+   "frameTime": 100
+  },
+  {
+   "name": "head_builder",
+   "display": "Head Builder",
+   "codepoint": 57359,
+   "animStart": 57359,
+   "frames": 1,
+   "frameTime": 100
+  },
+  {
+   "name": "anim_server_manager",
+   "display": "Manager",
+   "codepoint": 57360,
+   "animStart": 57360,
+   "frames": 1,
+   "frameTime": 100
+  },
+  {
+   "name": "anim_owner",
+   "display": "Owner",
+   "codepoint": 57361,
+   "animStart": 57361,
+   "frames": 1,
+   "frameTime": 100
+  },
+  {
+   "name": "artist",
+   "display": "Artist",
+   "codepoint": 57362,
+   "animStart": 57362,
+   "frames": 1,
+   "frameTime": 100
+  },
+  {
+   "name": "trial_admin",
+   "display": "Trial Admin",
+   "codepoint": 57363,
+   "animStart": 57363,
+   "frames": 1,
+   "frameTime": 100
+  },
+  {
+   "name": "youtuber",
+   "display": "Youtuber",
+   "codepoint": 57364,
+   "animStart": 57364,
+   "frames": 1,
+   "frameTime": 100
+  }
+ ]
+}

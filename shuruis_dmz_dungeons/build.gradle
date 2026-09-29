@@ -1,0 +1,40 @@
+// DMZ Ragnarok: Dungeons module (mod id dmz_ragnarok_dungeons).
+//
+// A standalone module jar of the modular build. It compiles against :dmz_ragnarok_core as a real project
+// dependency (shared code lives ONCE, in core; this module never copies it) and depends on core at runtime
+// (mandatory, loads AFTER it). It registers into the dmz_ragnarok namespace, so an existing world is
+// unchanged whether this module arrives as its own jar or inside the fat jar. The same sources are also
+// compiled into the fat jar by :dmz_ragnarok.
+
+// One suite version for every jar (root gradle.properties ragnarok_version; see gradle/ragnarok-version.gradle).
+apply from: "${rootDir}/gradle/ragnarok-version.gradle"
+
+ext {
+    mod_id = 'dmz_ragnarok_dungeons'
+    mod_name = 'DMZ Ragnarok: Dungeons'
+    mod_license = 'GNU General Public License v3.0'
+    mod_version = ragnarok_mod_version
+    mod_group_id = 'net.shurui.dev'
+    mod_authors = 'Shurui'
+    mod_description = 'Instanced dungeons, the advanced spawner and WorldEdit tools for DMZ Ragnarok. Registers into the dmz_ragnarok namespace; requires DMZ Ragnarok core.'
+}
+
+apply from: "${rootDir}/common.gradle"
+
+dependencies {
+    // Core (sdu + shuruisutilities + shared infra). Real project dependency: this is how the shared code is
+    // consumed once instead of copied. Not bundled; core is a separate mandatory jar at runtime.
+    implementation project(':dmz_ragnarok_core')
+}
+
+// This module's own mixin config + refmap (kept separate from core's, so the module jar ships its own).
+mixin {
+    add sourceSets.main, "shuruis_dmz_dungeons.refmap.json"
+    config 'shuruis_dmz_dungeons.mixins.json'
+}
+
+tasks.named('jar', Jar).configure {
+    manifest {
+        attributes(['MixinConfigs': 'shuruis_dmz_dungeons.mixins.json'])
+    }
+}

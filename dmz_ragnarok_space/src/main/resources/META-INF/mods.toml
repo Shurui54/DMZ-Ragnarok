@@ -1,0 +1,53 @@
+# DMZ Ragnarok: Space module. One mod (dmz_ragnarok_space) that requires DMZ Ragnarok core. It registers
+# all of its content into the dmz_ragnarok namespace; this id is a Forge CONTAINER id only. Installing this
+# jar alongside the fat jar (which also declares dmz_ragnarok_space) makes Forge stop with a clear
+# duplicate-mod error, which is the intended collision guard.
+modLoader = "javafml" #mandatory
+loaderVersion = "${loader_version_range}" #mandatory
+license = "${mod_license}"
+
+[[mods]] #mandatory
+modId = "${mod_id}" #mandatory
+version = "${mod_version}" #mandatory
+displayName = "${mod_name}" #mandatory
+authors = "${mod_authors}" #optional
+description = '''${mod_description}'''
+
+[[dependencies."${mod_id}"]]
+modId = "forge" #mandatory
+mandatory = true
+versionRange = "${forge_version_range}"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies."${mod_id}"]]
+modId = "minecraft"
+mandatory = true
+versionRange = "${minecraft_version_range}"
+ordering = "NONE"
+side = "BOTH"
+
+# DMZ Ragnarok core: the shared code this module compiles against and needs at runtime. MANDATORY, AFTER. At least this jar's own version (every suite jar
+# of one build carries the same version).
+[[dependencies."${mod_id}"]]
+modId = "dmz_ragnarok"
+mandatory = true
+versionRange = "[${mod_version},)"
+ordering = "AFTER"
+side = "BOTH"
+
+# DragonMine Z, the base mod. Load AFTER it so its ki entities / space pod / stats capability exist.
+[[dependencies."${mod_id}"]]
+modId = "dragonminez"
+mandatory = true
+versionRange = "[2.1.1b,)"
+ordering = "AFTER"
+side = "BOTH"
+
+# GeckoLib, HARD: the garrison / town / super-ball entity renderers are GeckoLib models.
+[[dependencies."${mod_id}"]]
+modId = "geckolib"
+mandatory = true
+versionRange = "[4.8.3,)"
+ordering = "AFTER"
+side = "BOTH"

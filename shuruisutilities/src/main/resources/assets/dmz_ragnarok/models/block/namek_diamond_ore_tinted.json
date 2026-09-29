@@ -1,0 +1,6 @@
+{
+  "parent": "dmz_ragnarok:block/tinted_cube_all",
+  "textures": {
+    "all": "dmz_ragnarok:block/namek_diamond_ore"
+  }
+}

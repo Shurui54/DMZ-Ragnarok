@@ -1,0 +1,23 @@
+{
+  "fallback": "minecraft:empty",
+  "elements": [
+    {
+      "weight": 3,
+      "element": {
+        "element_type": "minecraft:single_pool_element",
+        "location": "dmz_ragnarok:saiyan_settlement/hut/0",
+        "processors": "dmz_ragnarok:hut_saibaman_seeds_0",
+        "projection": "rigid"
+      }
+    },
+    {
+      "weight": 2,
+      "element": {
+        "element_type": "minecraft:single_pool_element",
+        "location": "dmz_ragnarok:saiyan_settlement/hut/1",
+        "processors": "dmz_ragnarok:hut_saibaman_seeds_1",
+        "projection": "rigid"
+      }
+    }
+  ]
+}

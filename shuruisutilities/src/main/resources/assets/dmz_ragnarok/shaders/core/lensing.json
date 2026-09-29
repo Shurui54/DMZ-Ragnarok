@@ -1,0 +1,22 @@
+{
+    "blend": {
+        "func": "add",
+        "srcrgb": "one",
+        "dstrgb": "zero"
+    },
+    "vertex": "dmz_ragnarok:lensing",
+    "fragment": "dmz_ragnarok:lensing",
+    "attributes": [
+        "Position",
+        "UV0"
+    ],
+    "samplers": [
+        { "name": "Sampler0" }
+    ],
+    "uniforms": [
+        { "name": "HoleScreenPos", "type": "float", "count": 2, "values": [ 0.5, 0.5 ] },
+        { "name": "HoleRadius", "type": "float", "count": 1, "values": [ 0.1 ] },
+        { "name": "Aspect", "type": "float", "count": 1, "values": [ 1.0 ] },
+        { "name": "Strength", "type": "float", "count": 1, "values": [ 0.25 ] }
+    ]
+}

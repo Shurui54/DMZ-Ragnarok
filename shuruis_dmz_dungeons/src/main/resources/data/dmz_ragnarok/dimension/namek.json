@@ -1,0 +1,11 @@
+{
+  "type": "dmz_ragnarok:surface",
+  "generator": {
+    "type": "minecraft:noise",
+    "settings": "dmz_ragnarok:namek",
+    "biome_source": {
+      "type": "minecraft:fixed",
+      "biome": "dmz_ragnarok:namek"
+    }
+  }
+}

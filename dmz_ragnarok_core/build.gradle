@@ -1,0 +1,102 @@
+// DMZ Ragnarok CORE: the standalone core jar of the modular build (mod id dmz_ragnarok).
+//
+// It aggregates the two indivisible core trees, sdu + shuruisutilities, plus the shared @Mod entrypoint
+// (net.shurui.dev.ragnarok.DmzRagnarok, which lives in ../dmz_ragnarok/src/main/java and is shared with the
+// fat jar). No source is copied: this project and the fat jar both point their source sets at the same
+// trees on disk, so an update is written once and both builds pick it up. The three optional modules
+// (dmz_ragnarok_dungeons / _raids / _tournaments) are SEPARATE projects that compile against THIS one as a
+// real project dependency, and are packed alongside it only by the fat jar.
+
+// One suite version for every jar (root gradle.properties ragnarok_version; see gradle/ragnarok-version.gradle).
+apply from: "${rootDir}/gradle/ragnarok-version.gradle"
+
+ext {
+    mod_id = 'dmz_ragnarok'
+    mod_name = 'DMZ Ragnarok'
+    mod_license = 'GNU General Public License v3.0'
+    mod_version = ragnarok_mod_version
+    mod_group_id = 'net.shurui.dev'
+    mod_authors = 'Shurui'
+    mod_description = 'DMZ Ragnarok: a DragonMine Z addon with in-game editors for races, forms, NPCs, sagas and wishes, three extra dragon ball sets, a combat layer, and optional dungeon, raid, tournament and space modules.'
+}
+
+apply from: "${rootDir}/common.gradle"
+
+// Aggregate the two core trees plus the shared entrypoint. Core's OWN resources (this project's
+// src/main/resources) carry the single-mod mods.toml and pack.mcmeta.
+sourceSets.main.java.srcDirs += [
+        '../sdu/src/main/java',
+        '../shuruisutilities/src/main/java',
+        '../dmz_ragnarok/src/main/java',
+]
+sourceSets.main.resources.srcDirs += [
+        '../sdu/src/main/resources',
+        '../shuruisutilities/src/main/resources',
+]
+
+// Only the core (sdu + shuruisutilities) mixin configs share one generated refmap in this jar. Space's config
+// (dmz_ragnarok_space.mixins.json) is NOT here: its mixin package (net.shurui.shuruisutilities.space.mixin)
+// moved out to the :dmz_ragnarok_space module, which ships that config and its own refmap.
+mixin {
+    add sourceSets.main, "${mod_id}.refmap.json"
+    config 'sdu.mixins.json'
+    config 'sdu.cnpc.mixins.json'
+    config 'mixins.shuruisutilities.json'
+    config 'mixins.shuruisutilities.compat.json'
+}
+
+repositories {
+    maven { url = 'https://maven.enginehub.org/repo/' }
+}
+
+// sdu + shuruisutilities dependencies (identical set to the fat jar's, since core IS those two trees).
+dependencies {
+    implementation fg.deobf("maven.modrinth:customnpcs-unofficial:${customnpcs_version}")
+    implementation fg.deobf("maven.modrinth:cnpc-geckolib-addon:${cnpc_gecko_version}")
+
+    compileOnly 'com.sk89q.worldedit:worldedit-core:7.2.15'
+    compileOnly 'com.sk89q.worldedit:worldedit-forge-mc1.20:7.2.15'
+    compileOnly 'org.spongepowered:spongeapi:10.0.0'
+    compileOnly fg.deobf("maven.modrinth:xaeros-minimap:${xaero_minimap_version}")
+    compileOnly fg.deobf("maven.modrinth:xaeros-world-map:${xaero_worldmap_version}")
+    // JEI (optional): SU's compat.jei plugin hides private items at runtime. Compile-only and never bundled; only JEI
+    // itself classloads the plugin (via @JeiPlugin), so a client without JEI never touches it. Pinned to 1.20.1.
+    compileOnly fg.deobf("mezz.jei:jei-1.20.1-common-api:15.20.0.106")
+    compileOnly fg.deobf("blank:TConstruct:1.20.1-3.11.2.166")
+    compileOnly fg.deobf("blank:Mantle:1.20.1-1.11.104")
+    compileOnly "blank:resourcefullib-forge-1.20.1:2.1.29"
+    compileOnly "blank:ironfurnaces-1.20.1:4.1.8"
+
+    // WorldEdit fat jar for SU's WE selection tools (arena / room bounds are picked with it).
+    implementation fg.deobf("blank:worldedit-mod:${worldedit_version}")
+
+    // The cross-server vault's JDBC driver. implementation, never bundled (DragonMineZ jarJars this exact
+    // artifact and is mandatory here). See the fat jar build for the full reasoning.
+    implementation('org.mariadb.jdbc:mariadb-java-client:3.5.9') { transitive = false }
+}
+
+// Resource-collision handling. sdu + shuruisutilities each ship a mods.toml + pack.mcmeta; keep only THIS
+// project's core copies (under src/main/resources) and drop the tree copies. FAIL on any other collision.
+tasks.named('processResources', ProcessResources).configure {
+    duplicatesStrategy = DuplicatesStrategy.FAIL
+    def ownResources = file('src/main/resources').absolutePath
+    exclude { FileTreeElement el ->
+        def p = el.relativePath.pathString
+        (p == 'META-INF/mods.toml' || p == 'pack.mcmeta') &&
+                !el.file.absolutePath.startsWith(ownResources)
+    }
+    // The four core mixin configs share the single generated refmap in this jar; rewrite their source
+    // refmap names to it (harmless in dev, required in the reobf production jar).
+    filesMatching([
+            'sdu.mixins.json', 'sdu.cnpc.mixins.json',
+            'mixins.shuruisutilities.json', 'mixins.shuruisutilities.compat.json',
+    ]) {
+        filter { String line -> line.replaceAll(/"refmap"\s*:\s*"[^"]*"/, '"refmap": "dmz_ragnarok.refmap.json"') }
+    }
+}
+
+tasks.named('jar', Jar).configure {
+    manifest {
+        attributes(['MixinConfigs': 'sdu.mixins.json,sdu.cnpc.mixins.json,mixins.shuruisutilities.json,mixins.shuruisutilities.compat.json'])
+    }
+}

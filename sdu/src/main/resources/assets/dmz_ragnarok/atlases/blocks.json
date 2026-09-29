@@ -1,0 +1,6 @@
+{
+	"sources": [
+		{"type": "minecraft:single", "resource": "dmz_ragnarok:block/level_barrier"},
+		{"type": "minecraft:single", "resource": "dmz_ragnarok:block/level_barrier_open"}
+	]
+}

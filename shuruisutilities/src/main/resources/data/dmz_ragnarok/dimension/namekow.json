@@ -1,0 +1,54 @@
+{
+  "type": "dragonminez:namek",
+  "generator": {
+    "type": "dmz_ragnarok:bounded",
+    "center_x": 2224,
+    "center_z": 2848,
+    "half_extent": 2048,
+    "generator": {
+      "type": "minecraft:noise",
+      "biome_source": {
+        "type": "minecraft:multi_noise",
+        "biomes": [
+          {
+            "biome": "dragonminez:ajissa_plains",
+            "parameters": {
+              "continentalness": 0.1,
+              "depth": 0.0,
+              "erosion": 0.0,
+              "humidity": 0.0,
+              "offset": 0.0,
+              "temperature": 0.0,
+              "weirdness": 0.0
+            }
+          },
+          {
+            "biome": "dragonminez:sacred_land",
+            "parameters": {
+              "continentalness": 0.6,
+              "depth": 0.0,
+              "erosion": 0.0,
+              "humidity": 0.0,
+              "offset": 0.0,
+              "temperature": 0.0,
+              "weirdness": 0.0
+            }
+          },
+          {
+            "biome": "dragonminez:namekian_rivers",
+            "parameters": {
+              "continentalness": -0.45,
+              "depth": 0.0,
+              "erosion": 0.0,
+              "humidity": 0.0,
+              "offset": 0.0,
+              "temperature": 0.0,
+              "weirdness": 0.0
+            }
+          }
+        ]
+      },
+      "settings": "dragonminez:namek"
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "__comment": "SU biomes moved to the dmz_ragnarok namespace in the dimension/biome rename stage. Both namespaces are listed: dmz_ragnarok is the live post-migration biome id, and the old shuruisutilities id is kept so a pre-migration world (whose terrain still carries the old biome) keeps spawning saibamans until it is migrated. Both biomes are always registered (the old files remain as datapack shims), so listing both is always valid. This is a merge tag (replace false).",
+  "replace": false,
+  "values": [
+    "dmz_ragnarok:vegeta",
+    "dmz_ragnarok:vegeta_arid",
+    "dmz_ragnarok:vegeta_meadow",
+    "dmz_ragnarok:vegeta_deep",
+    "shuruisutilities:vegeta",
+    "shuruisutilities:vegeta_arid",
+    "shuruisutilities:vegeta_meadow",
+    "shuruisutilities:vegeta_deep"
+  ]
+}

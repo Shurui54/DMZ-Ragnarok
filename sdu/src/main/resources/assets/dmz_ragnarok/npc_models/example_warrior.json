@@ -1,0 +1,14 @@
+{
+  "display_name": "Example Warrior",
+  "geo": "geo/npc_default.geo.json",
+  "texture": "textures/entity/npc_default.png",
+  "animation": "animations/npc_default.animation.json",
+  "scale": 1.25,
+  "animations": {
+    "idle": "idle",
+    "walk": "walk",
+    "attack": "attack",
+    "hurt": "hurt",
+    "death": "death"
+  }
+}

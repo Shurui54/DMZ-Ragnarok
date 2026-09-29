@@ -1,0 +1,14 @@
+{
+  "_comment": "A gamble, not a guarantee: roughly one buried seed in five is viable. The block itself gives nothing back, so digging one up is a decision rather than free loot.",
+  "type": "minecraft:block",
+  "pools": [
+    {
+      "rolls": 1,
+      "entries": [ { "type": "minecraft:item", "name": "dmz_ragnarok:saibaman_seed" } ],
+      "conditions": [
+        { "condition": "minecraft:survives_explosion" },
+        { "condition": "minecraft:random_chance", "chance": 0.22 }
+      ]
+    }
+  ]
+}

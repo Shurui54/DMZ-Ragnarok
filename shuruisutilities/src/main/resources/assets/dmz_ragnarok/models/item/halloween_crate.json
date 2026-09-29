@@ -1,0 +1,4 @@
+{
+  "__comment": "Drawn by the GeckoLib crate renderer (SuCrateItemRenderer); see item/crate_base for the transforms and why there is no geometry here. CrateItemFit centres and scales the crate into the slot from its own bounds.",
+  "parent": "dmz_ragnarok:item/crate_base"
+}

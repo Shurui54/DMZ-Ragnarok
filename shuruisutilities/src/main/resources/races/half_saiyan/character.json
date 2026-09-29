@@ -1,0 +1,60 @@
+{
+  "configVersion": "2.1.3",
+  "raceName": "half_saiyan",
+  "hasGender": true,
+  "useVanillaSkin": true,
+  "customModel": "",
+  "isLayered": true,
+  "headBones": [
+    "hair"
+  ],
+  "racialSkill": "saiyan",
+  "hasSaiyanTail": false,
+  "auraType": "kakarot",
+  "defaultModelScaling": [
+    0.9375,
+    0.9375,
+    0.9375
+  ],
+  "defaultBodyType": 0,
+  "defaultHairType": 1,
+  "defaultEyesType": 0,
+  "defaultNoseType": 0,
+  "defaultMouthType": 0,
+  "defaultTattooType": 0,
+  "defaultBodyColor": "#FFD3C9",
+  "defaultBodyColor2": "#572117",
+  "defaultBodyColor3": "#FFD3C9",
+  "defaultHairColor": "#222629",
+  "defaultEye1Color": "#222629",
+  "defaultEye2Color": "#222629",
+  "defaultAuraColor": "#7FFFFF",
+  "formSkillsCosts": {
+    "legendaryforms": {
+      "buyFromMaster": false,
+      "prices": [
+        -1,
+        -1,
+        -1,
+        -1
+      ]
+    },
+    "godforms": {
+      "buyFromMaster": false,
+      "prices": [
+        150000
+      ]
+    },
+    "superforms": {
+      "buyFromMaster": false,
+      "prices": [
+        13000,
+        21000,
+        31000,
+        42000,
+        52000,
+        65000
+      ]
+    }
+  }
+}

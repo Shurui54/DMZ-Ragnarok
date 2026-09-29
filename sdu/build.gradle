@@ -1,0 +1,15 @@
+// RETIRED SUBPROJECT TRIPWIRE (sdu).
+//
+// This addon is no longer a Gradle subproject. Its source tree (sdu/src/main/java and
+// sdu/src/main/resources) is still on disk and is compiled by the dmz_ragnarok aggregate, whose
+// source sets point at these trees BY PATH (see dmz_ragnarok/build.gradle). Building sdu as its own
+// project would only produce a vestigial jar whose mods.toml declares the mod id "sdu", which no
+// longer has a @Mod class behind it; loading such a jar crashes the client ("has mods that were not
+// found"). That already happened once via a stale IntelliJ run config.
+//
+// The include for this project was removed from settings.gradle on purpose. If Gradle is evaluating
+// this file, someone re-added that include. Do NOT do that: add the content to dmz_ragnarok instead.
+// This throw is the loud stop so a stale project can never silently rejoin the build.
+throw new GradleException(
+        "The 'sdu' subproject is retired. Its sources are compiled by the dmz_ragnarok aggregate. " +
+        "Remove \"include ':sdu'\" from settings.gradle. See dmz_ragnarok/build.gradle for the source-set wiring.")

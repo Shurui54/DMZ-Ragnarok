@@ -1,0 +1,5 @@
+{
+  "__comment": "The all-stat admin rune. Reuses the dormant rune's art on purpose: it belongs to no single stat, and its golden sheen is what marks it out.",
+  "parent": "minecraft:item/generated",
+  "textures": { "layer0": "dmz_ragnarok:item/rune_dormant" }
+}

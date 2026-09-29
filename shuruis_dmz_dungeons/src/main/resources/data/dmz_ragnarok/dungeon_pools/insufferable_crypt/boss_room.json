@@ -1,0 +1,1 @@
+{"name":"minecells:insufferable_crypt/boss_room","fallback":"minecraft:empty","elements":[{"weight":1,"element":{"element_type":"minecraft:single_pool_element","projection":"rigid","location":"minecells:insufferable_crypt/boss_room","processors":"minecells:brick_decay"}}]}

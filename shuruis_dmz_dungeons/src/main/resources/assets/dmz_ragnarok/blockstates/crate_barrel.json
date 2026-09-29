@@ -1,0 +1,6 @@
+{
+  "__comment": "One entry for every state. The crate is drawn by CrateRenderer, which picks the model from the viewer's rarity and metal and turns it by the block's own sixteen step ROTATION, so neither TIER nor ROTATION belongs in this key: this model exists only as a particle source.",
+  "variants": {
+    "": { "model": "dmz_ragnarok:block/crate_barrel" }
+  }
+}

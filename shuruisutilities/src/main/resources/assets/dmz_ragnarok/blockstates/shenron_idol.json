@@ -1,0 +1,6 @@
+{
+  "variants": {
+    "dragon=shenron": { "model": "dmz_ragnarok:block/shenron_idol" },
+    "dragon=porunga": { "model": "dmz_ragnarok:block/porunga_idol" }
+  }
+}

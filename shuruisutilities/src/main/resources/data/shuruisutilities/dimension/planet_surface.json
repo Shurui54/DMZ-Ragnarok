@@ -1,0 +1,15 @@
+{ "__comment": "SHIM kept so pre-migration worlds still load. Live definition is now the dmz_ragnarok copy of this file. Prevents a hard datapack load failure only; it does not make an unmigrated world correct. Migration via world-tools/ns-rename is required.",
+  "type": "shuruisutilities:planet_surface",
+  "generator": {
+    "type": "minecraft:flat",
+    "settings": {
+      "biome": "shuruisutilities:planet_surface",
+      "lakes": false,
+      "features": false,
+      "layers": [
+        { "block": "minecraft:air", "height": 1 }
+      ],
+      "structure_overrides": []
+    }
+  }
+}

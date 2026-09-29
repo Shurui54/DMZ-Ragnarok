@@ -1,0 +1,26 @@
+{
+  "parent": "minecraft:item/handheld",
+  "textures": {
+    "layer0": "dragonminez:item/gete_pickaxe"
+  },
+  "overrides": [
+    {
+      "predicate": {
+        "dmz_ragnarok:colour": 0.0
+      },
+      "model": "dmz_ragnarok:item/katchi_katchin_hammer_blue_grey"
+    },
+    {
+      "predicate": {
+        "dmz_ragnarok:colour": 1.0
+      },
+      "model": "dmz_ragnarok:item/katchi_katchin_hammer_orange"
+    },
+    {
+      "predicate": {
+        "dmz_ragnarok:colour": 2.0
+      },
+      "model": "dmz_ragnarok:item/katchi_katchin_hammer_cream"
+    }
+  ]
+}

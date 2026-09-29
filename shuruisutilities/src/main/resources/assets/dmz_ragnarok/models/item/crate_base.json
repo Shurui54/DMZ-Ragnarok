@@ -1,0 +1,42 @@
+{
+  "__comment": "Shared base for every crate item. builtin/entity carries no geometry of its own and marks the model as custom rendered, which is what routes the item to the GeckoLib crate renderer; the display block below then places the result exactly as vanilla places any block item. The renderer normalises each crate to the same one block cube first (CrateItemFit), so ONE set of numbers is right for all of them, from the smallest Toffy box to the explosive crate that is four and a half blocks tall in its own model. Tune here to move every crate at once.",
+  "parent": "minecraft:builtin/entity",
+  "gui_light": "side",
+  "display": {
+    "gui": {
+      "rotation": [30, 225, 0],
+      "translation": [0, 0, 0],
+      "scale": [0.625, 0.625, 0.625]
+    },
+    "ground": {
+      "rotation": [0, 0, 0],
+      "translation": [0, 3, 0],
+      "scale": [0.25, 0.25, 0.25]
+    },
+    "fixed": {
+      "rotation": [0, 0, 0],
+      "translation": [0, 0, 0],
+      "scale": [0.5, 0.5, 0.5]
+    },
+    "thirdperson_righthand": {
+      "rotation": [75, 45, 0],
+      "translation": [0, 2.5, 0],
+      "scale": [0.375, 0.375, 0.375]
+    },
+    "thirdperson_lefthand": {
+      "rotation": [75, 45, 0],
+      "translation": [0, 2.5, 0],
+      "scale": [0.375, 0.375, 0.375]
+    },
+    "firstperson_righthand": {
+      "rotation": [0, 45, 0],
+      "translation": [0, 0, 0],
+      "scale": [0.4, 0.4, 0.4]
+    },
+    "firstperson_lefthand": {
+      "rotation": [0, 225, 0],
+      "translation": [0, 0, 0],
+      "scale": [0.4, 0.4, 0.4]
+    }
+  }
+}

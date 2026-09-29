@@ -1,0 +1,233 @@
+// DMZ Ragnarok: SLICE 1 of merging the five DragonMineZ addons into ONE mod container.
+//
+// This subproject produces a SINGLE jar with a SINGLE @Mod("dmz_ragnarok") entrypoint
+// (net.shurui.dev.ragnarok.DmzRagnarok) that aggregates the five existing addons:
+//   sdu, shuruisutilities, shuruis_dmz_dungeons, shuruis_raid_bosses, shuruis_dmz_tournaments.
+//
+// It does NOT move or copy any source/resource file. Instead the source sets below point at the
+// five existing trees, so git history stays intact and the merge is reversible. Every registry
+// namespace is preserved: each addon's DeferredRegister.create still passes its own MODID constant,
+// and those constants keep their string values, so an existing save loads unchanged.
+
+// Version: ONE suite version for every jar, ragnarok_version in the root gradle.properties, computed once per
+// build by gradle/ragnarok-version.gradle (plain <version> for a release, <version>-test.<n> with -PtestBuild, the
+// only case that still reads and advances build-number.txt). Every jar of one build carries the same version.
+// Version lines so far: 1.0 ran to 1.0.287, 1.1 ran as 1.1.<build> (last live release 1.1.537), then 1.5.0.
+// TO RELEASE THE NEXT VERSION: change ragnarok_version in the root gradle.properties (for example to 1.5.1).
+apply from: "${rootDir}/gradle/ragnarok-version.gradle"
+
+ext {
+    mod_id = 'dmz_ragnarok'
+    mod_name = 'DMZ Ragnarok'
+    mod_license = 'GNU General Public License v3.0'
+    mod_version = ragnarok_mod_version
+    mod_group_id = 'net.shurui.dev'
+    mod_authors = 'Shurui'
+    // CurseForge project 1596290 and Modrinth bLplVEcb are BOTH the old "Shurui's DMZ Utilities" pages. The
+    // merged mod supersedes that addon, so it publishes onto them rather than to pages of its own; the four
+    // other retired addons' project ids are not used any more.
+    mod_description = 'DMZ Ragnarok: a DragonMine Z addon with in-game editors for races, forms, NPCs, sagas and wishes, three extra dragon ball sets, a combat layer, and optional dungeon, raid, tournament and space modules.'
+}
+
+apply from: "${rootDir}/common.gradle"
+
+// Stage A parity guardrail checks (2.0 re-architecture). Additive and read-only: registers `parityGuardrails`
+// and wires it into `check`. See gradle/parity.gradle.
+apply from: "${rootDir}/gradle/parity.gradle"
+
+// Aggregate the five existing addon trees into this one compile unit. Our own src/main/java and
+// src/main/resources (the merged mods.toml + pack.mcmeta and the new entrypoint) stay as the FIRST
+// source dirs; the five addon trees are appended.
+sourceSets.main.java.srcDirs += [
+        '../sdu/src/main/java',
+        '../shuruisutilities/src/main/java',
+        '../dmz_ragnarok_space/src/main/java',
+        '../shuruis_dmz_dungeons/src/main/java',
+        '../shuruis_raid_bosses/src/main/java',
+        '../shuruis_dmz_tournaments/src/main/java',
+]
+sourceSets.main.resources.srcDirs += [
+        '../sdu/src/main/resources',
+        '../shuruisutilities/src/main/resources',
+        '../dmz_ragnarok_space/src/main/resources',
+        '../shuruis_dmz_dungeons/src/main/resources',
+        '../shuruis_raid_bosses/src/main/resources',
+        '../shuruis_dmz_tournaments/src/main/resources',
+]
+
+// All eight mixin configs (Space now has its own) are compiled in this single source set, so they share
+// ONE generated refmap (dmz_ragnarok.refmap.json). MixinGradle rewrites each config's "refmap" field
+// to that name during reobf, so at runtime every config resolves the one refmap. Every mixin into a
+// DMZ class stays require = 0 inside its own config JSON.
+mixin {
+    add sourceSets.main, "${mod_id}.refmap.json"
+    config 'sdu.mixins.json'
+    config 'sdu.cnpc.mixins.json'
+    config 'mixins.shuruisutilities.json'
+    config 'mixins.shuruisutilities.compat.json'
+    config 'dmz_ragnarok_space.mixins.json'
+    config 'shuruis_dmz_dungeons.mixins.json'
+    config 'shuruis_raid_bosses.mixins.json'
+    config 'shuruis_dmz_tournaments.mixins.json'
+}
+
+repositories {
+    // WorldEdit API (worldedit-core / worldedit-forge maven artifacts) for SU's compile-only WE bridge.
+    maven { url = 'https://maven.enginehub.org/repo/' }
+}
+
+// Union of the five addons' dependencies. common.gradle already provides forge, the mixin AP,
+// dragonminez, geckolib, terrablender, curios and devauth. Added here are only the extras each
+// addon declared on top of that. The old addon-to-addon compileOnly edges (SU/dungeons/raid/
+// tournaments -> sdu, dungeons -> SU) are gone: those siblings are now the same compile unit.
+dependencies {
+    // ---- sdu: Custom NPCs bridge (soft deps, kept on the compile classpath for the stable API). ----
+    implementation fg.deobf("maven.modrinth:customnpcs-unofficial:${customnpcs_version}")
+    implementation fg.deobf("maven.modrinth:cnpc-geckolib-addon:${cnpc_gecko_version}")
+
+    // ---- shuruisutilities: optional-mod compat (compileOnly signatures; never bundled). ----
+    compileOnly 'com.sk89q.worldedit:worldedit-core:7.2.15'
+    compileOnly 'com.sk89q.worldedit:worldedit-forge-mc1.20:7.2.15'
+    compileOnly 'org.spongepowered:spongeapi:10.0.0'
+    // which must compose with Lootr's @Redirect on the same ServerLevel#mayInteract call instead of colliding).
+    // Single CustomNPCs API on the classpath: the modrinth customnpcs-unofficial jar declared above (it is the
+    // superset that ships noppes.npcs.shared.* and is what cnpc-geckolib-addon compiles against). SU's compat
+    // compiles against that same copy. The old per-project SU-bundled ../shuruisutilities/libs/customnpcs.jar is
+    // dropped: two CNPC jars put duplicate noppes.npcs.* descriptors on the classpath, which stopped the mixin
+    // annotation processor resolving the GuiCreationEntities#init target in GuiCreationEntitiesTabMixin.
+    compileOnly fg.deobf("maven.modrinth:xaeros-minimap:${xaero_minimap_version}")
+    compileOnly fg.deobf("maven.modrinth:xaeros-world-map:${xaero_worldmap_version}")
+    // JEI (optional): SU's compat.jei plugin hides private items at runtime. Compile-only and never bundled; only JEI
+    // itself classloads the plugin (via @JeiPlugin), so a client without JEI never touches it. Pinned to 1.20.1.
+    compileOnly fg.deobf("mezz.jei:jei-1.20.1-common-api:15.20.0.106")
+
+    // Tinkers' Construct (+ its Mantle library), from the shared <root>/libs flatDir like DragonMineZ.
+    // Compile-only and never bundled: the ONLY thing built against it is the pair of compat mixins that
+    // switch off Life Steal and Spitting, and those live in the non-required compat config so a server
+    // without Tinkers simply never loads them. The jars are needed at COMPILE time because the mixin
+    // annotation processor resolves a @Mixin target by name and fails the build if the class is absent -
+    // Mantle comes along because Tinkers' own method signatures reference it.
+    compileOnly fg.deobf("blank:TConstruct:1.20.1-3.11.2.166")
+    compileOnly fg.deobf("blank:Mantle:1.20.1-1.11.104")
+
+    // resourcefullib (a third-party library used by Iron Chests: Restocked, "ironchests"). Compile-only and
+    // never bundled: the ONLY thing built against it is MixinResourcefulFileUtils, which sorts resourcefullib's
+    // file-discovery walk so ironchests registers its chest types in the same order on every machine (an ext4
+    // hashed directory index has a per-filesystem seed, so an unsorted Files.walk made a chest open the wrong
+    // GUI on one server only). The mixin lives in the non-required compat config and targets the class by name
+    // with remap = false, so a server without resourcefullib never loads it. The jar is needed at COMPILE time
+    // only because the mixin annotation processor resolves a @Mixin target by name and fails the build if the
+    // class is absent. Shared <root>/libs flatDir, like Tinkers above. No fg.deobf: FileUtils touches only JDK
+    // and resourcefullib's own types, so nothing here needs remapping to the dev mappings.
+    compileOnly "blank:resourcefullib-forge-1.20.1:2.1.29"
+
+    // Iron Furnaces ("ironfurnaces"), a server mod on all shards. Compile-only and never bundled: the ONLY thing
+    // built against it is MixinIronFurnacesList, which caps its per-player furnace-list capability so it cannot
+    // bloat a player's .dat (its deserializeNBT appends without dedup, which grew one live list to 1.4M copies of
+    // one position and froze the shard on every login/hop of that player). @Shadow needs to name the mod's
+    // PlayerFurnacesList field type, so the class must be on the compile classpath; the mixin lives in the
+    // non-required compat config with @Pseudo + require = 0, so a server without Iron Furnaces never loads it.
+    // Shared <root>/libs flatDir, like Tinkers and resourcefullib. No fg.deobf: the mixin touches only BlockPos as
+    // a generic type (value equality), no remapped Minecraft methods, so nothing needs mapping to the dev names.
+    compileOnly "blank:ironfurnaces-1.20.1:4.1.8"
+
+    // ---- raid_bosses + tournaments: WorldEdit fat jar (shared <root>/libs) for arena bounds. ----
+    implementation fg.deobf("blank:worldedit-mod:${worldedit_version}")
+
+    // ---- shuruisutilities: the cross-server player vault's JDBC driver. ----
+    // MariaDB's connector rather than Oracle's MySQL Connector/J, for two reasons. It speaks the same wire
+    // protocol, so it drives a MySQL server or a MariaDB one either way, and it is LGPL 2.1, which permits
+    // shipping it unmodified alongside a paid mod; Connector/J is GPL with a FOSS exception that this jar does
+    // not qualify for.
+    //
+    // jarJar embeds it INSIDE the mod jar so an operator has nothing to install. Nothing on a server without a
+    // vault configured ever loads it: the shard module refuses to start unless it is switched on, so the driver
+    // class is never touched. minimize() is deliberately not used; the driver loads pieces by reflection.
+    // transitive = false is load bearing. The connector pulls in slf4j-api, jna and caffeine, and Minecraft
+    // already ships slf4j: embedding a second copy is how a server ends up with two logger bindings and a
+    // LinkageError at boot. None of them are needed for plain user/password auth over TCP. The driver checks for
+    // slf4j reflectively and falls back to its own logger when it is absent, and jna is only for Windows SSPI.
+    // The range is OPEN ENDED on purpose, and closing it again breaks the game on load.
+    //
+    // WE NO LONGER EMBED THE DRIVER. DragonMineZ 2.1.3 jarJars this exact artifact itself
+    // (META-INF/jarjar/mariadb-java-client-3.5.9.jar, range [3.5.7,)), and dragonminez is mandatory = true for
+    // this mod, so the driver is on the classpath of every server that can run the suite at all. Embedding a
+    // second copy bought nothing: jarJar resolves ONE version per artifact across all mods, so DMZ's 3.5.9 is
+    // what loaded either way.
+    //
+    // Removed because a bundled third-party binary is the single strongest trigger for CurseForge's automated
+    // review, which decompiles the jar and escalates anything that looks like it reaches the network on its own.
+    // A shipped JDBC driver reads exactly like that, and it also cost us the cleanest finding the 2026-07-28 audit
+    // had in our favour: "no shaded or bundled deps, only net/shurui/** plus assets". That is true again.
+    //
+    // It also retires a whole class of boot failure: two mods asking for non-overlapping jarJar ranges of one
+    // artifact is a hard mod-loading error for everyone ("Some mods have requested conflicting versions of:
+    // org.mariadb.jdbc"), and a closed range here caused exactly that once already. With no range of our own
+    // there is nothing left to conflict with.
+    //
+    // If DragonMineZ ever stops shipping it, ShardDatabase says so in one clear line and the shard layer stays
+    // off, rather than failing as a NoClassDefFoundError somewhere further in.
+    //
+    // implementation, not compileOnly: the shard code compiles against the driver, and a dev run launches from
+    // the classes directory rather than from DragonMineZ's shipped jar, so without this runServer would hit a
+    // NoClassDefFoundError the moment anyone tried the vault. ForgeGradle does not fold implementation deps into
+    // the built jar, so this compiles and dev-runs against the driver WITHOUT shipping it. Version matched to the
+    // one DragonMineZ embeds, so dev and production run the same driver.
+    // Still non transitive: the connector pulls slf4j-api, jna and caffeine, Minecraft already ships slf4j, and a
+    // second logger binding is a LinkageError at boot. The driver checks for slf4j reflectively and falls back to
+    // its own logger; jna is Windows SSPI only.
+    implementation('org.mariadb.jdbc:mariadb-java-client:3.5.9') { transitive = false }
+}
+
+// Kept ENABLED even though nothing is embedded any more. jarJar is what produces the unclassified
+// dmz_ragnarok-<version>.jar under the classifier swap below, so disabling it here would silently rename the
+// shippable artifact and break every deploy path that names it. It now simply embeds nothing, which is the point:
+// verify with `unzip -l` that the built jar has no META-INF/jarjar entry.
+jarJar.enable()
+
+// ONE SHIPPABLE JAR. jarJar normally publishes its output under an "-all" classifier and leaves the plain jar
+// without the embedded driver, which is two files that look interchangeable and are not: ship the wrong one and
+// the vault silently cannot start. Swapping the classifiers makes dmz_ragnarok-<version>.jar the complete jar, so
+// the deployment path keeps working and there is nothing to pick between.
+tasks.named('jar', Jar) { archiveClassifier = 'slim' }
+tasks.named('jarJar', Jar) { archiveClassifier = '' }
+
+// Resource-collision handling. Across the five trees only two paths collide: META-INF/mods.toml
+// (5x) and pack.mcmeta (5x). This mod ships ONE merged copy of each from its own src/main/resources.
+// The old copies (identified as those NOT under our own resources dir) are dropped from the copy so
+// exactly one of each survives. duplicatesStrategy = FAIL is then a deliberate tripwire: it makes the
+// build fail loudly if any OTHER identical resource path ever appears across the merged trees, rather
+// than silently letting last-writer win.
+tasks.named('processResources', ProcessResources).configure {
+    duplicatesStrategy = DuplicatesStrategy.FAIL
+    def ownResources = file('src/main/resources').absolutePath
+    exclude { FileTreeElement el ->
+        def p = el.relativePath.pathString
+        (p == 'META-INF/mods.toml' || p == 'pack.mcmeta') &&
+                !el.file.absolutePath.startsWith(ownResources)
+    }
+
+    // All eight mixin configs are compiled in this one source set and so share the single generated
+    // refmap (dmz_ragnarok.refmap.json). Their source JSONs still declare their old per-addon refmap
+    // names (sdu.refmap.json, mixins.shuruisutilities.refmap.json, ...), because those source files
+    // are shared with the still-buildable old subprojects and must not change. Without a correct
+    // refmap name the mixins would not remap in a reobf (production) jar, so rewrite the field to the
+    // aggregate refmap in OUR jar only. Harmless in dev (official mappings need no refmap).
+    filesMatching([
+            'sdu.mixins.json', 'sdu.cnpc.mixins.json',
+            'mixins.shuruisutilities.json', 'mixins.shuruisutilities.compat.json',
+            'dmz_ragnarok_space.mixins.json',
+            'shuruis_dmz_dungeons.mixins.json', 'shuruis_raid_bosses.mixins.json',
+            'shuruis_dmz_tournaments.mixins.json',
+    ]) {
+        filter { String line -> line.replaceAll(/"refmap"\s*:\s*"[^"]*"/, '"refmap": "dmz_ragnarok.refmap.json"') }
+    }
+}
+
+// Forge 1.20.1 also reads the mixin configs from this manifest attribute (mirrors sdu's shipped jar,
+// which carried both the manifest attribute and its mods.toml [[mixins]] blocks). All eight configs listed.
+tasks.named('jar', Jar).configure {
+    manifest {
+        attributes(['MixinConfigs': 'sdu.mixins.json,sdu.cnpc.mixins.json,mixins.shuruisutilities.json,mixins.shuruisutilities.compat.json,dmz_ragnarok_space.mixins.json,shuruis_dmz_dungeons.mixins.json,shuruis_raid_bosses.mixins.json,shuruis_dmz_tournaments.mixins.json'])
+    }
+}

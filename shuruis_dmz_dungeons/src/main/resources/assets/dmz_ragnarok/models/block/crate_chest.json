@@ -1,0 +1,6 @@
+{
+  "__comment": "Particle source only. The crate itself is a GeckoLib model drawn by CrateRenderer (one of crate_<rarity>_<metal>), so this carries no geometry: a block using ENTITYBLOCK_ANIMATED still needs a model for its BREAK PARTICLES, and that is all this is. The old tinted cube and its latch/band overlays are gone.",
+  "textures": {
+    "particle": "dmz_ragnarok:block/crate/crate_common_bronze"
+  }
+}

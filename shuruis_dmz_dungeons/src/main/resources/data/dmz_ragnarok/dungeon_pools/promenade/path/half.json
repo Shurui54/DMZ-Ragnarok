@@ -1,0 +1,1 @@
+{"name":"minecells:promenade/path/half","fallback":"minecraft:empty","elements":[{"weight":1,"element":{"element_type":"minecraft:single_pool_element","projection":"terrain_matching","location":"minecells:promenade/path/half","processors":"minecells:promenade/path"}}]}
