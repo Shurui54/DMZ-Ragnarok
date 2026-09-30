@@ -32,12 +32,8 @@ public final class RgKeyEvents {
             if (event.getEntity() instanceof ServerPlayer player) {
                 // The same key flag DmzNet sends: the key installed its core hooks, not merely marked itself present.
                 NetworkUtils.sendTo(new PacketRgKeySync(net.shurui.dev.sdu.network.DmzNet.clientKeyPresent()), player);
-                // Wait to hear what model pack this client already holds before sending any of it. NOT key gated,
-                // unlike the picker above: a client that cannot draw a model it can already see is a render crash,
-                // not a withheld feature, so everyone who needs the pack still gets it. They just do not get a
-                // second copy of one they already have, which used to be pushed at every join and is heavy enough
-                // to time a slow connection out mid transfer.
-                RgNpcAssetServer.expectReport(player);
+                // The rgnpc model pack is no longer streamed (it ships in the jar again as of September 2026), so
+                // there is no join handshake to start here. Packet ids 93/97 remain registered as inert holes.
             }
         }
     }
@@ -47,18 +43,6 @@ public final class RgKeyEvents {
     public static final class Client {
 
         private Client() {
-        }
-
-        /**
-         * Tell the server what model pack we already hold, so it sends only what is missing (usually nothing).
-         *
-         * <p>Sent unprompted on join rather than in answer to a server offer, which saves a round trip and, more
-         * usefully, means the server never has to hold a queue open waiting to be asked.
-         */
-        @SubscribeEvent
-        public static void onLoggingIn(ClientPlayerNetworkEvent.LoggingIn event) {
-            int[] have = net.shurui.shuruisutilities.ragnarok.client.RgNpcAssetCache.have();
-            NetworkUtils.sendToServer(new PacketRgNpcAssetsHave(have[0], have[1]));
         }
 
         @SubscribeEvent

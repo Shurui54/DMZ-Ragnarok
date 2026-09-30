@@ -46,8 +46,16 @@ public final class DisguiseHooks
         {
         }
 
-        /** Remove {@code staff}'s disguise and audit-log it. Keyless: no-op. */
+        /** Remove {@code staff}'s disguise entirely (a stamped tombstone) and audit-log it. Keyless: no-op. */
         default void undisguise(ServerPlayer staff)
+        {
+        }
+
+        /**
+         * Toggle {@code staff}'s configured disguise on or off WITHOUT losing it, and audit-log it. Disabling keeps the
+         * stored, synced view and renders the real identity; enabling restores it. Keyless: no-op.
+         */
+        default void setEnabled(ServerPlayer staff, boolean enabled)
         {
         }
     }

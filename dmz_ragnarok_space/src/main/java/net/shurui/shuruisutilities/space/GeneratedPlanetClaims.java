@@ -34,6 +34,28 @@ public final class GeneratedPlanetClaims extends SavedData
 
     // planet id -> owning guild id
     private final Map<String, String> claims = new HashMap<>();
+    // planet id -> owning PLAYER uuid (string), the PUBLIC personal-conquest claim (see PlanetConquest). A SEPARATE map
+    // from the guild claims above so the existing guild-claim schema and saves are never touched: a save from before this
+    // feature simply has no "personalClaims" list and loads with an empty map. A planet is never in both maps at once
+    // (each claim path refuses when the other already owns it), and neither one-per-guild rule nor the guild sync ever
+    // scans this map. This is the durable result of a conquest and rides the exact same overworld-SavedData persistence
+    // (and, therefore, cross-shard) path the guild claims do, per the workspace "all new persistent data syncs" rule.
+    private final Map<String, String> personalClaims = new HashMap<>();
+    // planet id -> the uuid (string) of the conquest DEFENDER BOSS currently standing on that planet, so a re-visit never
+    // spawns a second boss and a boss death is validated against the record. Cleared on defeat, claim or destruction. Also
+    // additive: an older save has no "conquestBoss" list.
+    private final Map<String, String> conquestBoss = new HashMap<>();
+    // planet id -> the OWNER-AVATAR snapshot (the owning player's look and combat stats, captured at claim time and
+    // refreshed while the owner is online on the planet, see PlanetOwnerAvatar). Additive: an older save has no
+    // "avatarSnapshots" list. Dropped with the personal claim on destruction.
+    private final Map<String, AvatarSnapshot> avatarSnapshots = new HashMap<>();
+    // planet id -> the SHARED DB-CLOCK epoch millis at which the owner avatar was last DEFEATED, opening the timed
+    // explodable/respawn windows (0/absent = never defeated, so the avatar guards the planet). Stamped and compared with
+    // OrbitClock.serverEpochMillis() (System.currentTimeMillis() + the DB-clock offset), NOT the host wall clock: shard
+    // wall clocks run many hours apart, so a bare-wall-clock window would read as long expired or far in the future on
+    // another shard. Additive: an older save has no "avatarDefeated" list. Rides the same SavedData path (and therefore
+    // the same cross-shard sync) as the personal claims.
+    private final Map<String, Long> avatarDefeatedAt = new HashMap<>();
     // planet ids whose surface has been stamped already
     private final Set<String> surfaceGenerated = new HashSet<>();
     // planet id -> the surface size (blocks per side) and theme the planet was actually STAMPED at. Persisted so a later
@@ -104,10 +126,16 @@ public final class GeneratedPlanetClaims extends SavedData
         public final boolean waterEnabled;
         public final boolean vegetationEnabled;
         public final boolean structuresEnabled;
+        // The terrain generator version this planet was stamped by (SurfaceStamp.GEN_VERSION_*). 1 (or a legacy value of
+        // 0 from a build predating the field) is the original disc-and-shell terrain; 2 is the tileable square terrain
+        // with scattered basin pools; 3 is the tileable square with a real per-theme sea level and a periodic wrap margin.
+        // A planet keeps its version forever, so already-stamped cells are never re-shaped: only cells stamped after a
+        // given batch carry its version and get its terrain.
+        public final int generatorVersion;
 
         public StampParams(int deepDepth, int seaLevelOffset, double basinFrequency, double vegetationDensity,
                 double villageFrequency, double hutFrequency, boolean waterEnabled, boolean vegetationEnabled,
-                boolean structuresEnabled)
+                boolean structuresEnabled, int generatorVersion)
         {
             this.deepDepth = deepDepth;
             this.seaLevelOffset = seaLevelOffset;
@@ -118,6 +146,47 @@ public final class GeneratedPlanetClaims extends SavedData
             this.waterEnabled = waterEnabled;
             this.vegetationEnabled = vegetationEnabled;
             this.structuresEnabled = structuresEnabled;
+            this.generatorVersion = generatorVersion;
+        }
+    }
+
+    /**
+     * The owner-avatar snapshot: the owning player's DragonMineZ look (race body appearance) and combat stats, captured
+     * when the planet is conquered and refreshed while the owner is online on it, so the avatar defender renders as the
+     * owner and fights at the owner's strength even while the owner is offline or on another shard. Immutable. Colours are
+     * packed 0xRRGGBB. Stats are the RAW derived combat numbers (not yet scaled by the config multiplier, which is applied
+     * at spawn), so a config change takes effect without re-snapshotting.
+     */
+    public static final class AvatarSnapshot
+    {
+        public final String ownerName;
+        public final String race;
+        public final int bodyType;
+        public final int bodyColor1;
+        public final int bodyColor2;
+        public final int bodyColor3;
+        public final int hairColor;
+        public final double health;
+        public final double melee;
+        public final double defense;
+        public final float ki;
+        public final double battlePower;
+
+        public AvatarSnapshot(String ownerName, String race, int bodyType, int bodyColor1, int bodyColor2,
+                int bodyColor3, int hairColor, double health, double melee, double defense, float ki, double battlePower)
+        {
+            this.ownerName = ownerName == null ? "" : ownerName;
+            this.race = race == null ? "" : race;
+            this.bodyType = bodyType;
+            this.bodyColor1 = bodyColor1;
+            this.bodyColor2 = bodyColor2;
+            this.bodyColor3 = bodyColor3;
+            this.hairColor = hairColor;
+            this.health = health;
+            this.melee = melee;
+            this.defense = defense;
+            this.ki = ki;
+            this.battlePower = battlePower;
         }
     }
 
@@ -135,6 +204,36 @@ public final class GeneratedPlanetClaims extends SavedData
         {
             CompoundTag c = claimList.getCompound(i);
             s.claims.put(c.getString("planet"), c.getString("guild"));
+        }
+        // additive: an older save has no "personalClaims"/"conquestBoss" list, so these loops simply run zero times.
+        ListTag personalList = tag.getList("personalClaims", Tag.TAG_COMPOUND);
+        for (int i = 0; i < personalList.size(); i++)
+        {
+            CompoundTag c = personalList.getCompound(i);
+            s.personalClaims.put(c.getString("planet"), c.getString("owner"));
+        }
+        ListTag bossList = tag.getList("conquestBoss", Tag.TAG_COMPOUND);
+        for (int i = 0; i < bossList.size(); i++)
+        {
+            CompoundTag c = bossList.getCompound(i);
+            s.conquestBoss.put(c.getString("planet"), c.getString("boss"));
+        }
+        // additive: an older save has no "avatarSnapshots"/"avatarDefeated" list, so these loops run zero times.
+        ListTag avatarList = tag.getList("avatarSnapshots", Tag.TAG_COMPOUND);
+        for (int i = 0; i < avatarList.size(); i++)
+        {
+            CompoundTag c = avatarList.getCompound(i);
+            s.avatarSnapshots.put(c.getString("planet"), new AvatarSnapshot(
+                    c.getString("ownerName"), c.getString("race"), c.getInt("bodyType"),
+                    c.getInt("body1"), c.getInt("body2"), c.getInt("body3"), c.getInt("hair"),
+                    c.getDouble("health"), c.getDouble("melee"), c.getDouble("defense"),
+                    c.getFloat("ki"), c.getDouble("battlePower")));
+        }
+        ListTag avatarDefeatedList = tag.getList("avatarDefeated", Tag.TAG_COMPOUND);
+        for (int i = 0; i < avatarDefeatedList.size(); i++)
+        {
+            CompoundTag c = avatarDefeatedList.getCompound(i);
+            s.avatarDefeatedAt.put(c.getString("planet"), c.getLong("at"));
         }
         ListTag genList = tag.getList("surfaceGenerated", Tag.TAG_STRING);
         for (int i = 0; i < genList.size(); i++)
@@ -156,11 +255,13 @@ public final class GeneratedPlanetClaims extends SavedData
             if (c.contains("params", Tag.TAG_COMPOUND))
             {
                 CompoundTag p = c.getCompound("params");
+                // generatorVersion is absent (getInt returns 0) for a planet stamped before batch B4; 0 is read back as
+                // the legacy generator by SurfaceStamp, so an existing cell keeps its original terrain.
                 s.stampedParams.put(planet, new StampParams(
                         p.getInt("deepDepth"), p.getInt("seaLevelOffset"), p.getDouble("basinFrequency"),
                         p.getDouble("vegetationDensity"), p.getDouble("villageFrequency"), p.getDouble("hutFrequency"),
                         p.getBoolean("waterEnabled"), p.getBoolean("vegetationEnabled"),
-                        p.getBoolean("structuresEnabled")));
+                        p.getBoolean("structuresEnabled"), p.getInt("generatorVersion")));
             }
         }
         ListTag destroyedList = tag.getList("destroyed", Tag.TAG_COMPOUND);
@@ -191,6 +292,58 @@ public final class GeneratedPlanetClaims extends SavedData
             claimList.add(c);
         }
         tag.put("claims", claimList);
+
+        ListTag personalList = new ListTag();
+        for (Map.Entry<String, String> e : personalClaims.entrySet())
+        {
+            CompoundTag c = new CompoundTag();
+            c.putString("planet", e.getKey());
+            c.putString("owner", e.getValue());
+            personalList.add(c);
+        }
+        tag.put("personalClaims", personalList);
+
+        ListTag bossList = new ListTag();
+        for (Map.Entry<String, String> e : conquestBoss.entrySet())
+        {
+            CompoundTag c = new CompoundTag();
+            c.putString("planet", e.getKey());
+            c.putString("boss", e.getValue());
+            bossList.add(c);
+        }
+        tag.put("conquestBoss", bossList);
+
+        ListTag avatarList = new ListTag();
+        for (Map.Entry<String, AvatarSnapshot> e : avatarSnapshots.entrySet())
+        {
+            AvatarSnapshot a = e.getValue();
+            CompoundTag c = new CompoundTag();
+            c.putString("planet", e.getKey());
+            c.putString("ownerName", a.ownerName);
+            c.putString("race", a.race);
+            c.putInt("bodyType", a.bodyType);
+            c.putInt("body1", a.bodyColor1);
+            c.putInt("body2", a.bodyColor2);
+            c.putInt("body3", a.bodyColor3);
+            c.putInt("hair", a.hairColor);
+            c.putDouble("health", a.health);
+            c.putDouble("melee", a.melee);
+            c.putDouble("defense", a.defense);
+            c.putFloat("ki", a.ki);
+            c.putDouble("battlePower", a.battlePower);
+            avatarList.add(c);
+        }
+        tag.put("avatarSnapshots", avatarList);
+
+        ListTag avatarDefeatedList = new ListTag();
+        for (Map.Entry<String, Long> e : avatarDefeatedAt.entrySet())
+        {
+            CompoundTag c = new CompoundTag();
+            c.putString("planet", e.getKey());
+            c.putLong("at", e.getValue());
+            avatarDefeatedList.add(c);
+        }
+        tag.put("avatarDefeated", avatarDefeatedList);
 
         ListTag genList = new ListTag();
         for (String id : surfaceGenerated)
@@ -223,6 +376,7 @@ public final class GeneratedPlanetClaims extends SavedData
                 p.putBoolean("waterEnabled", params.waterEnabled);
                 p.putBoolean("vegetationEnabled", params.vegetationEnabled);
                 p.putBoolean("structuresEnabled", params.structuresEnabled);
+                p.putInt("generatorVersion", params.generatorVersion);
                 c.put("params", p);
             }
             geometryList.add(c);
@@ -311,6 +465,114 @@ public final class GeneratedPlanetClaims extends SavedData
         }
     }
 
+    // ---- PUBLIC personal-conquest claims (PlanetConquest) -------------------------------------------------------------
+
+    /** The owning player uuid (string) of a personally-conquered planet, or null if none. */
+    public String personalOwner(String planetId)
+    {
+        return personalClaims.get(planetId);
+    }
+
+    /** Whether this planet is held by a PERSONAL conquest claim (as opposed to a guild claim, or unclaimed). */
+    public boolean isPersonallyClaimed(String planetId)
+    {
+        return personalClaims.containsKey(planetId);
+    }
+
+    /**
+     * Whether this planet is owned by ANYONE, guild or personal. The single "is this planet taken" test the garrison and
+     * both claim paths use, so a planet owned by either mechanism blocks the other and grows no new wild garrison.
+     */
+    public boolean isOwned(String planetId)
+    {
+        return claims.containsKey(planetId) || personalClaims.containsKey(planetId);
+    }
+
+    /** Read-only view of the personal-claim map (planet id -&gt; owner uuid string), for the layout sync's nameplates. */
+    public java.util.Map<String, String> personalClaims()
+    {
+        return java.util.Collections.unmodifiableMap(personalClaims);
+    }
+
+    /** Record a personal conquest claim. The caller has already enforced not-already-owned. */
+    public void setPersonalClaim(String planetId, java.util.UUID owner)
+    {
+        personalClaims.put(planetId, owner.toString());
+        setDirty();
+    }
+
+    /** Drop a personal claim by planet id, and with it the owner-avatar snapshot and defeat window. No-op if unclaimed. */
+    public void unclaimPersonal(String planetId)
+    {
+        boolean changed = personalClaims.remove(planetId) != null;
+        changed |= avatarSnapshots.remove(planetId) != null;
+        changed |= avatarDefeatedAt.remove(planetId) != null;
+        if (changed)
+        {
+            setDirty();
+        }
+    }
+
+    // ---- OWNER AVATAR defender (PlanetOwnerAvatar) --------------------------------------------------------------------
+
+    /** The owner-avatar snapshot for a personally-claimed planet, or null if none has been captured yet. */
+    public AvatarSnapshot avatarSnapshot(String planetId)
+    {
+        return avatarSnapshots.get(planetId);
+    }
+
+    /** Record (or refresh) the owner-avatar snapshot for a planet. */
+    public void setAvatarSnapshot(String planetId, AvatarSnapshot snapshot)
+    {
+        if (snapshot == null)
+        {
+            if (avatarSnapshots.remove(planetId) != null)
+            {
+                setDirty();
+            }
+            return;
+        }
+        avatarSnapshots.put(planetId, snapshot);
+        setDirty();
+    }
+
+    /** Epoch millis the avatar was last defeated on this planet, or 0 if never (so the avatar currently guards it). */
+    public long avatarDefeatedAt(String planetId)
+    {
+        return avatarDefeatedAt.getOrDefault(planetId, 0L);
+    }
+
+    /** Record the wall-clock epoch millis at which the avatar was defeated, opening the explodable/respawn windows. */
+    public void setAvatarDefeatedAt(String planetId, long epochMillis)
+    {
+        avatarDefeatedAt.put(planetId, epochMillis);
+        setDirty();
+    }
+
+    /** The uuid (string) of the conquest boss currently on this planet, or null if none is pending. */
+    public String conquestBoss(String planetId)
+    {
+        return conquestBoss.get(planetId);
+    }
+
+    /** Record the conquest boss spawned for a planet (so a revisit does not spawn a second). */
+    public void setConquestBoss(String planetId, java.util.UUID bossId)
+    {
+        conquestBoss.put(planetId, bossId.toString());
+        setDirty();
+    }
+
+    /** Drop the conquest-boss record for a planet (on defeat, claim or destruction). No-op if absent. */
+    public void clearConquestBoss(String planetId)
+    {
+        if (conquestBoss.remove(planetId) != null)
+        {
+            setDirty();
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------
+
     public boolean isSurfaceGenerated(String planetId)
     {
         return surfaceGenerated.contains(planetId);
@@ -388,6 +650,32 @@ public final class GeneratedPlanetClaims extends SavedData
             return get(server).stampedParams.get(planetId);
         }
         return null;
+    }
+
+    /**
+     * Whether the planet's stamped surface was built by the TILEABLE (version 2) terrain generator, the only terrain
+     * whose opposite edges match block for block and can therefore be crossed with a seamless edge wrap. A planet with
+     * no stamp snapshot (never stamped, or stamped by a build predating the snapshot store) or one stamped by the legacy
+     * disc generator returns false, so it keeps the invisible rim wall. Client-safe: a null server returns false.
+     */
+    public static boolean isTileableSurface(MinecraftServer server, String planetId)
+    {
+        StampParams params = stampedParamsForId(server, planetId);
+        // version 2 (square + basins) and version 3 (square + global sea + wrap margin) are BOTH tileable: their periodic
+        // height field matches block for block at the opposite edge, so both wrap. Only the legacy disc (version 1) or an
+        // unstamped/pre-snapshot planet keep the wall.
+        return params != null && params.generatorVersion >= SurfaceStamp.GEN_VERSION_TILEABLE;
+    }
+
+    /**
+     * Whether the planet was stamped by the version-3 SEAS generator, which stamps a periodic MARGIN beyond every edge (so
+     * the opposite side is already rendered across the wrap seam) and PROTECTS that margin from building. Used by the
+     * margin build/break guard. A null server, an unstamped planet or an older generator returns false.
+     */
+    public static boolean isSeaSurface(MinecraftServer server, String planetId)
+    {
+        StampParams params = stampedParamsForId(server, planetId);
+        return params != null && params.generatorVersion >= SurfaceStamp.GEN_VERSION_SEAS;
     }
 
     /**

@@ -21,7 +21,7 @@ modId = "${mod_id}" #mandatory
 version = "${mod_version}" #mandatory
 displayName = "${mod_name}" #mandatory
 authors = "${mod_authors}" #optional
-credits = "Kiba, CalamityKage, Rradly, WolfyKip"
+credits = "Kiba, CalamityKage, Rradly, WolfyKip; NPC models from NinjinEntities (MIT): kaixi, Vidal1sHere, Phoenix_II"
 description = '''${mod_description}'''
 # NOTE: no displayTest is set here on purpose. Shurui's Utilities registers an
 # IExtensionPoint.DisplayTest (IGNORESERVERONLY) in code from its initialiser, which runs inside THIS

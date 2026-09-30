@@ -8,8 +8,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.items.ItemStackHandler;
 
-import net.shurui.shuruisutilities.compat.dmz.DragonBallSets;
-import net.shurui.shuruisutilities.dragonballbag.DragonBallBagStorage;
+import net.shurui.shuruisutilities.dragonballbag.DragonBallConfine;
 
 /**
  * The container-agnostic heart of the dragon ball whitelist. A ball may live in exactly two homes: the player's own
@@ -59,11 +58,9 @@ public abstract class MixinForgeItemStackHandler
             cancellable = true, remap = false)
     private void su$rejectBallValidity(int slot, ItemStack stack, CallbackInfoReturnable<Boolean> cir)
     {
-        if (su$isBag())
-        {
-            return; // the dragon ball bag: balls belong here
-        }
-        if (DragonBallSets.isDragonBall(stack))
+        // A ball is refused unless this handler is the bag's own storage; the bag is refused unless this handler is a
+        // Curios per-slot handler (so equipping the bag still works). Everything else is refused.
+        if (DragonBallConfine.handlerRefuses(stack, this))
         {
             cir.setReturnValue(false);
         }
@@ -76,18 +73,9 @@ public abstract class MixinForgeItemStackHandler
     private void su$rejectBallInsert(int slot, ItemStack stack, boolean simulate,
             CallbackInfoReturnable<ItemStack> cir)
     {
-        if (su$isBag())
-        {
-            return; // the dragon ball bag: balls belong here
-        }
-        if (DragonBallSets.isDragonBall(stack))
+        if (DragonBallConfine.handlerRefuses(stack, this))
         {
             cir.setReturnValue(stack);
         }
-    }
-
-    private boolean su$isBag()
-    {
-        return (Object) this instanceof DragonBallBagStorage;
     }
 }

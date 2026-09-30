@@ -63,6 +63,8 @@ public final class ForgeEvents {
         net.shurui.dev.sdu.htc.HtcDestination.load();
         // Operator-settable grave/totem despawn lifetime, read by shuruisutilities' grave sweep.
         net.shurui.dev.sdu.grave.GraveTotemConfig.load();
+        // Self-test the party lowest-saga step decision (pure math, no players needed) so a boot test exercises it.
+        net.shurui.dev.sdu.quest.PartyLowestSaga.runSelfTest();
         regenerateGeneratedLang();
     }
 
@@ -133,6 +135,12 @@ public final class ForgeEvents {
      * (RaceClassListSuppressMixin) never touches a player who already IS it, and such players are exactly what
      * resurrects the class into DMZ's in-memory maps every stat recompute.
      */
+    /** Snapshot DMZ's class list per race once started, so the login migration never flags an addon-defined class. */
+    @SubscribeEvent
+    public static void onServerStartedSnapshotClasses(net.minecraftforge.event.server.ServerStartedEvent event) {
+        net.shurui.dev.sdu.race.SuppressedClassMigration.snapshotStartupClasses();
+    }
+
     @SubscribeEvent(priority = net.minecraftforge.eventbus.api.EventPriority.LOWEST)
     public static void onPlayerLoginMigrateClass(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {

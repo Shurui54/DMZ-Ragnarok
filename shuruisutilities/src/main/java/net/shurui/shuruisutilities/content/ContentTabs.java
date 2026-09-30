@@ -30,12 +30,14 @@ public final class ContentTabs {
     // chips, the Ragnarok Gi, runes, the time machine, space consoles, the Shenron idols) is deliberately absent.
     static
     {
-        // licence-gated: the ticket and the ocarina, defiled balls, the ball bag, guild claim upgrades, the SU
+        // licence-gated: the ticket and the ocarina, the ball bag, guild claim upgrades, the SU
         // crate blocks and keys (the Halloween crate included), the cosmetic shop items, the auction block, the
-        // guild gravity chamber and the admin saibaman grow tool.
+        // guild gravity chamber and the admin saibaman grow tool. The defiled/corrupted balls are deliberately NOT
+        // here: the corrupted/defiled cycle is PUBLIC (1.5.0 decision, only the admin ShadowDragonEditor is
+        // key-side), so keyless servers and singleplayer must show them in the creative menu and run the cycle. The
+        // decorative corrupted_shrine is not listed either; it stays secret only because it is in no creative tab.
         net.shurui.dev.sdu.api.PrivateItems.register(null, () -> java.util.stream.Stream.of(
                         ContentItems.ITEMS.getEntries(),
-                        net.shurui.shuruisutilities.corrupted.CorruptedBalls.ITEMS.getEntries(),
                         net.shurui.shuruisutilities.dragonballbag.DragonBallBagItems.REGISTER.getEntries(),
                         net.shurui.shuruisutilities.guilds.ClaimUpgradeItems.ITEMS.getEntries(),
                         net.shurui.shuruisutilities.crate.block.SuCrateBlocks.ITEMS.getEntries(),
@@ -57,7 +59,9 @@ public final class ContentTabs {
                         .map(RegistryObject::get)
                         .toList());
         net.shurui.dev.sdu.api.PrivateItems.register(net.shurui.dev.sdu.api.key.EventHooks.FEATURE_ID,
-                () -> java.util.List.of(ContentItems.EVENT_TOKEN.get()));
+                () -> java.util.List.of(ContentItems.EVENT_TOKEN.get(),
+                        ContentItems.HALLOWEEN_BOX.get(),
+                        ContentItems.HALLOWEEN_PUMPKIN_BAG.get()));
     }
 
     public static final RegistryObject<CreativeModeTab> GEMS_SOULS = CREATIVE_MODE_TABS.register("gems_souls",
@@ -88,16 +92,13 @@ public final class ContentTabs {
     // Icon: uses SU's own one-star defiled ball block item, which is always registered by this addon (see
     // CorruptedBalls) and so can never break the tab regardless of which DMZ version or ball-set pack is
     // installed. It replaced the old cerub_1 placeholder icon, removed along with its old green placeholder art.
-    // The defiled balls are private, so without the key the icon is SU's own Shenron idol instead (also
-    // always registered); PrivateListingRefresh drops the cached icon when the synced answer changes.
+    // The defiled balls are PUBLIC (the corrupted/defiled cycle is public per the 1.5.0 decision), so the icon is
+    // the defiled ball on every server and in singleplayer, keyed or not.
     public static final RegistryObject<CreativeModeTab> DRAGON_BALLS = CREATIVE_MODE_TABS.register("dragon_balls",
             () -> CreativeModeTab.builder()
                     .title(Component.translatable("itemGroup." + ShuruisUtilities.MODID + ".dragon_balls"))
-                    .icon(() -> net.shurui.dev.sdu.api.ClientGate.key()
-                            ? new net.minecraft.world.item.ItemStack(
-                                    net.shurui.shuruisutilities.corrupted.CorruptedBalls.BALLS[1].get())
-                            : new net.minecraft.world.item.ItemStack(
-                                    net.shurui.shuruisutilities.ritual.ShenronIdol.ITEM.get()))
+                    .icon(() -> new net.minecraft.world.item.ItemStack(
+                            net.shurui.shuruisutilities.corrupted.CorruptedBalls.BALLS[1].get()))
                     .displayItems((params, tabOutput) -> {
                         // Private items drop out unless the connected server opened their gate (PrivateItems).
                         var output = net.shurui.dev.sdu.api.PrivateItems.filtered(tabOutput);
@@ -213,6 +214,9 @@ public final class ContentTabs {
                         if (net.shurui.dev.sdu.api.ClientGate.feature(
                                 net.shurui.dev.sdu.api.key.EventHooks.FEATURE_ID)) {
                             net.shurui.shuruisutilities.content.ContentItems.EVENT_TOKEN.ifPresent(output::accept);
+                            net.shurui.shuruisutilities.content.ContentItems.HALLOWEEN_BOX.ifPresent(output::accept);
+                            net.shurui.shuruisutilities.content.ContentItems.HALLOWEEN_PUMPKIN_BAG
+                                    .ifPresent(output::accept);
                         }
                     })
                     .build());

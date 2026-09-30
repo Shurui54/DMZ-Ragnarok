@@ -270,6 +270,8 @@ public final class EventDef
         public final List<LootAdd> loot = new ArrayList<>();
         public final List<EventQuest> quests = new ArrayList<>();
         public final List<ShopOffer> shop = new ArrayList<>();
+        /** Inventory loot boxes this event configures (the Halloween Box and the Pumpkin Bag), keyed by boxType. */
+        public final List<LootBox> lootBoxes = new ArrayList<>();
         /** Temporary world holograms the event spawns at start and despawns at end (never persisted). */
         public final List<EventHologram> holograms = new ArrayList<>();
 
@@ -289,6 +291,7 @@ public final class EventDef
             t.put("loot", list(loot, LootAdd::sortKey, LootAdd::toNbt));
             t.put("quests", list(quests, q -> q.id, EventQuest::toNbt));
             t.put("shop", list(shop, ShopOffer::sortKey, ShopOffer::toNbt));
+            t.put("lootBoxes", list(lootBoxes, lb -> lb.boxType, LootBox::toNbt));
             t.put("holograms", list(holograms, EventHologram::sortKey, EventHologram::toNbt));
 
             t.put("tokens", tokens.toNbt());
@@ -318,6 +321,9 @@ public final class EventDef
             shop.clear();
             for (int i = 0; i < t.getList("shop", Tag.TAG_COMPOUND).size(); i++)
                 shop.add(ShopOffer.fromNbt(t.getList("shop", Tag.TAG_COMPOUND).getCompound(i)));
+            lootBoxes.clear();
+            for (int i = 0; i < t.getList("lootBoxes", Tag.TAG_COMPOUND).size(); i++)
+                lootBoxes.add(LootBox.fromNbt(t.getList("lootBoxes", Tag.TAG_COMPOUND).getCompound(i)));
             holograms.clear();
             for (int i = 0; i < t.getList("holograms", Tag.TAG_COMPOUND).size(); i++)
                 holograms.add(EventHologram.fromNbt(t.getList("holograms", Tag.TAG_COMPOUND).getCompound(i)));
@@ -488,6 +494,94 @@ public final class EventDef
             o.give = t.getString("give");
             o.cost = t.getInt("cost");
             return o;
+        }
+    }
+
+    /**
+     * One inventory loot box (the Halloween Box, the Pumpkin Bag): its box type, a display name, an announcement
+     * toggle plus template, and a weighted list of reward bundles. Each bundle is a weight, an optional rarity label
+     * and a list of reward-grammar tokens (the SAME grammar the rest of the event loot uses, plus {@code token:} for
+     * a themed event token and {@code cosmetic:} for a wardrobe cosmetic), so opening the box grants exactly one
+     * rolled bundle. The roll, grant and announce are the Ragnarok Key's ({@code EventRewards}); this is only data.
+     */
+    public static final class LootBox
+    {
+        /** Matches a {@code LootBoxItem.boxType()}: "halloween_box" or "pumpkin_bag". The box's own id. */
+        public String boxType = "";
+        public String displayName = "";
+        /** Whether opening broadcasts the announcement to everyone. */
+        public boolean announce = true;
+        /** The broadcast, '&amp;' colour codes and {player} / {box} / {item} placeholders. */
+        public String announceTemplate = "&6{player} opened {box} and got {item}!";
+        /** The weighted reward bundles, in author order. */
+        public final List<Reward> rewards = new ArrayList<>();
+
+        /** One weighted reward bundle: a weight, an optional rarity tag, and the reward-grammar tokens it grants. */
+        public static final class Reward
+        {
+            public int weight = 1;
+            /** An optional rarity label (e.g. "common", "rare"), for per-rarity announcement styling. */
+            public String rarity = "";
+            /** The reward-grammar tokens granted together when this bundle rolls, in author order. */
+            public final List<String> tokens = new ArrayList<>();
+
+            CompoundTag toNbt()
+            {
+                CompoundTag t = new CompoundTag();
+                t.putInt("weight", Math.max(0, weight));
+                t.putString("rarity", rarity);
+                t.put("tokens", stringsInOrder(tokens));
+                return t;
+            }
+
+            static Reward fromNbt(CompoundTag t)
+            {
+                Reward r = new Reward();
+                r.weight = Math.max(0, t.getInt("weight"));
+                r.rarity = t.getString("rarity");
+                readStrings(t, "tokens", r.tokens);
+                return r;
+            }
+        }
+
+        CompoundTag toNbt()
+        {
+            CompoundTag t = new CompoundTag();
+            t.putString("boxType", boxType);
+            t.putString("displayName", displayName);
+            t.putBoolean("announce", announce);
+            t.putString("announceTemplate", announceTemplate);
+            // Bundles keep author order (a single stored source, identical on every shard, like reward token lists).
+            ListTag list = new ListTag();
+            for (Reward r : rewards)
+                if (r != null)
+                    list.add(r.toNbt());
+            t.put("rewards", list);
+            return t;
+        }
+
+        static LootBox fromNbt(CompoundTag t)
+        {
+            LootBox b = new LootBox();
+            b.boxType = t.getString("boxType");
+            b.displayName = t.getString("displayName");
+            b.announce = !t.contains("announce") || t.getBoolean("announce");
+            b.announceTemplate = t.contains("announceTemplate") ? t.getString("announceTemplate")
+                    : "&6{player} opened {box} and got {item}!";
+            ListTag list = t.getList("rewards", Tag.TAG_COMPOUND);
+            for (int i = 0; i < list.size(); i++)
+                b.rewards.add(Reward.fromNbt(list.getCompound(i)));
+            return b;
+        }
+
+        /** The denominator of the weighted roll. Zero means this box has nothing to give. */
+        public int totalWeight()
+        {
+            int sum = 0;
+            for (Reward r : rewards)
+                if (r != null && r.weight > 0)
+                    sum += r.weight;
+            return sum;
         }
     }
 

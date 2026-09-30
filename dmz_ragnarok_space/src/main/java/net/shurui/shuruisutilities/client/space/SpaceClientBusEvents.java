@@ -15,8 +15,11 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
 
+import net.shurui.shuruisutilities.client.clone.MiniClonePlayerRenderer;
 import net.shurui.shuruisutilities.space.PlanetDefenderEntities;
 import net.shurui.shuruisutilities.space.PlanetGarrisonDefenderEntities;
+import net.shurui.shuruisutilities.space.PlanetOwnerAvatarEntities;
+import net.shurui.shuruisutilities.space.PlanetOwnerAvatarEntity;
 import net.shurui.shuruisutilities.space.PlanetSaiyanGarrisonEntities;
 import net.shurui.shuruisutilities.space.PlanetSaiyanTownEntities;
 import net.shurui.shuruisutilities.space.SpaceDimension;
@@ -44,8 +47,11 @@ public final class SpaceClientBusEvents
         // SpaceDimension.ID / SurfaceDimension.ID now live in the dmz_ragnarok namespace, matching the new
         // data/dmz_ragnarok dimension_type files.
         event.register(SpaceDimension.ID, new SpaceDimensionEffects(false));
-        // the shared planet-surface dimension: same star sky, plus dense fog for the near-void look.
-        event.register(SurfaceDimension.ID, new SpaceDimensionEffects(true));
+        // the shared planet-surface dimension: its OWN per-planet sky (B1). PlanetSurfaceEffects draws a theme-coloured
+        // atmosphere dome with day/night and a faded star field, and the sun and sibling planets are laid over it by
+        // SpaceBodyRenderer. With no synced theme it falls back to the inherited deep-space + biome sky, so Beerus and
+        // Vegeta are unchanged.
+        event.register(SurfaceDimension.ID, new PlanetSurfaceEffects());
 
         // Compatibility rebinds for a pre-migration world: its space / planet_surface dimensions are baked into
         // level.dat referencing the OLD shuruisutilities:{space,planet_surface} effects id, so without these it would
@@ -55,7 +61,7 @@ public final class SpaceClientBusEvents
         event.register(new net.minecraft.resources.ResourceLocation("shuruisutilities", "space"),
                 new SpaceDimensionEffects(false));
         event.register(new net.minecraft.resources.ResourceLocation("shuruisutilities", "planet_surface"),
-                new SpaceDimensionEffects(true));
+                new PlanetSurfaceEffects());
     }
 
     @SubscribeEvent
@@ -86,6 +92,11 @@ public final class SpaceClientBusEvents
                 context -> new PlanetSaiyanGarrisonRenderer<>(context));
         event.registerEntityRenderer(PlanetSaiyanTownEntities.TRADER.get(),
                 context -> new PlanetSaiyanGarrisonRenderer<>(context));
+        // the owner-avatar planet defender: drawn as a FULL-SIZE copy of the owning player (their real skin plus the DMZ
+        // race body pass), reusing core's shared player-copy renderer at scale 1.0. No green outline (that is the mini
+        // clone's ally marker); the owner's name is shown by the entity's custom-name plate.
+        event.registerEntityRenderer(PlanetOwnerAvatarEntities.OWNER_AVATAR.get(),
+                context -> new MiniClonePlayerRenderer<PlanetOwnerAvatarEntity>(context));
     }
 
     @SubscribeEvent

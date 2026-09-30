@@ -13,7 +13,6 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.event.entity.player.PlayerContainerEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 
-import net.shurui.shuruisutilities.compat.dmz.DragonBallSets;
 import net.shurui.shuruisutilities.grave.GraveManager;
 import net.shurui.shuruisutilities.util.output.logger.LoggingHandler;
 
@@ -79,6 +78,8 @@ public final class DragonBallContainerEject
         try
         {
             List<ItemStack> ejected = new ArrayList<>();
+            boolean anyBall = false;
+            boolean anyBag = false;
             for (Slot slot : menu.slots)
             {
                 if (slot == null)
@@ -86,34 +87,47 @@ public final class DragonBallContainerEject
                     continue;
                 }
                 ItemStack inSlot = slot.getItem();
-                if (!DragonBallSets.isDragonBall(inSlot))
+                if (!DragonBallConfine.isConfined(inSlot))
                 {
                     continue;
                 }
-                if (su$isAllowedHome(level, slot))
+                if (su$isAllowedHome(level, slot, inSlot))
                 {
-                    continue; // player inventory, the bag, or a grave / totem: a ball belongs here
+                    continue; // player inventory, the bag, the Curios slot, or a grave: this item belongs here
                 }
+                boolean wasBag = DragonBallConfine.isBag(inSlot);
                 ItemStack taken = slot.remove(inSlot.getCount());
                 if (!taken.isEmpty())
                 {
                     ejected.add(taken);
+                    anyBall |= !wasBag;
+                    anyBag |= wasBag;
                 }
             }
             if (ejected.isEmpty())
             {
                 return;
             }
-            for (ItemStack ball : ejected)
+            for (ItemStack item : ejected)
             {
-                player.getInventory().add(ball); // mutates ball down to whatever did not fit
-                if (!ball.isEmpty())
+                player.getInventory().add(item); // mutates item down to whatever did not fit
+                if (!item.isEmpty())
                 {
-                    player.drop(ball, false); // no room: drop at the player rather than delete. A ball is never lost.
+                    player.drop(item, false); // no room: drop at the player rather than delete. Nothing is ever lost.
                 }
             }
             menu.broadcastChanges();
-            LoggingHandler.sulog.info("[dragonball] Returned {} stray dragon ball stack(s) to {} from an opened "
+            if (anyBall)
+            {
+                player.sendSystemMessage(
+                        net.minecraft.network.chat.Component.translatable("message.dmz_ragnarok.dragonball.ball_returned"));
+            }
+            if (anyBag)
+            {
+                player.sendSystemMessage(
+                        net.minecraft.network.chat.Component.translatable("message.dmz_ragnarok.dragonball.bag_returned"));
+            }
+            LoggingHandler.sulog.info("[dragonball] Returned {} stray dragon ball / bag stack(s) to {} from an opened "
                     + "container that is not an allowed home.", ejected.size(), player.getGameProfile().getName());
         }
         catch (Throwable t)
@@ -124,18 +138,25 @@ public final class DragonBallContainerEject
         }
     }
 
-    // A slot is an allowed home for a ball when it is a player inventory slot, the dragon ball bag, or a grave totem.
-    private static boolean su$isAllowedHome(ServerLevel level, Slot slot)
+    // Whether this slot is an allowed home for the confined item sitting in it. A ball belongs in the player inventory,
+    // the dragon ball bag, or a grave totem; the bag belongs in the player inventory, its Curios slot, or a grave (the
+    // grave is the suite's own death holder and is swept through its own GUI, not here). Notably the bag is NOT allowed
+    // in the dragon ball bag (no bag inside a bag).
+    private static boolean su$isAllowedHome(ServerLevel level, Slot slot, ItemStack stack)
     {
-        if (slot instanceof DragonBallBagSlot)
-        {
-            return true;
-        }
         Container container = slot.container;
         if (container instanceof Inventory)
         {
-            return true;
+            return true; // the player's own inventory
         }
-        return GraveManager.isGraveContainer(level, container);
+        if (GraveManager.isGraveContainer(level, container))
+        {
+            return true; // the suite's death holder, collected through the grave GUI
+        }
+        if (DragonBallConfine.isBag(stack))
+        {
+            return DragonBallConfine.isCuriosSlot(slot); // the bag's only other home is its Curios slot
+        }
+        return slot instanceof DragonBallBagSlot; // a ball's only other home is the dragon ball bag
     }
 }

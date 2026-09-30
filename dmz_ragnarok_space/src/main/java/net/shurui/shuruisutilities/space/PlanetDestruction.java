@@ -85,6 +85,12 @@ public final class PlanetDestruction
         {
             return Result.CLAIMED;
         }
+        // a personally-claimed planet guarded by its owner's live avatar is not destroyable by a claim-respecting caller.
+        if (requireUnclaimed && claims.isPersonallyClaimed(planetId)
+                && !PlanetOwnerAvatar.explodableNow(server, planetId))
+        {
+            return Result.CLAIMED;
+        }
 
         GeneratedPlanets.Generated planet = GeneratedPlanets.findGenerated(server, planetId);
         if (planet == null)
@@ -127,6 +133,12 @@ public final class PlanetDestruction
         {
             return Result.CLAIMED;
         }
+        // a personally-claimed planet guarded by its owner's live avatar is not destroyable by a claim-respecting caller.
+        if (requireUnclaimed && claims.isPersonallyClaimed(planet.id)
+                && !PlanetOwnerAvatar.explodableNow(server, planet.id))
+        {
+            return Result.CLAIMED;
+        }
         apply(server, claims, planet, credit);
         return Result.DESTROYED;
     }
@@ -136,6 +148,15 @@ public final class PlanetDestruction
                               GeneratedPlanets.Generated planet, ServerPlayer credit)
     {
         long gameTime = server.overworld().getGameTime();
+
+        // A SYSTEM SUN has no surface of its own: destroying it takes out its WHOLE system. Handle it here so the one
+        // destroy entry point (admin command, ki blast, future raid) cascades identically, and so the star's doom ramp
+        // and shatter reuse the same DoomSequence a planet uses.
+        if (GeneratedSystems.isSystemStar(planet.id))
+        {
+            applyStarCascade(server, claims, planet, credit, gameTime);
+            return;
+        }
 
         // read the owning guild BEFORE the unclaim below drops it: the RAID LOSS RECOVERY salvage is credited to
         // whoever owned the planet at the moment of destruction, and unclaim() would erase that answer. A wild
@@ -152,6 +173,12 @@ public final class PlanetDestruction
         // that slot forever. dropped right after markDestroyed so both claim-store mutations happen together, and before
         // the single syncAll below so the cleared owner ships to clients in the same layout push.
         claims.unclaim(planet.id);
+        // also release any PUBLIC personal-conquest claim on the destroyed planet, keyed by the same planet id, so a
+        // busted planet is never left personally owned (which would keep it un-conquerable once a new planet forms in the
+        // slot). Kept beside the guild unclaim so both claim-store mutations happen together before the syncAll below.
+        claims.unclaimPersonal(planet.id);
+        // drop any pending conquest boss and its record for the (now dead) surface, mirroring the garrison clear below.
+        PlanetConquest.onPlanetDestroyed(server, planet.id);
 
         // kill every player on this planet's surface cell, then clear its stamped flag so a future planet re-stamps.
         killAndEvictOnSurface(server, planet.id);
@@ -185,6 +212,42 @@ public final class PlanetDestruction
         applyAlignmentPenalty(credit);
 
         // push the destroyed state to every client so they suppress the planet immediately, no relog.
+        SpaceLayoutSync.syncAll();
+    }
+
+    // Destroy a system SUN and cascade to every planet of its system. The star has no landable surface, so instead of the
+    // per-planet surface steps it: marks the star destroyed in the authoritative store (which suppresses the whole system
+    // everywhere at once, since GeneratedSystems reads the same isDestroyed seam), resolves the system from the star's
+    // position, and routes EACH of its planets through the ordinary single-planet destroy, so their claims, salvage,
+    // surface eviction, garrison clear, course invalidation, persistence and cross-shard resync are byte-identical to
+    // busting each planet on its own. The star mark is keyed by the star id as its own cell key, so like a moon it takes
+    // no part in the wreck / regeneration machinery: a destroyed system simply stops existing.
+    private static void applyStarCascade(MinecraftServer server, GeneratedPlanetClaims claims,
+                                         GeneratedPlanets.Generated star, ServerPlayer credit, long gameTime)
+    {
+        // resolve the system BEFORE the mark (systemForStar reads it destroyed-inclusive, so order does not matter, but
+        // reading first keeps the planet list independent of the mark).
+        GeneratedSystems.System system = GeneratedSystems.systemForStar(server, star.id, star.position);
+
+        // mark the sun destroyed: suppresses the star AND its whole system at the source everywhere (renderer, landing,
+        // star map, hazard), no per-consumer filter.
+        claims.markDestroyed(star.cellKey, star.id, gameTime);
+
+        // destroy every planet of the system through the ordinary path. requireUnclaimed is false: a sun destruction takes
+        // the whole system, claimed planets included (the star owned them). Each destroy runs its own surface eviction,
+        // salvage, garrison clear, course invalidation and resync, so the cascade is exactly N single-planet destroys.
+        if (system != null)
+        {
+            long epoch = OrbitClock.epochMillis();
+            ServerLevel any = server.overworld();
+            for (GeneratedSystems.SystemPlanet p : system.planets)
+            {
+                destroy(any, system.toGenerated(p, epoch), credit, false);
+            }
+        }
+
+        // dock the credited destroyer's alignment once for the whole system, and push the star suppression to clients.
+        applyAlignmentPenalty(credit);
         SpaceLayoutSync.syncAll();
     }
 

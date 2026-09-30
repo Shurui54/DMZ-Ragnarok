@@ -2,7 +2,6 @@ package net.shurui.shuruisutilities.space;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -61,21 +60,143 @@ public final class PlanetPositions
     // is called repeatedly with an unchanged set. Server-side only.
     private static volatile List<String> layoutKeys = Collections.emptyList();
 
-    // fraction of a body's angular slot the deterministic per-body wobble may span (so the ring is not a perfect polygon)
-    // and the fraction of the ring radius the per-body radius jitter may span. Both are kept small and are VERIFIED
-    // against the separation floor, with a jitter-free fallback, so they only ever add visual variety, never break the
-    // guarantee.
-    private static final double WOBBLE_FRACTION = 0.08;
-    private static final double JITTER_FRACTION = 0.04;
-    // a small margin on the derived ring radius so the typical (jittered) layout sits a hair past the floor rather than
-    // exactly on it.
-    private static final double RADIUS_MARGIN = 1.03;
-
     // Fixed cruising altitude for every body. Space is min_y -64, height 2048 (ceiling 1984). 900 leaves a
     // comfortable band above and below each body so a visual radius of a few dozen blocks never pokes out of the
     // playable Y range, and it sits well above the return altitude (288) so arriving next to a planet never
     // instantly re-triggers the descend-out check.
     public static final double PLANET_Y = 900.0;
+
+    // ===== B2: the sun at the layout centre =====
+    //
+    // A real central body the fixed planets orbit. It is NOT a landing destination (never an entry in
+    // PlanetRegistry.bodies, so travel/landing never target it) and NOT a fixed body (it is drawn and made hazardous
+    // separately, see SpaceBodyRenderer and SpaceHazardModule). Everything about it is a constant: it sits at the space
+    // origin on the shared body plane, so the direction to the sun from any planet is simply the bearing toward the
+    // origin, and every ring is centred on it.
+
+    // A synthetic key for the sun, distinct from any dimension id and from the generated / moon id namespaces, so it can
+    // never collide with a landable body's key.
+    public static final String SUN_KEY = "dmz_ragnarok:sun";
+
+    // The sun sits at the space origin on the body plane.
+    public static final Vec3 SUN_POSITION = new Vec3(0.0, PLANET_Y, 0.0);
+
+    // The sun's TRUE visual half-extent (blocks). The renderer enlarges the drawn size by STAR_DRAW_SCALE, so the drawn
+    // sphere is larger than this; SUN_DANGER_RADIUS is sized to stay outside the drawn sphere (see SpaceHazardModule).
+    public static final float SUN_RADIUS = 140.0F;
+
+    // The outer edge of the sun's heat / no-fly field, blocks from the sun centre. The burn field spans from here in to
+    // SUN_RADIUS, and a player inside SUN_RADIUS is pushed back out (the sun is not enterable). Chosen so:
+    //   - it clears the space arrival column: a player arriving at (x, SPACE_ARRIVAL_Y=320, z) sits at least 580 blocks
+    //     from the sun centre (0, 900, 0), comfortably outside this radius, so entering space never drops anyone into the
+    //     sun; and
+    //   - it stays well inside the existing 1200-block origin clearance every scenery field already keeps clear, so no
+    //     generated planet, star, asteroid or black hole (all excluded from that column) can ever sit in the sun, and no
+    //     body that existed before B2 (all far outside the origin column) is retroactively inside it.
+    public static final double SUN_DANGER_RADIUS = 480.0;
+
+    // Warm sun tint (drawn as a bright star with a corona, see SpaceBodyRenderer.drawStar).
+    public static final int SUN_TINT = 0xFFE7A8;
+
+    public static Vec3 sunPosition()
+    {
+        return SUN_POSITION;
+    }
+
+    public static double sunDangerRadius()
+    {
+        return SUN_DANGER_RADIUS;
+    }
+
+    // ===== B2: concentric orbital rings =====
+    //
+    // The fixed bodies no longer share one ring: each sits on its OWN ring around the sun, at a radius that is a pure
+    // function of THAT body's key alone (its orbit index), never of how many bodies exist. This is the memory lesson made
+    // structural: with the old single ring, adding or removing a body resized the ring and moved every planet; here a
+    // body's radius (and angle) depend only on its own key, so the set changing never moves a body that is still present.
+    // Because two bodies on different rings are separated radially by at least the ring spacing, and the ring spacing is
+    // the configured minimum separation, no two fixed bodies can ever be closer than that floor, so a pod arriving beside
+    // one never spawns inside another.
+
+    // The innermost ring's radius floor (blocks). Kept well outside the sun's danger field and the origin arrival column
+    // so the first planet, and a pod arriving beside it, are always clear of the sun. The actual innermost radius is
+    // max(ringRadius, this), so an operator who raises ringRadius pushes the whole system further out.
+    private static final double INNER_ORBIT_FLOOR = 6000.0;
+
+    // Deliberate inner-to-outer orbit order for the known solar-system bodies. A plain table (like NOMINAL_RADIUS) so each
+    // body's ring is fixed and readable, and a body's radius depends ONLY on its own key. Earth is the home world on the
+    // innermost ring; the rest step outward. A key ABSENT here (cereal, beerus, the SMP world, any future body) falls back
+    // to a hash-chosen outer orbit (see orbitIndex), so it still gets a stable per-key ring with no code change.
+    private static final Map<String, Integer> ORBIT_INDEX = Map.of(
+            "minecraft:overworld", 0,
+            "dragonminez:namek", 1,
+            "dragonminez:sacredkaiplanet", 2,
+            "dmz_ragnarok:planet_vegeta", 3);
+    // The number of reserved inner orbit indices (0..KNOWN_ORBIT_COUNT-1) the table above uses; unknown bodies hash into
+    // the band that starts here, so they never collide with a known body's ring.
+    private static final int KNOWN_ORBIT_COUNT = 4;
+    // How many outer rings unknown bodies distribute across (indices KNOWN_ORBIT_COUNT .. KNOWN_ORBIT_COUNT+this-1).
+    private static final int FALLBACK_ORBIT_COUNT = 8;
+
+    // The radius, blocks, generated planets / stars / asteroids / black holes are kept clear of around the sun, so the
+    // inner solar system reads as the deliberate sun-plus-rings rather than random clutter. A fixed constant (independent
+    // of the body set) so both sides agree with no extra sync, sized to clear the sun and the approach up to just inside
+    // the innermost ring. It is NOT the whole system: scenery beyond it is unchanged. A generated planet that is already
+    // CLAIMED or STAMPED is exempt (GeneratedPlanets keeps it where it is), so this never orphans persisted state; only
+    // never-visited (purely derived, no saved data) inner planets are biased away, exactly as a density change would move
+    // them.
+    private static final double INNER_SYSTEM_CLEAR = 5000.0;
+
+    // The ring spacing between adjacent orbit indices: the configured minimum separation, so two bodies one ring apart are
+    // at least that far apart radially (and further at different angles), which is the separation guarantee.
+    private static double ringSpacing()
+    {
+        return Math.max(minSeparation, 1.0);
+    }
+
+    // The orbit index (ring number, 0 = innermost) for a body key. Known bodies read the deliberate table; any other body
+    // hashes into the outer band, deterministically per key.
+    private static int orbitIndex(String planetKey)
+    {
+        Integer known = ORBIT_INDEX.get(planetKey);
+        if (known != null)
+        {
+            return known;
+        }
+        return KNOWN_ORBIT_COUNT + (int) Math.floorMod(hash(planetKey), (long) FALLBACK_ORBIT_COUNT);
+    }
+
+    // The radius, blocks, of a given orbit index. Depends only on the index (and the config numbers), never on the body
+    // set.
+    private static double orbitRadius(int orbitIndex)
+    {
+        return Math.max(ringRadius, INNER_ORBIT_FLOOR) + orbitIndex * ringSpacing();
+    }
+
+    // The angle around the sun for a body key, a stable per-key hash so bodies on the same ring (only ever unknown bodies
+    // that collided on a fallback orbit) still scatter to different bearings.
+    private static double ringAngle(String planetKey)
+    {
+        long h = hash(planetKey);
+        return ((h & 0xFFFFFFFFL) / 4294967296.0) * (Math.PI * 2.0);
+    }
+
+    // The world position of a body key on its own ring around the sun. A PURE function of the key (and the config ring
+    // numbers): the same key always lands on the same ring at the same bearing whatever else is in the system.
+    private static Vec3 ringPosition(String planetKey)
+    {
+        double r = orbitRadius(orbitIndex(planetKey));
+        double a = ringAngle(planetKey);
+        return new Vec3(Math.cos(a) * r, PLANET_Y, Math.sin(a) * r);
+    }
+
+    // Whether a space position falls inside the reserved inner solar system (the sun and the approach up to the innermost
+    // ring), measured on the XZ plane like the origin clearance. Read by the generated / star / asteroid / black hole
+    // fields to keep scenery out of the inner system. A fixed constant, so client and server agree with no extra sync.
+    public static boolean insideInnerSystem(Vec3 pos)
+    {
+        return Math.hypot(pos.x, pos.z) <= INNER_SYSTEM_CLEAR;
+    }
 
     // stable 64-bit hash of the key; splitmix64-style finaliser on the String hashCode so nearby ids (which have
     // nearby String hashes) still scatter to very different angles/radii. Deterministic and JVM-stable.
@@ -87,102 +208,118 @@ public final class PlanetPositions
         return z ^ (z >>> 31);
     }
 
-    // world position of the body for this key. Reads the coordinated layout snapshot (built by the server, mirrored on
-    // the client), falling back to a stable per-key ring hash for a key that is not currently a body (an unloaded moon
-    // parent, or a lookup before the first layout is built).
+    // world position of the body for this key, AT THE CURRENT ORBITAL INSTANT. Each fixed body revolves around the central
+    // sun on its own ring; this returns where it is right now. Authoritative and time-based: landing, autopilot, the
+    // standoff on leave, collision, the star map and the rendered body all read this, so a fixed body is drawn, targeted
+    // and landed on at one agreed position. The epoch comes from {@link OrbitClock}, which resolves the SAME wall-clock
+    // instant on every shard and pushes it to clients, so client and server never disagree on where a body is even though
+    // it moves. The ring RADIUS and starting phase are pure per-key functions (never of how many bodies exist), so the set
+    // changing never moves a body that is still present (the B2 lesson kept), and adding the time term only rotates it.
     public static Vec3 position(String planetKey)
     {
-        Vec3 p = layout.get(planetKey);
-        return p != null ? p : fallbackPosition(planetKey);
+        return orbitPositionAt(planetKey, OrbitClock.epochMillis());
     }
 
-    // the old independent per-key ring hash, kept ONLY as the fallback for a key absent from the coordinated layout. It
-    // gives that key a stable, bounded position but makes no separation promise (only the coordinated layout does).
+    /**
+     * The body's position on its ring at an EXPLICIT epoch, the pure core of {@link #position}. Public so the self-test
+     * can pin the orbit maths against two simulated clocks. A body at ring radius {@code r} and starting phase {@link
+     * #ringAngle} sweeps {@link Orbits#angle} at {@link Orbits#periodMillis}. Every body shares the sun's body plane
+     * ({@link #PLANET_Y}); the sun sits at the origin, so a ring is centred on the origin.
+     */
+    public static Vec3 orbitPositionAt(String planetKey, long epochMillis)
+    {
+        double r = orbitRadius(orbitIndex(planetKey));
+        double phase0 = ringAngle(planetKey);
+        double[] xz = Orbits.positionXZ(SUN_POSITION.x, SUN_POSITION.z, r, phase0, epochMillis);
+        return new Vec3(xz[0], PLANET_Y, xz[1]);
+    }
+
+    /**
+     * The ring RADIUS a fixed body orbits the central sun at, a pure per-key function. Public so a renderer can cache the
+     * orbital CONSTANTS (centre, radius, phase) once and recompute the body's live position every frame from the shared
+     * clock, rather than reading a position snapshot that only updates on a cache refresh (which read as the body jumping).
+     */
+    public static double orbitRadiusOf(String planetKey)
+    {
+        return orbitRadius(orbitIndex(planetKey));
+    }
+
+    /**
+     * The starting phase (angle at epoch 0) a fixed body orbits at, a pure per-key function. See {@link #orbitRadiusOf}:
+     * with the sun centre and this pair, {@link Orbits#positionXZ} reproduces {@link #orbitPositionAt} exactly, so a caller
+     * can draw a smooth per-frame orbit without a per-frame server lookup.
+     */
+    public static double orbitPhase0Of(String planetKey)
+    {
+        return ringAngle(planetKey);
+    }
+
+    /**
+     * The body's REST position: where it sits at epoch 0, ignoring the orbit's time term. This is the stable per-key ring
+     * point the B2 layout used before orbits. Kept for the layout-verification log ({@link #buildLayout}) and for any
+     * caller that wants a body's ring slot rather than its live position.
+     */
+    public static Vec3 restPosition(String planetKey)
+    {
+        return ringPosition(planetKey);
+    }
+
+    // the per-key ring position, used for a key absent from the coordinated layout (an unloaded moon parent, or a lookup
+    // before the first layout is built). Since B2 the coordinated layout IS this same pure per-key ring formula, so a
+    // fallback lookup and a snapshot lookup give the identical position; the snapshot is kept only so the client mirrors
+    // the server's exact bytes over the sync rather than re-running the maths.
     private static Vec3 fallbackPosition(String planetKey)
     {
-        long h = hash(planetKey);
-        double angle = ((h & 0xFFFFFFFFL) / 4294967296.0) * (Math.PI * 2.0);
-        double jitter = ((h >>> 32) / 4294967296.0) * radiusJitter;
-        double radius = ringRadius + jitter;
-        return new Vec3(Math.cos(angle) * radius, PLANET_Y, Math.sin(angle) * radius);
+        return ringPosition(planetKey);
     }
 
     /**
      * Build (or reuse) the coordinated fixed-body layout for the given deduped body-key set and install it as the
-     * snapshot {@link #position} reads. Called by {@link PlanetRegistry#bodies} on the server. The bodies are spread
-     * EVENLY by angle on a ring whose radius is derived so the closest (adjacent) pair is at least {@link #minSeparation}
-     * apart, plus a small deterministic per-body angular wobble and radius jitter for variety. The result is VERIFIED
-     * against the separation floor and, if the jitter ever breaches it, rebuilt as a jitter-free regular polygon, which
-     * meets the floor exactly by construction. Deterministic: the same key set and config always give the same layout,
-     * so every player gets the same sky and positions do not shift between sessions.
+     * snapshot {@link #position} reads. Called by {@link PlanetRegistry#bodies} on the server. Since B2 each body sits on
+     * its OWN concentric ring around the sun at {@link #ringPosition}, a PURE function of that body's key alone: the ring
+     * radius comes from the body's orbit index (a fixed table for the known solar-system bodies, a per-key hash for the
+     * rest) and the bearing from a per-key hash. Because a body's position depends only on its own key, the set changing
+     * never moves a body that is still present (the memory lesson made structural, replacing the old single ring that
+     * resized with the count). Deterministic: the same key always gives the same ring, so every player gets the same sky
+     * and positions never shift between sessions. The result is still verified against the separation floor and logged.
      */
     static void buildLayout(List<String> keys)
     {
         // Compare the SET, not the sequence. The keys arrive in whatever order DMZ's destination registry happens to
         // hand them back, and that order is not stable across reloads, so a List.equals guard read a pure re-ordering
         // as a change: a live 2h43m server rebuilt and re-logged this 58 times and produced the byte-identical layout
-        // every single time (the build sorts internally, so order never mattered to the result). Set comparison makes
-        // the guard mean what it was always meant to mean.
+        // every single time. Set comparison makes the guard mean what it was always meant to mean.
         if (layoutKeys.size() == keys.size() && new HashSet<>(layoutKeys).containsAll(keys))
         {
             return; // unchanged set: reuse the snapshot (and do not re-log).
         }
-        int n = keys.size();
-        Map<String, Vec3> map;
-        if (n == 0)
+        Map<String, Vec3> map = new HashMap<>(keys.size());
+        for (String key : keys)
         {
-            map = Collections.emptyMap();
+            map.put(key, ringPosition(key));
         }
-        else if (n == 1)
+        if (!map.isEmpty())
         {
-            map = new HashMap<>(1);
-            map.put(keys.get(0), fallbackPosition(keys.get(0)));
-        }
-        else
-        {
-            // deterministic order for the angular slots: sort by the same 64-bit key hash (tie-broken by the id) so the
-            // bodies scatter around the ring rather than clustering alphabetically, and the order is stable across runs.
-            List<String> sorted = new ArrayList<>(keys);
-            sorted.sort(Comparator.comparingLong(PlanetPositions::hash).thenComparing(k -> k));
-            double sep = Math.max(minSeparation, 1.0);
-            double slot = Math.PI * 2.0 / n;
-            // ring radius so a jitter-free regular polygon's adjacent chord equals sep exactly (2R sin(slot/2) = sep),
-            // floored at ringRadius and nudged out by a small margin.
-            double baseR = Math.max(ringRadius, sep / (2.0 * Math.sin(slot / 2.0))) * RADIUS_MARGIN;
-            map = layoutOn(sorted, slot, baseR, JITTER_FRACTION, WOBBLE_FRACTION);
             double min = minPairwise(map);
-            if (min < sep)
+            double sep = Math.max(minSeparation, 1.0);
+            if (map.size() >= 2 && min < sep)
             {
-                // the visual jitter pushed a pair under the floor: fall back to the jitter-free polygon, which is exactly
-                // sep on its adjacent pairs and more on the rest, so it always clears the floor.
-                map = layoutOn(sorted, slot, baseR, 0.0, 0.0);
-                min = minPairwise(map);
+                // Only reachable if two UNKNOWN bodies collided on the same fallback orbit AND at nearly the same bearing,
+                // astronomically unlikely on a ring kilometres in radius. The known solar-system bodies each own a unique
+                // ring, so they can never breach the floor. We log rather than reshuffle (reshuffling would reintroduce the
+                // set dependence B2 exists to remove); the pair simply reads a little close.
+                LoggingHandler.sulog.warn(
+                        "[SpacePlanets] two fixed bodies are only {} blocks apart (floor {}); a rare fallback-orbit "
+                                + "collision. Positions stay per-key stable.", Math.round(min), Math.round(sep));
             }
             LoggingHandler.sulog.info(
-                    "[SpacePlanets] fixed layout: {} bodies on ring R={} (sep floor {}), min pairwise distance {} blocks.",
-                    n, Math.round(baseR), Math.round(sep), Math.round(min));
+                    "[SpacePlanets] sun-centred layout: {} bodies on concentric rings (spacing {}, inner floor {}), "
+                            + "min pairwise distance {} blocks.",
+                    map.size(), Math.round(ringSpacing()), Math.round(Math.max(ringRadius, INNER_ORBIT_FLOOR)),
+                    Math.round(min));
         }
         layout = map;
         layoutKeys = new ArrayList<>(keys);
-    }
-
-    // place the sorted keys on the ring: body i at angle i*slot (plus a bounded per-key wobble) and radius R (plus a
-    // bounded per-key jitter). jitterFrac/wobbleFrac == 0 gives the exact regular polygon used as the verified fallback.
-    private static Map<String, Vec3> layoutOn(List<String> sorted, double slot, double R, double jitterFrac,
-                                              double wobbleFrac)
-    {
-        Map<String, Vec3> map = new HashMap<>(sorted.size());
-        for (int i = 0; i < sorted.size(); ++i)
-        {
-            String key = sorted.get(i);
-            long h = hash(key);
-            double wob = (((h >>> 8) & 0xFFFFL) / 65536.0 - 0.5) * 2.0 * wobbleFrac * slot;
-            double angle = i * slot + wob;
-            double jit = (((h >>> 32) & 0xFFFFL) / 65536.0) * jitterFrac * R;
-            double radius = R + jit;
-            map.put(key, new Vec3(Math.cos(angle) * radius, PLANET_Y, Math.sin(angle) * radius));
-        }
-        return map;
     }
 
     // the smallest centre-to-centre distance between any two bodies in a layout, or +inf for fewer than two bodies. Used

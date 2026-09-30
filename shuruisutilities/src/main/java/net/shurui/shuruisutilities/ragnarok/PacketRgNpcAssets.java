@@ -6,15 +6,13 @@ import net.shurui.shuruisutilities.commons.network.ISUPacket;
 import net.shurui.shuruisutilities.commons.network.NetworkUtils;
 
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.fml.DistExecutor;
 import net.minecraftforge.network.NetworkEvent;
 
 /**
- * Server -&gt; client: one chunk of the zipped rgnpc (ninjin) model pack an admin drops in
- * {@code <gamedir>/ShuruisUtilities/rgnpc/}. Chunked because the set is far past any single-packet size, and
- * released one chunk at a time by {@link RgNpcAssetServer}, each only after the client acknowledges the last. The client reassembles by
- * {@code version} in {@code RgNpcAssetCache} and feeds it to the in-memory {@code RgNpcPackResources}.
+ * RETIRED, id 93 kept as an inert hole. This once carried one chunk of the server-streamed rgnpc model pack. As of
+ * September 2026 the model set ships in the jar again (see {@code RgNpcPackFinder}), so nothing is sent on this id
+ * and {@link #handle} does nothing. The class stays registered so the id is never reused and an older peer's packet
+ * still decodes; encode / decode keep the original wire format for that reason.
  */
 public class PacketRgNpcAssets implements ISUPacket
 {
@@ -55,12 +53,9 @@ public class PacketRgNpcAssets implements ISUPacket
     @Override
     public void handle(NetworkEvent.Context context)
     {
-        DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () ->
-        {
-            net.shurui.shuruisutilities.ragnarok.client.RgNpcAssetCache.accept(version, index, total, data);
-            // The server holds the next chunk back until this arrives. See RgNpcAssetServer.
-            net.shurui.shuruisutilities.ragnarok.client.RgNpcAssetCache.acknowledge();
-        });
+        // INERT HOLE. Packet id 93 was rgnpc model asset streaming, retired in September 2026 when the model set
+        // returned to the jar. Kept registered so the id is never reused and an older peer's packet decodes without
+        // error; nothing is done with it. See RgNpcPackFinder for the bundled loader that replaced this.
     }
 
     public static void handler(final PacketRgNpcAssets message, Supplier<NetworkEvent.Context> ctx)

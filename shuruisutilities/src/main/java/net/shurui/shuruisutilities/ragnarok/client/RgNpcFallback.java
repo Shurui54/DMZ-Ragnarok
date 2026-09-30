@@ -82,8 +82,8 @@ public final class RgNpcFallback
     {
         if (wanted != null && WARNED.add(wanted.toString()))
         {
-            LOGGER.warn("[rgnpc] {} is not installed on this client; drawing a generated saiyan instead. If this is a "
-                    + "server, the model pack belongs in <gamedir>/ShuruisUtilities/rgnpc/.", wanted);
+            LOGGER.warn("[rgnpc] {} is not bundled; drawing a generated saiyan instead. This normally means a stored "
+                    + "NPC still names a character that was removed when the model set was replaced.", wanted);
         }
     }
 }

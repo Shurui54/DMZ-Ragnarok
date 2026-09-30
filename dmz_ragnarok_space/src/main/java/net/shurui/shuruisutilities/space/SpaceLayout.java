@@ -242,6 +242,33 @@ public final class SpaceLayout
         return clientDestroyed.contains(planetId);
     }
 
+    // Whether a generated planet id has PERSISTED state: it is claimed by a guild, or its surface has been stamped (its
+    // size recorded). This is the single seam the inner-system bias (GeneratedPlanets, PlanetPositions.insideInnerSystem)
+    // reads to EXEMPT such a planet, so the sun-centred rework never orphans a planet a player has already invested in: a
+    // never-visited inner planet (purely derived, no saved data) is biased out of the inner system, but a claimed or
+    // stamped one stays exactly where it is. Branches like isDestroyed:
+    //   server != null: the authoritative claim / stamped-size store on the caller's own thread.
+    //   server == null (client render thread): the synced owners and stamped-size snapshots, the SAME maps the renderer
+    //       already reads, so client and server agree on which cells are exempt and never disagree on "draw it but cannot
+    //       land" for an inner planet.
+    public static boolean isClaimedOrStamped(MinecraftServer server, String planetId)
+    {
+        if (server != null)
+        {
+            GeneratedPlanetClaims claims = GeneratedPlanetClaims.get(server);
+            // stampedSizes().containsKey is the AUTHORITATIVE "was this planet ever stamped" test (an entry exists only
+            // once a stamp began); do NOT use stampedSizeForId, which falls back to the derived size for every planet and
+            // would exempt them all. isSurfaceGenerated is the matching flag, checked too for a planet stamped by a build
+            // that recorded the flag but not a size.
+            return claims.claims().containsKey(planetId)
+                    || claims.stampedSizes().containsKey(planetId)
+                    || claims.isSurfaceGenerated(planetId);
+        }
+        // client: the synced owners and stamped-size snapshots (the stamped-size map is the only stamped signal synced,
+        // and it carries every stamped planet, so it is the client's authoritative stamped test).
+        return !ownerOf(planetId).isEmpty() || clientStampedSize(planetId) > 0;
+    }
+
     // The generation of a cell key. Same server/client branch and same rationale as isDestroyed above: 0 is the
     // original planet, a bumped value derives a wholly different planet in that slot, and both sides read it here.
     public static int generationFor(MinecraftServer server, String cellKey)
@@ -316,6 +343,41 @@ public final class SpaceLayout
             }
             return shared;
         }
-        return clientFixed;
+        return clientFixedLive();
+    }
+
+    // CLIENT: the synced fixed bodies with their CURRENT orbital positions. The sync carries each body's key and radius
+    // (its position at sync time), but a fixed body ORBITS, so its live position is recomputed from the key through
+    // PlanetPositions.orbitPositionAt at the client's synced epoch, giving exactly what the server derives at the same
+    // instant. Recomputed at most every CLIENT_LIVE_CACHE_MS so the per-frame cell walks (generatedNear on the render
+    // thread call this per cell) do not rebuild the list hundreds of times a frame; a body moves well under a block in
+    // that window, far inside every landing/overlap margin. Render thread only, so the plain fields need no lock.
+    private static final long CLIENT_LIVE_CACHE_MS = 50L;
+    private static long clientLiveStamp = Long.MIN_VALUE;
+    private static List<FixedBody> clientLive = Collections.emptyList();
+
+    private static List<FixedBody> clientFixedLive()
+    {
+        List<FixedBody> src = clientFixed;
+        if (src.isEmpty())
+        {
+            return src;
+        }
+        long now = System.currentTimeMillis();
+        List<FixedBody> cached = clientLive;
+        if (cached.size() == src.size() && now - clientLiveStamp < CLIENT_LIVE_CACHE_MS)
+        {
+            return cached;
+        }
+        long epoch = OrbitClock.epochMillis();
+        List<FixedBody> out = new ArrayList<>(src.size());
+        for (FixedBody fb : src)
+        {
+            out.add(new FixedBody(fb.key, PlanetPositions.orbitPositionAt(fb.key, epoch), fb.radius));
+        }
+        List<FixedBody> shared = Collections.unmodifiableList(out);
+        clientLive = shared;
+        clientLiveStamp = now;
+        return shared;
     }
 }

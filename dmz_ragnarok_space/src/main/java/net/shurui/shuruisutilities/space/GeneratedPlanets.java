@@ -205,7 +205,18 @@ public final class GeneratedPlanets
      */
     public static boolean isDestructible(String id)
     {
-        return id != null && (id.startsWith(ID_PREFIX) || MoonBody.isMoon(id));
+        if (id == null)
+        {
+            return false;
+        }
+        // The MAIN central sun is NEVER destructible (owner rule): refuse it explicitly, not merely by prefix, so no
+        // future id scheme could ever let it through. It is not a sugen:/sumoon:/sustar: id anyway, but this is the
+        // belt-and-braces the rule asks for. A GENERATED SYSTEM sun (sustar:) IS destructible; a fixed body never is.
+        if (PlanetPositions.SUN_KEY.equals(id))
+        {
+            return false;
+        }
+        return id.startsWith(ID_PREFIX) || MoonBody.isMoon(id) || GeneratedSystems.isSystemStar(id);
     }
 
     // A light grey tint for a moon adapted into the {@link Generated} shape below. A moon has no hash-rolled colour (its
@@ -226,6 +237,32 @@ public final class GeneratedPlanets
     public static Generated forMoon(String moonId, Vec3 position, float radius, int surfaceSize)
     {
         return new Generated(moonId, position, MOON_TINT, radius, surfaceSize, moonId);
+    }
+
+    /**
+     * Adapt a {@link GeneratedSystems} planet into the {@link Generated} shape the whole pipeline consumes, so a system
+     * planet flows through drawing, landing, claims, salvage, the planet-info readout and destruction with no parallel
+     * copy. Like {@link #forMoon}, the {@code cellKey} is the PLANET ID itself: a system planet has no old-scheme
+     * {@code cx,cy,cz} cell, so its id is its own synthetic single-occupant cell key. That key is harmless everywhere a
+     * real cell key is parsed, because {@link #parseCellKey} returns null for a {@code sugen:} hex id (it is not the
+     * {@code "cx,cy,cz"} form), so the wreck derivation skips it: a destroyed system planet leaves no rubble and never
+     * regenerates, which is the intended behaviour for a body that belongs to a star.
+     */
+    public static Generated forSystemPlanet(String planetId, Vec3 position, int tint, float radius, int surfaceSize)
+    {
+        return new Generated(planetId, position, tint, radius, surfaceSize, planetId);
+    }
+
+    /**
+     * Adapt a system STAR into the {@link Generated} shape so the ONE {@link PlanetDestruction} pipeline (in-flight
+     * steering, the doom ramp, the destroy) can treat a sun uniformly. A star has no landable surface, so its surface
+     * size is 0; the destroy step detects the star id ({@link GeneratedSystems#isSystemStar}) and cascades to the
+     * system's planets rather than reading a surface. The {@code cellKey} is the star key itself, the same single-occupant
+     * convention as a moon and a system planet.
+     */
+    public static Generated forStar(String starKey, Vec3 position, float radius, int tint)
+    {
+        return new Generated(starKey, position, tint, radius, 0, starKey);
     }
 
     // stable id for a sector cell AT AN EXPLICIT GENERATION: the cell coordinates and generation hashed to a short hex
@@ -259,6 +296,17 @@ public final class GeneratedPlanets
     {
         Cand me = candidateFor(server, cx, cy, cz);
         if (me == null)
+        {
+            return null;
+        }
+        // SYSTEM-ERA LEGACY GATE. The old scattered per-cell planet field is REPLACED by {@link GeneratedSystems}: an
+        // old-scheme cell planet now exists ONLY if a player invested in it (claimed or stamped), in which case it stays
+        // EXACTLY where it was, unmoving, with its surface cells, claims and salvage untouched. A never-visited old planet
+        // simply stops existing (a documented data change, matching how a density change would move a purely-derived
+        // planet). Read through the same synced seam client and server both use, so both agree on which legacy cells
+        // survive. New generated planets come from GeneratedSystems (systems around suns), surfaced through generatedNear
+        // / bodyContaining below, never through this cell-keyed entry point.
+        if (!SpaceLayout.isClaimedOrStamped(server, me.g.id))
         {
             return null;
         }
@@ -324,14 +372,35 @@ public final class GeneratedPlanets
             return null;
         }
 
+        // A planet a player has invested in (claimed or stamped) is EXEMPT from the layout-shaping rejections below, so it
+        // can NEVER be suppressed by something moving over it. This matters now that fixed bodies ORBIT: a fixed body
+        // sweeping within its clearance of a claimed planet would otherwise make generatedFor drop the claimed planet for
+        // the minutes the body is near, hiding a planet a guild owns (and briefly making it unlandable). Read through the
+        // same synced seam client and server both use, so both agree on which planets are exempt. Never-visited planets
+        // are not exempt: they may still be biased out of the inner system or rejected against a body, exactly as before.
+        boolean exempt = SpaceLayout.isClaimedOrStamped(server, id);
+
+        // B2 INNER-SYSTEM BIAS. Keep the sun-and-rings inner system clear of derived clutter: a generated planet with NO
+        // persisted state (never claimed, never stamped) inside the reserved radius is dropped, exactly as a density
+        // change would move a purely-derived planet. A CLAIMED or STAMPED planet is EXEMPT (isClaimedOrStamped) and stays
+        // exactly where it is, so the rework never orphans a planet a player invested in. Read through the shared seam so
+        // client (synced owners / stamped sizes) and server (the claim store) agree on which inner cells survive, never
+        // "drawn but cannot land". Placed before the sizing/overlap gates because it needs only the id and position.
+        if (PlanetPositions.insideInnerSystem(pos) && !exempt)
+        {
+            return null;
+        }
+
         // route the body's size through the STAMPED size (falls back to the derived size for a fresh planet or a
         // client-side null server), so an already-stamped planet's body keeps the size its terrain was built at even
         // after the derived constants change. bodyRadiusForSurfaceSize is parametric so it never saturates or mismaps.
         int surfaceSize = GeneratedPlanetClaims.stampedSizeForId(server, id);
         float radius = bodyRadiusForSurfaceSize(surfaceSize);
 
-        // never overlap a fixed planet or the origin column, exactly like the asteroid field.
-        if (overlapsFixedOrOrigin(server, pos, radius))
+        // never overlap a fixed planet or the origin column, exactly like the asteroid field. A claimed/stamped planet is
+        // exempt from the fixed/super overlap (an orbiting fixed body must never hide it), but the origin column is
+        // rejected for everyone (nothing is ever placed on the arrival column; a persisted planet is never there anyway).
+        if (overlapsFixedOrOrigin(server, pos, radius, exempt))
         {
             return null;
         }
@@ -395,12 +464,19 @@ public final class GeneratedPlanets
 
     // true if the body at pos overlaps any FIXED planet's expanded bounding cube or falls within the cleared radius
     // around the space origin. Uses the live fixed-planet set, like AsteroidPositions.overlapsAnyPlanet.
-    private static boolean overlapsFixedOrOrigin(MinecraftServer server, Vec3 pos, float radius)
+    private static boolean overlapsFixedOrOrigin(MinecraftServer server, Vec3 pos, float radius, boolean exempt)
     {
-        // clear the origin/arrival column so a body never sits where a player materialises.
+        // clear the origin/arrival column so a body never sits where a player materialises. Applies to EVERY planet,
+        // exempt or not: a persisted planet is never on the arrival column, so this can only ever reject a derived one.
         if (Math.abs(pos.x) <= ORIGIN_CLEARANCE && Math.abs(pos.z) <= ORIGIN_CLEARANCE)
         {
             return true;
+        }
+        // a claimed/stamped planet is EXEMPT from the moving-body overlaps below (an orbiting fixed body, or a relocated
+        // super body's ring, must never suppress a planet a player owns). Only never-visited derived planets yield here.
+        if (exempt)
+        {
+            return false;
         }
         // never overlap one of the seven fixed super-ball bodies. Their positions are pure (no server, see
         // SuperPlanetPositions), so the client rejects identically and both sides derive the same field around one.
@@ -456,6 +532,11 @@ public final class GeneratedPlanets
                 }
             }
         }
+        // union in the SYSTEM planets (the sun-centred replacement for the old scattered field). They carry the same
+        // sugen: id shape and Generated fields, so every consumer of this list (renderer, landing sweep, planet-info ray,
+        // star map, salvage) treats a system planet exactly like a legacy one. Suppression of destroyed planets and
+        // destroyed system stars happens at the GeneratedSystems source, so nothing extra is filtered here.
+        out.addAll(GeneratedSystems.planetsNear(server, around, range));
         return out;
     }
 
@@ -489,7 +570,9 @@ public final class GeneratedPlanets
                 }
             }
         }
-        return null;
+        // no legacy (claimed/stamped) planet here: fall through to the SYSTEM planets, so a player flying into a system
+        // planet lands on it exactly as on a legacy one.
+        return GeneratedSystems.planetContaining(server, p, margin);
     }
 
     // The largest visual half-extent any generated body can have, exposed so the planet-buster trigger can pad its ray

@@ -102,14 +102,20 @@ public class RgNpcFighterEntity extends DBSagasEntity implements RgNpcFallbackAp
     }
 
     /**
-     * Set the character. Only an installed, sanitised entry id is ever stored, so a stale or malformed id can
-     * never reach a client and crash its render thread: an unknown id goes through the legacy remap and, failing
-     * that, degrades to the default entry. Mirrors {@link RgNpcEntity#setModelId}.
+     * Set the character. The id is stored SANITISED but VERBATIM (never pre-resolved), matching how ids are
+     * persisted and read: {@link RgNpcModels} applies the legacy alias at every read site, and the renderer draws
+     * a real model for a live-or-aliased id and the generated saiyan for an id that names nothing live. Storing the
+     * raw id is what lets an unmatched id (a character dropped when the model set was replaced) reach that saiyan
+     * fallback instead of silently becoming the wrong character: collapsing it to the default entry here would draw
+     * {@code 2stars} for it, which is exactly the "wrong model" the bundling was meant to avoid. It is still
+     * crash-proof because sanitising guarantees a legal resource path and the renderer never hands GeckoLib a
+     * missing real geo (an unmatched id borrows a DragonMineZ race geo). Only a blank/empty id falls back to the
+     * default entry. Mirrors {@link RgNpcEntity#setModelId}.
      */
     public void setModelId(String id)
     {
-        String resolved = RgNpcModels.resolveId(RgNpcModels.sanitize(id));
-        this.entityData.set(MODEL_ID, resolved != null ? resolved : RgNpcModels.DEFAULT_ID);
+        String clean = RgNpcModels.sanitize(id);
+        this.entityData.set(MODEL_ID, clean.isEmpty() ? RgNpcModels.DEFAULT_ID : clean);
         // The box comes from the model, so it has to be rebuilt when the model changes (server side).
         refreshDimensions();
     }

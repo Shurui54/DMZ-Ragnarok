@@ -307,6 +307,24 @@ public final class ShardHooks
         default void regionsSavedLocally()
         {
         }
+
+        /**
+         * An SU data file was INTENTIONALLY deleted here (a portal, kit, jail point or world border removed through
+         * its command or GUI, so {@code DataManager.delete} really removed the file). The network engine turns this
+         * into a tombstone so the entry does not come straight back from its still-present config-sync row on the
+         * next poll or reboot, and so a re-create later (a newer stamp) wins over the tombstone.
+         *
+         * <p>{@code folder} is the {@code DataManager} type folder (the persisted class's simple name, e.g.
+         * {@code "Portal"}); {@code name} is the file key without {@code .json}. The engine ignores folders that do
+         * not travel and does nothing off the network, so this is always safe to call. Keyless / off the network:
+         * ignored (a local delete is already complete and there is nothing to sync).
+         *
+         * <p>Only a delete that actually removed a file reaches here, so this can never tombstone an entry that was
+         * merely missing on disk (a fresh shard, a manual copy, a read error).
+         */
+        default void suDataFileDeleted(String folder, String name)
+        {
+        }
     }
 
     /** The keyless default until the key installs its own. Never null. */

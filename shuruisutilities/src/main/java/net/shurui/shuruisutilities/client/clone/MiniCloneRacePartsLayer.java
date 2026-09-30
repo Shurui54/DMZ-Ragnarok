@@ -13,10 +13,11 @@ import net.minecraft.client.renderer.entity.RenderLayerParent;
 import net.minecraft.client.renderer.entity.layers.RenderLayer;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.client.renderer.texture.OverlayTexture;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
 
-import net.shurui.shuruisutilities.clone.MiniCloneEntity;
+import net.shurui.shuruisutilities.clone.CloneAppearance;
 
 /**
  * Repaints a PLAYER_COPY clone's vanilla skin with the caster's DragonMineZ race body appearance.
@@ -55,7 +56,8 @@ import net.shurui.shuruisutilities.clone.MiniCloneEntity;
  * never throw. The layer only runs for {@link MiniCloneEntity.Variant#PLAYER_COPY}.
  */
 @OnlyIn(Dist.CLIENT)
-public class MiniCloneRacePartsLayer extends RenderLayer<MiniCloneEntity, PlayerModel<MiniCloneEntity>>
+public class MiniCloneRacePartsLayer<T extends LivingEntity & CloneAppearance>
+        extends RenderLayer<T, PlayerModel<T>>
 {
     // Race ids whose body is a single un-tinted humansaiyan texture; the plain skin already approximates them, so this
     // layer leaves them alone rather than guessing at the humansaiyan pass.
@@ -69,19 +71,19 @@ public class MiniCloneRacePartsLayer extends RenderLayer<MiniCloneEntity, Player
     private static final String BUILTIN_LAYER_TOKEN = "bodytype";
     private static final int MAX_BODY_LAYERS = 4;
 
-    public MiniCloneRacePartsLayer(RenderLayerParent<MiniCloneEntity, PlayerModel<MiniCloneEntity>> parent)
+    public MiniCloneRacePartsLayer(RenderLayerParent<T, PlayerModel<T>> parent)
     {
         super(parent);
     }
 
     @Override
-    public void render(PoseStack poseStack, MultiBufferSource bufferSource, int packedLight, MiniCloneEntity entity,
+    public void render(PoseStack poseStack, MultiBufferSource bufferSource, int packedLight, T entity,
                        float limbSwing, float limbSwingAmount, float partialTick, float ageInTicks, float netHeadYaw,
                        float headPitch)
     {
         try
         {
-            if (entity == null || entity.getVariant() != MiniCloneEntity.Variant.PLAYER_COPY)
+            if (entity == null || !entity.isPlayerCopyLook())
             {
                 return;
             }
@@ -112,7 +114,7 @@ public class MiniCloneRacePartsLayer extends RenderLayer<MiniCloneEntity, Player
                 entity.getHairColor()
             };
 
-            PlayerModel<MiniCloneEntity> model = this.getParentModel();
+            PlayerModel<T> model = this.getParentModel();
             for (int k = 0; k < MAX_BODY_LAYERS; k++)
             {
                 ResourceLocation texture = resolveLayerTexture(dir, token, bodyType, k + 1);

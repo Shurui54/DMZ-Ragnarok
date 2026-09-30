@@ -191,7 +191,17 @@ public class DataManager
     public boolean delete(Class<?> clazz, String key)
     {
         File file = getTypeFile(clazz, key);
-        return file.delete();
+        boolean deleted = file.delete();
+        if (deleted)
+        {
+            // An intentional delete that actually removed a file. Let the shard network turn it into a tombstone so
+            // the entry does not come back from its still-present config-sync row on the next poll or reboot (the
+            // "deleted portals coming back" bug). Inert without the key and off the network, and it filters to the
+            // synced SU data folders itself. A merely-missing file never reaches here (delete() returned false), so
+            // this can never tombstone something that was not really removed.
+            net.shurui.shuruisutilities.api.key.ShardHooks.get().suDataFileDeleted(clazz.getSimpleName(), key);
+        }
+        return deleted;
     }
 
     public void deleteAll(Class<?> clazz)

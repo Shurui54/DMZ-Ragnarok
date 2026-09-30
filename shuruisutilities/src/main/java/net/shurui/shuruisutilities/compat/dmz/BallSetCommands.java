@@ -90,6 +90,31 @@ public final class BallSetCommands
         register(event, "gather", BallSetCommands::gather);
         register(event, "awaken", BallSetCommands::awaken);
         register(event, "unawaken", BallSetCommands::unawaken);
+        // Debug/self-test: report the dormancy state of every live set (active, or dormant with time left). Proves the
+        // dormancy fix in game the same way the boot log proves it headlessly. No <set>: it lists them all at once.
+        event.getDispatcher().register(
+                Commands.literal("dormancystatus")
+                        .requires(source -> source.hasPermission(2))
+                        .executes(BallSetCommands::dormancyStatus));
+    }
+
+    private static int dormancyStatus(CommandContext<CommandSourceStack> ctx)
+    {
+        CommandSourceStack source = ctx.getSource();
+        MinecraftServer server = source.getServer();
+        List<String> ids = knownSetIds();
+        if (ids.isEmpty())
+        {
+            source.sendSuccess(() -> Component.literal("No DragonMineZ ball sets are loaded.")
+                    .withStyle(ChatFormatting.YELLOW), false);
+            return Command.SINGLE_SUCCESS;
+        }
+        for (String setId : ids)
+        {
+            source.sendSuccess(() -> Component.literal(setId + ": ").withStyle(ChatFormatting.GRAY)
+                    .append(BallDormancy.radarStatus(server, setId)), false);
+        }
+        return Command.SINGLE_SUCCESS;
     }
 
     private interface SetAction

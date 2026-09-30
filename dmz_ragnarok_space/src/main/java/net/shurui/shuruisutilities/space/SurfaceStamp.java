@@ -117,6 +117,191 @@ public final class SurfaceStamp
     // keeps the rim inside the planet square (the disc radius is already half the side).
     private static final double EDGE_WOBBLE = 0.10;
 
+    // === Terrain generator version (batch B4) ===
+    // A planet's terrain generator is versioned and the version is PERSISTED with its stamp (GeneratedPlanetClaims
+    // .StampParams.generatorVersion). Version 1 (also an absent/0 value from a pre-B4 build) is the original disc terrain:
+    // a wobbled, feathered disc inscribed in the planet square with a low relief band, void in the square's corners.
+    // Version 2 is the TILEABLE terrain: the whole planet square is filled with rich, periodic, multi-octave noise so the
+    // height field repeats with period = the planet width (the column at dx = -half matches the one at dx = +half), over
+    // a solid body down to a fixed bedrock floor. Because the version rides with the stamp, an already-stamped cell keeps
+    // the terrain it was built at forever (zero migration): only cells stamped AFTER B4 are version 2. Region seeding is
+    // copy-if-absent and one-way, so this never rewrites existing terrain either.
+    static final int GEN_VERSION_LEGACY = 1;
+    static final int GEN_VERSION_TILEABLE = 2;
+    // Version 3 (SEAS) keeps version 2's exact periodic height field but replaces the scattered carved basin pools with a
+    // real per-theme SEA LEVEL (every column whose surface caps below the sea floods up to it, so lakes and seas follow
+    // the terrain), adds a beach band of shore blocks at the waterline, keeps the landing zone dry with a centre plateau,
+    // and stamps a periodic MARGIN beyond every edge so the opposite side is already rendered across the wrap seam. The
+    // sea level is a constant, so it tiles across the seam for free. A version-2 cell is byte-identical to before (its
+    // basins are untouched); only cells stamped after this batch carry version 3. Both v2 and v3 are "tileable" (square,
+    // periodic) and both wrap.
+    static final int GEN_VERSION_SEAS = 3;
+    // Version 4 (SEAS_COMPACT) is byte-for-byte version 3's terrain, sea, beach, plateau and outer sea-containment wall,
+    // the ONLY difference being a much SMALLER wrap margin (see COMPACT_WRAP_MARGIN_CHUNKS). The 12-chunk v3 margin
+    // stamps a fixed ring of terrain around EVERY planet, so a fresh planet loads and generates the whole extent at once
+    // (a size-500 planet is about 3,100 chunks, a size-100 planet about 960, almost all of it the margin), and that whole
+    // extent stays resident during the stamp: that is what filled the heap with LevelChunk / PalettedContainer on a
+    // landing. The margin is purely a VIEW nicety (real terrain seen across the wrap seam): a player is confined to and
+    // wraps within a few blocks of the real edge (SpaceTravelModule WRAP_TRIGGER_INSET / SURFACE_BOUNDARY_MARGIN), so a
+    // small margin is enough to stand and wrap on, and the sea stays contained because the wall rides stampExtent either
+    // way. A seamless-across-the-sea margin CANNOT be stamped lazily per edge: the sea-containment wall (tileableCapY)
+    // sits at the extent edge, so extending the extent later would strand that wall as a ridge mid-terrain, or, with no
+    // wall, let the rim sea drain into unstamped void and force-load chunks. So the margin is simply made small up front.
+    // Riding its own version keeps ZERO migration: an existing v3 planet keeps generatorVersion 3 and its full margin
+    // (terrain AND salvage identical); only cells stamped after this batch are v4.
+    static final int GEN_VERSION_SEAS_COMPACT = 4;
+    // the version a freshly-begun planet stamp is built at. A resumed or already-recorded stamp reads its version back
+    // from the persisted snapshot instead, so only a genuinely new cell picks this up.
+    static final int NEW_PLANET_GEN_VERSION = GEN_VERSION_SEAS_COMPACT;
+
+    // === Tileable (v2) noise engine ===
+    // number of value-noise cells across the planet width in the COARSEST octave; each finer octave doubles it. A power
+    // of two keeps the octave lattices nested and, together with the width normalisation, keeps every octave periodic
+    // with period = width. 4 gives broad primary landmasses spanning the whole planet.
+    private static final int NOISE_BASE_CELLS = 4;
+    // salts so the base-noise octaves, the two domain-warp channels and the crater field never correlate.
+    private static final int NOISE_SALT = 0x33301;
+    private static final int WARP_SALT_X = 0x11101;
+    private static final int WARP_SALT_Z = 0x22201;
+    private static final int CRATER_SALT = 0xC7A01;
+    // crater sites sit on a CRATER_CELLS lattice across the width, wrapping modulo the width so craters tile with the
+    // rest of the terrain (a barren world's signature).
+    private static final int CRATER_CELLS = 6;
+    // no crater or basin may bite into this radius around the cell centre, so a v2 landing always touches down on dry,
+    // roughly level ground rather than in a pit or a lake.
+    private static final int V2_CENTRE_CLEAR = 24;
+    // columns kept between the outermost placeable feature (pool/hut/village) and the square wall on a v2 planet, the
+    // square-world equivalent of the disc inward-margin: it keeps water and buildings off the wrap seam.
+    private static final int V2_EDGE_MARGIN = 8;
+
+    // === v3 sea level and seamless wrap margin (this batch) ===
+    // How many chunks of periodic terrain are stamped BEYOND each edge of a v3 planet's real square, so a player standing
+    // at the seam sees the opposite side already rendered "as if they were just walking there". The height field's period
+    // is the real width, so a margin column at dx = half + k is byte-identical to the interior column at dx = -half + k
+    // (exactly the ground the player wraps onto). Kept at or above the server view distance so the whole visible band
+    // across the seam is real terrain, plus a chunk of headroom so the invisible sea-containment wall at the far edge is
+    // never in view. Configurable with -Ddmzr.wrapMarginChunks (default 12, clamped to 4..32); only v3 planets stamp a
+    // margin. The self-test also drives the setter to shrink it for a fast boot stamp.
+    private static volatile int wrapMarginChunks = clampMargin(Integer.getInteger("dmzr.wrapMarginChunks", 12));
+
+    private static int clampMargin(int chunks)
+    {
+        return Math.max(4, Math.min(32, chunks));
+    }
+
+    static void setWrapMarginChunks(int chunks)
+    {
+        wrapMarginChunks = Math.max(0, chunks);
+    }
+
+    static int wrapMarginChunks()
+    {
+        return wrapMarginChunks;
+    }
+
+    // the margin width in BLOCKS, snapshotted per stamp on the SurfaceParams so a mid-stamp config reload cannot split a
+    // planet across two extents.
+    static int wrapMarginBlocks()
+    {
+        return wrapMarginChunks * 16;
+    }
+
+    // the compact wrap margin, in chunks, used by GEN_VERSION_SEAS_COMPACT (v4) planets in place of the full
+    // wrapMarginChunks. Sized to comfortably contain the player's wrap/boundary band (a few blocks past the real edge,
+    // SpaceTravelModule WRAP_TRIGGER_INSET and SURFACE_BOUNDARY_MARGIN are both 6) plus the SEA_WALL_THICKNESS
+    // containment ring, while stamping far fewer chunks than the 12-chunk v3 margin. Kept small on purpose (RAM over a
+    // pre-rendered seam view): standing right on an edge may briefly show void past this margin, the accepted trade for
+    // not loading the whole planet-plus-ring at once.
+    private static final int COMPACT_WRAP_MARGIN_CHUNKS = 4;
+
+    // the margin width in blocks for a given generator version: the full operator/self-test margin for v3 and earlier
+    // (unchanged, so existing v3 planets and the identity self-test stay byte-identical), and the compact margin for v4,
+    // still floored by the live wrapMarginBlocks() so the self-test's setWrapMarginChunks shrink (and any operator who
+    // sets an even smaller margin) applies to a v4 stamp too.
+    private static int marginBlocksForVersion(int version)
+    {
+        if (version >= GEN_VERSION_SEAS_COMPACT)
+        {
+            return Math.min(wrapMarginBlocks(), COMPACT_WRAP_MARGIN_CHUNKS * 16);
+        }
+        return wrapMarginBlocks();
+    }
+
+    // the half-extent (in blocks) a stamp of the given version and size actually fills: half plus the sea margin for a sea
+    // version (v3 full margin, v4 compact 64-block margin under the default 12-chunk operator margin), or exactly half for
+    // a pre-sea (v1/v2) version. Pure and side-effect free; used by the boot wrap self-test to assert the v4 compact
+    // extent without reaching into a live SurfaceParams.
+    static int stampExtentForVersion(int version, int size)
+    {
+        int half = size / 2;
+        return version >= GEN_VERSION_SEAS ? half + marginBlocksForVersion(version) : half;
+    }
+
+    // thickness, in blocks, of the raised sea-containment ring at the very outer edge of a v3 planet's stamped extent
+    // (margin included). It lifts terrain above sea level so a coastal sea never spills off the stamped ground into the
+    // unstamped void beyond the margin. It sits a full chunk past the furthest a player can see across the seam, so it is
+    // never visible from play; it is NOT a periodic mirror of the interior and does not need to be.
+    private static final int SEA_WALL_THICKNESS = 8;
+
+    // the centre landing plateau on a v3 planet with a sea: within LAND_CENTRE_INNER columns of the cell centre the
+    // surface is lifted to at least (seaY + LAND_DRY_MARGIN) so a landing is always on dry, roughly level ground, never in
+    // a lake; the lift feathers to nothing by LAND_CENTRE_OUTER so it blends into the natural terrain. Entirely interior
+    // (zero well before the seam), so it never disturbs the wrap periodicity.
+    private static final int LAND_CENTRE_INNER = 22;
+    private static final int LAND_CENTRE_OUTER = 48;
+    private static final int LAND_DRY_MARGIN = 2;
+
+    // the beach band: a column whose cap sits within SHORE_BAND blocks above the sea, or is a shallow submerged shelf
+    // within SHORE_BAND below it, gets a shore surface block (sand / gravel / clay by hash on wet themes) instead of the
+    // theme's ordinary grass/soil, so a coast reads as a beach rather than grass running into the waterline.
+    private static final int SHORE_BAND = 2;
+    private static final int SHORE_SALT = 0x54073;
+
+    // per-theme shaping for the v2 tileable terrain: the height band and the noise character. amplitude is the maximum
+    // relief in blocks above baseY (a v2 column caps in [baseY, baseY + amplitude]); octaves/persistence set the
+    // roughness; mountainWeight blends sharp ridged mountains over the rolling base (0 = pure rolling hills, 1 = all
+    // ridges); craters carves impact bowls (barren worlds); warp is the domain-warp strength in blocks that bends the
+    // ridgelines so they never read as a grid. None of this touches a v1 planet.
+    record TerrainProfile(int amplitude, int octaves, double persistence, double mountainWeight, boolean craters,
+                          double warp)
+    {
+    }
+
+    // amplitudes stay well under the dimension ceiling (SURFACE_Y 96 + amplitude never approaches 320) and never dip
+    // below baseY, so the fixed bedrock floor and the SpaceTravelModule fall-catch stay valid for every theme.
+    private static TerrainProfile profileFor(Theme theme)
+    {
+        switch (theme)
+        {
+            case STONY:
+                // a jagged, cratered rockscape: tall ridges, rough, pocked with impacts.
+                return new TerrainProfile(52, 5, 0.55, 0.70, true, 12.0);
+            case NAMEK:
+                // rolling green plateaus with occasional highlands.
+                return new TerrainProfile(44, 4, 0.50, 0.40, false, 16.0);
+            case NETHER:
+                // sharp basalt ridges over a hot plain.
+                return new TerrainProfile(46, 5, 0.55, 0.60, true, 12.0);
+            case END:
+                // low, barren, pocked island fields.
+                return new TerrainProfile(34, 4, 0.50, 0.50, true, 10.0);
+            case KAIO:
+                // King Kai's little world: gentle and small, almost a bump.
+                return new TerrainProfile(22, 3, 0.45, 0.20, false, 12.0);
+            case OTHERWORLD:
+                // a near-flat pale cloud plain with the softest undulation.
+                return new TerrainProfile(16, 3, 0.40, 0.10, false, 10.0);
+            case OVERWORLD:
+            default:
+                // familiar rolling hills with a few real mountains.
+                return new TerrainProfile(40, 4, 0.50, 0.35, false, 16.0);
+        }
+    }
+
+    // the universal bedrock-like floor block a v2 column bottoms out on, so a solid planet body sits on a hard base
+    // rather than trailing off into void one block at a time.
+    private static final BlockState V2_FLOOR = Blocks.BEDROCK.defaultBlockState();
+
     /**
      * A generated planet's surface theme: the material family the whole surface is built from. Chosen per planet from
      * its id hash ({@link #themeFor}), weighted so plain themes are common and exotic ones a find. Each theme names
@@ -488,6 +673,69 @@ public final class SurfaceStamp
         }
     }
 
+    // === v3 sea level per theme ===
+    // The fraction of a theme's terrain amplitude at which the sea surface sits above baseY, so a v3 column whose cap is
+    // below (baseY + fraction * amplitude) floods up to that level. 0 means the theme gets NO sea at all. Wet themes
+    // (OVERWORLD, NAMEK) submerge roughly the lowest third of their relief (a good "20 to 35 percent underwater" once the
+    // noise distribution is accounted for); NETHER gets smaller lava seas; END gets shallow ice-capped seas; barren and
+    // dry themes (STONY, KAIO) get none. The actual sea Y is computed once on the SurfaceParams from this and the profile.
+    static double seaFractionFor(Theme theme)
+    {
+        switch (theme)
+        {
+            case OVERWORLD:
+                return 0.34;
+            case NAMEK:
+                return 0.33;
+            case OTHERWORLD:
+                return 0.26;
+            case NETHER:
+                return 0.16;
+            case END:
+                return 0.20;
+            case KAIO:
+            case STONY:
+            default:
+                // barren / dry: no sea (also STONY has no liquid at all).
+                return 0.0;
+        }
+    }
+
+    // the shore materials cycled at the waterline of a WET theme (OVERWORLD, NAMEK, OTHERWORLD), picked per column by a
+    // hash so a beach reads as mixed sand, gravel and clay rather than one flat block. Barren / lava / ice themes keep
+    // their own surface block at the coast (returned by shoreBlockFor as the palette surface), so this list is only
+    // consulted for the wet themes.
+    private static final BlockState[] WET_SHORE = {
+            Blocks.SAND.defaultBlockState(),
+            Blocks.SAND.defaultBlockState(),
+            Blocks.GRAVEL.defaultBlockState(),
+            Blocks.CLAY.defaultBlockState()
+    };
+
+    // whether a theme dresses its coast with the mixed sand/gravel/clay beach. Only the green/pale wet themes do; NETHER
+    // (lava) and END (ice) keep their own ground at the shore.
+    private static boolean hasBeachShore(Theme theme)
+    {
+        return theme == Theme.OVERWORLD || theme == Theme.NAMEK || theme == Theme.OTHERWORLD;
+    }
+
+    // the surface block a v3 shore column shows: a mixed beach block on the wet themes, the theme's own surface otherwise.
+    // A pure function of the seed and the COLUMN OFFSET (dx, dz), like every other terrain hash, so the stamp and the
+    // salvage oracle (which works in offsets, not world coordinates) agree.
+    private static BlockState shoreBlockFor(SurfaceParams p, int dx, int dz)
+    {
+        if (!hasBeachShore(p.theme))
+        {
+            return p.palette.surface();
+        }
+        int pick = (int) (unit(hash(p.seed, dx, dz, SHORE_SALT)) * WET_SHORE.length);
+        if (pick >= WET_SHORE.length)
+        {
+            pick = WET_SHORE.length - 1;
+        }
+        return WET_SHORE[pick];
+    }
+
     // sentinel returned by basinFloorAt for a column in no pool. Integer.MIN_VALUE can never be a real basin floor Y
     // (basins sit a few blocks below sea level), so it is an unambiguous "no basin" marker.
     static final int NO_BASIN = Integer.MIN_VALUE;
@@ -612,7 +860,7 @@ public final class SurfaceStamp
     {
         void record(int size, String themeName, int deepDepth, int seaLevelOffset, double basinFrequency,
                     double vegetationDensity, double villageFrequency, double hutFrequency, boolean waterEnabled,
-                    boolean vegetationEnabled, boolean structuresEnabled);
+                    boolean vegetationEnabled, boolean structuresEnabled, int generatorVersion);
     }
 
     /**
@@ -874,6 +1122,7 @@ public final class SurfaceStamp
         boolean structuresOn;
         double villageFreq;
         double hutFreq;
+        int version;
         IntSupplier budget;
         boolean freezeEnabled;
         FreezeArea freezeArea;
@@ -908,6 +1157,15 @@ public final class SurfaceStamp
             cfg.structuresOn = structuresEnabled;
             cfg.villageFreq = villageFrequency;
             cfg.hutFreq = hutFrequency;
+            // the generator version: read back the persisted version for a planet whose stamp snapshot already exists (a
+            // resumed or in-progress stamp, keeping its terrain consistent across the resume), else pick the current NEW
+            // version for a genuinely fresh cell. This is what makes the change apply ONLY to cells stamped after B4: an
+            // already-stamped cell short-circuits before forPlanet is ever reached (isSurfaceGenerated), and a partly-built
+            // one keeps whatever version its snapshot recorded. A pre-B4 snapshot carries version 0, mapped to legacy.
+            GeneratedPlanetClaims.StampParams existing = GeneratedPlanetClaims.stampedParamsForId(server, planetId);
+            cfg.version = existing != null
+                    ? (existing.generatorVersion <= 0 ? GEN_VERSION_LEGACY : existing.generatorVersion)
+                    : NEW_PLANET_GEN_VERSION;
             // read the budget LIVE every tick (a config reload mid-stamp shifts the frozen wait, exactly as before).
             cfg.budget = PlanetSpawnModule::surfaceStampBlocksPerTick;
             cfg.freezeEnabled = true;
@@ -926,9 +1184,9 @@ public final class SurfaceStamp
                     GeneratedPlanetClaims.get(server).markSurfaceGenerated(planetId);
                 }
             };
-            cfg.geometryRecorder = (sz, name, dd, slo, bf, vd, vf, hf, w, v, s) ->
+            cfg.geometryRecorder = (sz, name, dd, slo, bf, vd, vf, hf, w, v, s, gv) ->
                     GeneratedPlanetClaims.get(server).recordStampedGeometry(planetId, sz, name,
-                            new GeneratedPlanetClaims.StampParams(dd, slo, bf, vd, vf, hf, w, v, s));
+                            new GeneratedPlanetClaims.StampParams(dd, slo, bf, vd, vf, hf, w, v, s, gv));
             cfg.onComplete = null;
             return cfg;
         }
@@ -956,6 +1214,9 @@ public final class SurfaceStamp
             cfg.structuresOn = req.structuresEnabled;
             cfg.villageFreq = req.villageFrequency;
             cfg.hutFreq = req.hutFrequency;
+            // the general (dungeon) stamp path keeps the legacy disc terrain: it stamps into arbitrary levels at a caller
+            // centre and does not want the planet-square tiling. Only the planet path opts into v2.
+            cfg.version = GEN_VERSION_LEGACY;
             int bpt = req.blocksPerTick > 0 ? req.blocksPerTick : DEFAULT_BLOCKS_PER_TICK;
             cfg.budget = () -> bpt;
             cfg.freezeEnabled = req.freezePlayers;
@@ -1063,8 +1324,15 @@ public final class SurfaceStamp
         // placement runs long, so a tick can never spend more than this in stamping whatever the block budget works out
         // to. 5 ms of a 50 ms tick.
         private static final long STAMP_TICK_NANOS = 5_000_000L;
-        // how many columns between wall-clock checks, so System.nanoTime is not read on every single block.
-        private static final int CLOCK_CHECK_STRIDE = 512;
+        // how many columns between wall-clock checks. This MUST stay well below the number of columns a single tick can
+        // run, or the deadline is never tested inside a tick and the STAMP_TICK_NANOS cap is dead code: at the default
+        // budget (DEFAULT_BLOCKS_PER_TICK 49152) and a ~131-block column (surfaceColumnDepth 128) a tick runs only ~375
+        // columns, so the old 512 stride never fired and a tick that hit a burst of fresh-chunk generations (a v3 margin
+        // landing loads thousands of never-generated chunks through setBlock on the server thread) ran hundreds of ms past
+        // its 5 ms budget, which is the "Can't keep up" landing stall. 16 (one chunk width) bounds a tick's overrun to
+        // about one in-flight chunk generation while keeping nanoTime reads negligible (~a dozen per tick). Pacing only:
+        // it changes how many columns a tick places, never WHICH blocks, so the terrain stays byte-identical.
+        private static final int CLOCK_CHECK_STRIDE = 16;
 
         // the phase ordering the water fill and structure flatten depend on, structural not incidental. TERRAIN stamps
         // ALL solid terrain (every basin's carved floor/walls and the underground) AND, interleaved on the SAME budget,
@@ -1117,6 +1385,18 @@ public final class SurfaceStamp
         private final boolean structuresOn;
         private final double villageFreq;
         private final double hutFreq;
+        // the terrain generator version (SurfaceStamp.GEN_VERSION_*) this stamp builds at, and the derived convenience
+        // flag. tileable == true means the v2 square, periodic terrain; false means the legacy disc. Snapshotted at
+        // construction like every other rule so a resume cannot split a planet across two generators.
+        private final int version;
+        private final boolean tileable;
+        // v3 (SEAS) snapshots: seaMode is the v3 generator, hasSea also needs the theme+water to actually place a sea,
+        // v3SeaY is the flooding surface and stampExtent is the half-extent actually stamped (half + wrap margin on v3).
+        // Snapshotted at construction like every other rule so a resume cannot split a planet across two extents.
+        private final boolean seaMode;
+        private final boolean hasSea;
+        private final int v3SeaY;
+        private final int stampExtent;
         // the shared geometry snapshot the site-resolution helpers run off, built once from the same fields so the stamp
         // and the salvage oracle run the identical basin/veg/structure maths.
         private final SurfaceParams params;
@@ -1157,6 +1437,52 @@ public final class SurfaceStamp
         private RandomSource villageRandom;
         private int villageSlot;
         private boolean structCellDone = true;
+        // optional stamp profiling (batch B4): behind -Ddmzr.stampProfile=true, accumulate the budget units charged, the
+        // number of ticks the stamp ran across, the total wall-clock spent in tickBody and the worst single tick, then log
+        // them once on completion. Zero cost when the flag is off (the flag is read once per class-load).
+        private static final boolean PROFILE = Boolean.getBoolean("dmzr.stampProfile");
+        // when set, restrict profiling to the single planet id whose stamp matters for a measurement, so a background
+        // stamp does not muddy the numbers. Empty means profile every stamp.
+        private static final String PROFILE_PLANET = System.getProperty("dmzr.stampProfilePlanet", "");
+        private long profBudget;
+        private int profTicks;
+        private long profNanos;
+        private long profWorstTickNanos;
+        // wall-clock markers for the "time to playable" and "total stamp time" the profiler reports: the nanoTime at
+        // begin, the nanos the synchronous centre patch took (the landing zone is ready the instant that returns, so
+        // time-to-playable is measured from begin to the end of stampCentre), and the game tick begin ran on.
+        private long profBeginNanos;
+        private long profCentreNanos;
+        private long profBeginTick;
+
+        private boolean profileThis()
+        {
+            return PROFILE && (PROFILE_PLANET.isEmpty() || PROFILE_PLANET.equals(key));
+        }
+
+        // === Adaptive per-tick budget (performance) ===
+        // mean tick time (ms) at or below which the stamp gets its full configured budget, and at or above which it is
+        // held to the floor fraction. Between the two the budget scales down linearly. A 50 ms tick is the vanilla target,
+        // so a stamp backs off as the server approaches it and never pushes it over.
+        private static final double ADAPT_LOW_MSPT = 40.0;
+        private static final double ADAPT_HIGH_MSPT = 50.0;
+        private static final double ADAPT_MIN_FACTOR = 0.30;
+
+        private int adaptiveBudget(int base)
+        {
+            double mspt = server.getAverageTickTime();
+            if (mspt <= ADAPT_LOW_MSPT)
+            {
+                return base;
+            }
+            if (mspt >= ADAPT_HIGH_MSPT)
+            {
+                return Math.max(1, (int) (base * ADAPT_MIN_FACTOR));
+            }
+            double t = (mspt - ADAPT_LOW_MSPT) / (ADAPT_HIGH_MSPT - ADAPT_LOW_MSPT);
+            double factor = 1.0 - t * (1.0 - ADAPT_MIN_FACTOR);
+            return Math.max(1, (int) (base * factor));
+        }
         // chunks written by TERRAIN (TERRAIN_FLAG, no client notify) whose client copy is stale, keyed on ChunkPos.asLong()
         // -> the chunk's geometric max Chebyshev distance from the centre. Each is resent WHOLE (one full-chunk packet) the
         // instant the ring sweep has fully passed it (flushTerrainRing), turning a per-tick section-delta storm into a few
@@ -1193,17 +1519,26 @@ public final class SurfaceStamp
             this.structuresOn = cfg.structuresOn;
             this.villageFreq = cfg.villageFreq;
             this.hutFreq = cfg.hutFreq;
-            // start the TERRAIN sweep at the centre ring; the outer ring is the disc half, so ring 0..half covers exactly
-            // the same [-half, half] bounding square the old dx/dz strip walk did (an ORDER change only, terrain identical).
-            ringReset(half);
+            // generator version snapshot.
+            this.version = cfg.version <= 0 ? GEN_VERSION_LEGACY : cfg.version;
+            this.tileable = this.version >= GEN_VERSION_TILEABLE;
+            // the shared geometry snapshot, built from the SAME per-task fields, so the stamp and the salvage oracle drive
+            // the identical basin/veg/structure site maths. Built BEFORE the ring cursor so the sweep can bound to the v3
+            // stamp extent (half + margin) it carries. seaLevelOffset is recovered from the snapshotted seaLevel.
+            this.params = new SurfaceParams(seed, half, baseY, theme, deepDepth, waterOn, cfg.seaLevelOffset,
+                    basinFreq, vegOn, vegDensity, structuresOn, villageFreq, hutFreq, this.version);
+            this.seaMode = params.seaMode;
+            this.hasSea = params.hasSea;
+            this.v3SeaY = params.seaY;
+            this.stampExtent = params.stampExtent;
+            // start the TERRAIN sweep at the centre ring; the outer ring is the stamp extent, so ring 0..extent covers the
+            // whole square (v1/v2: the [-half, half] bounding square; v3: the real square plus the wrap margin beyond it).
+            // For v1/v2 the extent equals half, so the sweep is an ORDER-only change and terrain stays identical.
+            ringReset(stampExtent);
             // arm the separate vegetation cursor over the same veg-site cell range the old VEGETATION phase swept. It is
             // advanced during TERRAIN (trailing the terrain edge) and finished in the VEGETATION phase, so it is set up
             // once here and never reset.
             vegRingReset(ringMaxFor(vegCellMin(), vegCellMax()));
-            // the shared geometry snapshot, built from the SAME per-task fields, so the stamp and the salvage oracle drive
-            // the identical basin/veg/structure site maths. seaLevelOffset is recovered from the snapshotted seaLevel.
-            this.params = new SurfaceParams(seed, half, baseY, theme, deepDepth, waterOn, cfg.seaLevelOffset,
-                    basinFreq, vegOn, vegDensity, structuresOn, villageFreq, hutFreq);
             // persist the geometry snapshot the moment the stamp begins (planet path only; the general path leaves the
             // recorder null and owns its own persistence). A mid-stamp read and a resume after an interrupted stamp both
             // then see the exact size/theme this terrain is being built at, and a later planet-destroy salvage recompute
@@ -1211,7 +1546,7 @@ public final class SurfaceStamp
             if (cfg.geometryRecorder != null)
             {
                 cfg.geometryRecorder.record(cfg.size, theme.name(), deepDepth, cfg.seaLevelOffset, basinFreq, vegDensity,
-                        villageFreq, hutFreq, waterOn, vegOn, structuresOn);
+                        villageFreq, hutFreq, waterOn, vegOn, structuresOn, this.version);
             }
             if (cfg.onComplete != null)
             {
@@ -1229,7 +1564,16 @@ public final class SurfaceStamp
                 return false;
             }
             StampTask task = new StampTask(cfg);
+            // profile the "time to playable": the landing zone is ready the instant the synchronous centre patch returns,
+            // so measure begin -> end of stampCentre. Cheap markers, only read when profiling this planet.
+            task.profBeginNanos = System.nanoTime();
+            task.profBeginTick = cfg.server.getTickCount();
+            long centreStart = task.profileThis() ? System.nanoTime() : 0L;
             task.stampCentre();
+            if (task.profileThis())
+            {
+                task.profCentreNanos = System.nanoTime() - centreStart;
+            }
             ACTIVE.put(cfg.key, task);
             TaskRegistry.schedule(task);
             // hold every player in this stamp's area while it builds. The freeze task is a single shared server-tick
@@ -1284,6 +1628,19 @@ public final class SurfaceStamp
         {
             try
             {
+                if (profileThis())
+                {
+                    long t0 = System.nanoTime();
+                    boolean done = tickBody();
+                    long dt = System.nanoTime() - t0;
+                    profTicks++;
+                    profNanos += dt;
+                    if (dt > profWorstTickNanos)
+                    {
+                        profWorstTickNanos = dt;
+                    }
+                    return done;
+                }
                 return tickBody();
             }
             catch (Throwable t)
@@ -1310,7 +1667,12 @@ public final class SurfaceStamp
             if (tickId != budgetTickStamp)
             {
                 budgetTickStamp = tickId;
-                sharedBlocksLeft = Math.max(1, budgetSupplier.getAsInt());
+                // ADAPTIVE per-tick budget: the configured budget is the ceiling for a healthy server, scaled DOWN as the
+                // mean tick time climbs so a stamp never deepens an existing lag spike. This only changes the PACING (how
+                // many blocks per tick), never WHICH blocks are placed, so the terrain is byte-identical whatever the
+                // server load (the block-identity self-test depends on this). At or below the low mark it is the full
+                // budget; at or above the high mark it is the floor fraction; linear in between.
+                sharedBlocksLeft = Math.max(1, adaptiveBudget(budgetSupplier.getAsInt()));
                 tickDeadlineNanos = System.nanoTime() + STAMP_TICK_NANOS;
             }
             int sinceClockCheck = 0;
@@ -1367,6 +1729,24 @@ public final class SurfaceStamp
                         }
                         break;
                     case WATER:
+                        if (seaMode)
+                        {
+                            // v3 GLOBAL SEA: sweep every column of the extent (not basin sites) and flood any column that
+                            // caps below sea level up to it. The sweep runs centre-outward like TERRAIN, so a filled
+                            // column is only ever adjacent to unfilled columns AHEAD of the frontier; the sweep reaches
+                            // and overwrites those with source blocks before its own fluid ticks (5 ticks out) can matter,
+                            // and the outer sea-containment wall seals the boundary, so the finished sea is a flat, sealed,
+                            // deterministic sheet of source blocks whatever the fill pacing.
+                            if (!hasSea || rRing > rMax)
+                            {
+                                beginVegetation();
+                                continue;
+                            }
+                            ringCurrent();
+                            worked = Math.max(1, fillSeaColumn(cell[0], cell[1]));
+                            ringAdvance();
+                            break;
+                        }
                         if (!waterOn || liquid == null || rRing > rMax)
                         {
                             beginVegetation();
@@ -1414,6 +1794,10 @@ public final class SurfaceStamp
                         break;
                 }
                 sharedBlocksLeft -= worked;
+                if (profileThis())
+                {
+                    profBudget += worked;
+                }
             }
             return false;
         }
@@ -1701,7 +2085,35 @@ public final class SurfaceStamp
         private void beginWater()
         {
             phase = Phase.WATER;
-            ringReset(ringMaxFor(basinCellMin(), basinCellMax()));
+            // v3 sweeps every column of the extent for the global sea; v2 sweeps only its scattered basin-site cells.
+            ringReset(seaMode ? stampExtent : ringMaxFor(basinCellMin(), basinCellMax()));
+        }
+
+        // fill one v3 column with the global sea: if its cap is below sea level, flood capY+1..seaY with the theme liquid
+        // (water, Namek water, lava, or solid packed ice on END), bottom-up, with flag 2. A land column (cap at or above
+        // sea) places nothing. Deterministic: the final sealed sheet is source blocks whatever the fill order, because the
+        // outward sweep overwrites any transient flowing water and the outer wall contains the edge. Returns the count.
+        private int fillSeaColumn(int dx, int dz)
+        {
+            if (!hasSea || Math.abs(dx) > stampExtent || Math.abs(dz) > stampExtent)
+            {
+                return 0;
+            }
+            int capY = tileableCapY(params, dx, dz);
+            if (capY >= v3SeaY)
+            {
+                return 0;
+            }
+            int wx = cx + dx;
+            int wz = cz + dz;
+            int placed = 0;
+            for (int y = capY + 1; y <= v3SeaY; ++y)
+            {
+                pos.set(wx, y, wz);
+                surface.setBlock(pos, liquid, 2);
+                placed++;
+            }
+            return placed;
         }
 
         // move to the VEGETATION tail phase: the interleave (during TERRAIN) already placed every veg cell inside the
@@ -1726,12 +2138,14 @@ public final class SurfaceStamp
 
         private int vegCellMin()
         {
-            return Math.floorDiv(-half, VEG_GRID) - 1;
+            // stampExtent, not half, so a v3 sweep visits the margin cells too and the margin grows vegetation (for v2/v1
+            // stampExtent equals half, so the swept range is unchanged).
+            return Math.floorDiv(-stampExtent, VEG_GRID) - 1;
         }
 
         private int vegCellMax()
         {
-            return Math.floorDiv(half, VEG_GRID) + 1;
+            return Math.floorDiv(stampExtent, VEG_GRID) + 1;
         }
 
         // move to the STRUCTURES phase, resetting the ring cursor to cover the structure-site cell range from the centre out.
@@ -1743,12 +2157,14 @@ public final class SurfaceStamp
 
         private int structCellMin()
         {
-            return Math.floorDiv(-half, STRUCT_GRID) - 1;
+            // stampExtent, not half, so a v3 sweep visits the margin cells too and the margin grows structures (for v2/v1
+            // stampExtent equals half, so the swept range is unchanged).
+            return Math.floorDiv(-stampExtent, STRUCT_GRID) - 1;
         }
 
         private int structCellMax()
         {
-            return Math.floorDiv(half, STRUCT_GRID) + 1;
+            return Math.floorDiv(stampExtent, STRUCT_GRID) + 1;
         }
 
         // stamp one column at offset (dx, dz) from the cell centre, if it falls inside the disc's inscribed circle AND
@@ -1759,6 +2175,10 @@ public final class SurfaceStamp
         // is the ordinary surface/subsurface/deep stack.
         private int stampColumn(int dx, int dz)
         {
+            if (tileable)
+            {
+                return stampColumnTileable(dx, dz);
+            }
             double distSq = (double) dx * dx + (double) dz * dz;
             if (distSq > radiusSq)
             {
@@ -1783,6 +2203,96 @@ public final class SurfaceStamp
             int capY = capHeight(seed, dx, dz, dist, wobbledRadius, baseY);
             placeColumn(surface, pos, cx + dx, cz + dz, capY, palette, deepDepth);
             return columnBlocks(deepDepth);
+        }
+
+        // stamp one column of a v2 tileable planet: the WHOLE planet square is solid ground (no disc, no rim), capped at a
+        // periodic multi-octave height so the terrain tiles at the walls, over a solid body down to a fixed bedrock floor.
+        // Returns the real block count placed (variable per column: a mountain column reaches higher than a plain), which is
+        // charged against the per-tick budget so the flat per-tick cost holds even though columns differ in height.
+        private int stampColumnTileable(int dx, int dz)
+        {
+            if (Math.abs(dx) > stampExtent || Math.abs(dz) > stampExtent)
+            {
+                // outside the stamped extent: nothing. The interior [-half, half] inclusive square is exactly one full
+                // period wide, so the two walls carry identical terrain (dx = -half equals dx = +half); the v3 margin out
+                // to stampExtent samples the SAME periodic field, so a margin column mirrors the opposite interior side.
+                return 0;
+            }
+            markTerrainChunk(cx + dx, cz + dz);
+            int basinFloor = basinFloorAt(dx, dz);
+            if (basinFloor != NO_BASIN)
+            {
+                // v2 only: v3 disables basins (poolInCell short-circuits on seaMode) in favour of the global sea below.
+                return placeBasinColumnTileable(cx + dx, cz + dz, basinFloor);
+            }
+            int capY = tileableCapY(params, dx, dz);
+            return placeColumnTileable(cx + dx, cz + dz, capY);
+        }
+
+        // place one v2 column: surface block at the cap, a subsurface band, the deep body all the way down to a bedrock
+        // floor at bottomY. TERRAIN_FLAG (no neighbour-shape pass, no client notify) exactly like the legacy placeColumn;
+        // the finished chunk is resent whole. Returns the block count placed.
+        private int placeColumnTileable(int wx, int wz, int capY)
+        {
+            int placed = 0;
+            // v3 dresses the waterline as a beach: a column whose cap sits within SHORE_BAND of the sea (a low bank just
+            // above it, or a shallow shelf just below) takes a shore block (mixed sand/gravel/clay on wet themes) instead
+            // of grass/soil, so a coast reads as a beach rather than green running into the water. Everything else keeps
+            // the theme's surface. A pure function of the seed and the world column, matched by the salvage oracle.
+            BlockState top = palette.surface();
+            if (hasSea && capY >= v3SeaY - SHORE_BAND && capY <= v3SeaY + SHORE_BAND)
+            {
+                top = shoreBlockFor(params, wx - cx, wz - cz);
+            }
+            pos.set(wx, capY, wz);
+            surface.setBlock(pos, top, TERRAIN_FLAG);
+            placed++;
+            int y = capY - 1;
+            int subFloor = capY - SUBSURFACE_DEPTH;
+            for (; y > subFloor && y > bottomY; --y)
+            {
+                pos.set(wx, y, wz);
+                surface.setBlock(pos, palette.subsurface(), TERRAIN_FLAG);
+                placed++;
+            }
+            for (; y > bottomY; --y)
+            {
+                pos.set(wx, y, wz);
+                surface.setBlock(pos, palette.deep(), TERRAIN_FLAG);
+                placed++;
+            }
+            pos.set(wx, bottomY, wz);
+            surface.setBlock(pos, V2_FLOOR, TERRAIN_FLAG);
+            placed++;
+            return placed;
+        }
+
+        // carve a v2 basin column: the ordinary v2 solid body (subsurface band, deep body, bedrock floor) but topped at the
+        // basin floor, leaving air above for the water phase to fill up to sea level. Returns the block count placed.
+        private int placeBasinColumnTileable(int wx, int wz, int basinFloor)
+        {
+            int placed = 0;
+            pos.set(wx, basinFloor, wz);
+            surface.setBlock(pos, palette.subsurface(), TERRAIN_FLAG);
+            placed++;
+            int y = basinFloor - 1;
+            int subFloor = basinFloor - SUBSURFACE_DEPTH;
+            for (; y > subFloor && y > bottomY; --y)
+            {
+                pos.set(wx, y, wz);
+                surface.setBlock(pos, palette.subsurface(), TERRAIN_FLAG);
+                placed++;
+            }
+            for (; y > bottomY; --y)
+            {
+                pos.set(wx, y, wz);
+                surface.setBlock(pos, palette.deep(), TERRAIN_FLAG);
+                placed++;
+            }
+            pos.set(wx, bottomY, wz);
+            surface.setBlock(pos, V2_FLOOR, TERRAIN_FLAG);
+            placed++;
+            return placed;
         }
 
         // carve a basin column: a lakebed of subsurface (soil) at the floor and the band below it, then the deep body all
@@ -1948,7 +2458,17 @@ public final class SurfaceStamp
                 return VEG_FEATURE_COST;
             }
             pos.set(wx, groundY + 1, wz);
-            surface.setBlock(pos, chosen.cover(), 2);
+            // only place a ground-cover block where it can actually stand. A cover (grass, fern, a flower) on a block it
+            // cannot survive on (a sand/gravel/clay beach shore, snow, packed ice) breaks on the next block update and
+            // DROPS an item, which is how a planet ends up carpeted in thousands of lagging item entities. canSurvive
+            // reads the support block just placed by the terrain sweep (veg trails behind completed terrain), so this is
+            // the real answer; skipping an unplaceable cover leaves the ground bare, exactly what a bad site would end up
+            // as anyway once the plant popped, only without the item drop. Flag 2 already skips neighbour updates.
+            BlockState cover = chosen.cover();
+            if (cover.canSurvive(surface, pos))
+            {
+                surface.setBlock(pos, cover, 2);
+            }
             return 1;
         }
 
@@ -2461,6 +2981,19 @@ public final class SurfaceStamp
             flushAllPendingChunks();
             ACTIVE.remove(key, this);
             store.markGenerated();
+            if (profileThis())
+            {
+                long totalMs = (System.nanoTime() - profBeginNanos) / 1_000_000L;
+                long ticksToComplete = server.getTickCount() - profBeginTick;
+                LoggingHandler.sulog.info(
+                        "[SurfaceStamp] profile key={} gen=v{} theme={} size={} extent={} sea={} : time-to-playable "
+                                + "{} us (centre patch) ; total {} ms over {} game ticks / {} worker ticks ; {} budget-units ; "
+                                + "worker {} ms cpu ({} ms avg, {} ms worst tick).",
+                        key, version, theme, half * 2, stampExtent * 2, hasSea ? ("y@" + v3SeaY) : "n",
+                        profCentreNanos / 1_000L, totalMs, ticksToComplete, profTicks, profBudget,
+                        profNanos / 1_000_000L, profTicks == 0 ? 0 : profNanos / 1_000_000L / profTicks,
+                        profWorstTickNanos / 1_000_000L);
+            }
             for (Runnable r : onComplete)
             {
                 try
@@ -2728,9 +3261,29 @@ public final class SurfaceStamp
         final double villageFreq;
         final double hutFreq;
         final double structInnerBound;
+        // the terrain generator version and its derived flag/profile. tileable == true selects the v2/v3 square, periodic
+        // terrain; the profile drives the periodic height. A v1 params ignores the profile entirely.
+        final int version;
+        final boolean tileable;
+        final TerrainProfile profile;
+        // v3 (SEAS) derived geometry, all computed once from the version, theme profile and margin config so a mid-stamp
+        // reload cannot split a planet across two extents. seaMode is v3; hasSea also requires the theme to have a sea and
+        // water to be on; seaY is the flooding surface; stampExtent is the half-extent actually filled (half + margin on
+        // v3, else just half); marginBlocks is the extra width beyond the real square.
+        final boolean seaMode;
+        final boolean hasSea;
+        final int seaY;
+        final int marginBlocks;
+        final int stampExtent;
+        // the outermost column offset a vegetation feature or structure footprint may sit at on a tileable planet, keeping
+        // canopies and buildings off the outer wall. On v3 this reaches into the margin (stampExtent - V2_EDGE_MARGIN) so
+        // the margin carries the SAME vegetation and structures as the interior: a player at the seam sees a vegetated
+        // landscape continue across it rather than green cut to bare ground. On v2 it is the disc inset (half - margin).
+        final int featureBound;
 
         SurfaceParams(long seed, int half, int baseY, Theme theme, int deepDepth, boolean waterOn, int seaLevelOffset,
-                double basinFreq, boolean vegOn, double vegDensity, boolean structOn, double villageFreq, double hutFreq)
+                double basinFreq, boolean vegOn, double vegDensity, boolean structOn, double villageFreq, double hutFreq,
+                int version)
         {
             this.seed = seed;
             this.half = half;
@@ -2750,6 +3303,16 @@ public final class SurfaceStamp
             this.villageFreq = villageFreq;
             this.hutFreq = hutFreq;
             this.structInnerBound = structInnerBound(half);
+            this.version = version <= 0 ? GEN_VERSION_LEGACY : version;
+            this.tileable = this.version >= GEN_VERSION_TILEABLE;
+            this.profile = profileFor(theme);
+            this.seaMode = this.version >= GEN_VERSION_SEAS;
+            double seaFraction = this.seaMode ? seaFractionFor(theme) : 0.0;
+            this.hasSea = this.seaMode && waterOn && this.liquid != null && seaFraction > 0.0;
+            this.seaY = baseY + (int) Math.round(seaFraction * this.profile.amplitude());
+            this.marginBlocks = this.seaMode ? marginBlocksForVersion(this.version) : 0;
+            this.stampExtent = half + this.marginBlocks;
+            this.featureBound = this.stampExtent - V2_EDGE_MARGIN;
         }
     }
 
@@ -2757,6 +3320,11 @@ public final class SurfaceStamp
     // stamp uses. The salvage scan calls this to skip a void column without reading its whole vertical band.
     static boolean columnInside(SurfaceParams p, int dx, int dz)
     {
+        if (p.tileable)
+        {
+            // v2 fills the whole planet square edge to edge.
+            return Math.abs(dx) <= p.half && Math.abs(dz) <= p.half;
+        }
         double distSq = (double) dx * dx + (double) dz * dz;
         if (distSq > (double) p.half * p.half)
         {
@@ -2771,6 +3339,10 @@ public final class SurfaceStamp
     // cap and are excluded by the footprint tests instead. Keep this in lockstep with those three placement routines.
     static BlockState expectedTerrain(SurfaceParams p, int dx, int dz, int y, int[] scratch)
     {
+        if (p.tileable)
+        {
+            return expectedTerrainTileable(p, dx, dz, y, scratch);
+        }
         double distSq = (double) dx * dx + (double) dz * dz;
         if (distSq > (double) p.half * p.half)
         {
@@ -2823,6 +3395,87 @@ public final class SurfaceStamp
             return p.palette.deep();
         }
         return null;
+    }
+
+    // the v2/v3 tileable equivalent of expectedTerrain: the block placeColumnTileable / placeBasinColumnTileable / the
+    // water fill would have placed at (dx, dz, y), or null where the natural surface is air/void. Kept in lockstep with
+    // those placement routines so the salvage oracle recovers exactly a tileable planet's natural ground, and so the
+    // headless block-identity test can compare the placed world against it. Valid out to the FULL stamp extent (the v3
+    // margin included), so the identity test can check margin columns too; the salvage scan only ever queries within the
+    // real square, which is a subset.
+    private static BlockState expectedTerrainTileable(SurfaceParams p, int dx, int dz, int y, int[] scratch)
+    {
+        if (Math.abs(dx) > p.stampExtent || Math.abs(dz) > p.stampExtent)
+        {
+            return null;
+        }
+        if (y < p.bottomY)
+        {
+            return null;
+        }
+        if (y == p.bottomY)
+        {
+            return V2_FLOOR;
+        }
+        int capY = tileableCapY(p, dx, dz);
+        if (p.seaMode)
+        {
+            // v3: no basins. Above the solid cap, a sub-sea column carries the theme liquid up to sea level (a solid ice
+            // sheet on END), and open air above that; the surface block is a shore block at the waterline. The centre
+            // plateau and outer wall are already folded into tileableCapY, so a lifted column reads as dry land here too.
+            if (y > capY)
+            {
+                if (p.hasSea && capY < p.seaY && y <= p.seaY)
+                {
+                    return p.liquid;
+                }
+                return null;
+            }
+            if (y == capY)
+            {
+                if (p.hasSea && capY >= p.seaY - SHORE_BAND && capY <= p.seaY + SHORE_BAND)
+                {
+                    return shoreBlockFor(p, dx, dz);
+                }
+                return p.palette.surface();
+            }
+            if (y > capY - SUBSURFACE_DEPTH)
+            {
+                return p.palette.subsurface();
+            }
+            return p.palette.deep();
+        }
+        int basinFloor = basinFloorAt(p, dx, dz, scratch);
+        if (basinFloor != NO_BASIN)
+        {
+            if (y > basinFloor)
+            {
+                // above the lakebed: theme liquid up to sea level (solid packed ice on END), open air above.
+                if (p.liquid != null && y <= p.seaLevel)
+                {
+                    return p.liquid;
+                }
+                return null;
+            }
+            if (y > basinFloor - SUBSURFACE_DEPTH)
+            {
+                return p.palette.subsurface();
+            }
+            return p.palette.deep();
+        }
+        if (y > capY)
+        {
+            return null;
+        }
+        if (y == capY)
+        {
+            return p.palette.surface();
+        }
+        if (y > capY - SUBSURFACE_DEPTH)
+        {
+            return p.palette.subsurface();
+        }
+        return p.palette.deep();
     }
 
     // whether (dx, dz, y) lies inside the footprint box of a vegetation/rock-decor site the stamp actually placed. The
@@ -2894,8 +3547,11 @@ public final class SurfaceStamp
     // StampTask.poolInCell doc for the geometry guarantees.
     static boolean poolInCell(SurfaceParams p, int cellX, int cellZ, int[] out)
     {
-        if (!p.hasLiquid)
+        if (!p.hasLiquid || p.seaMode)
         {
+            // v3 (seaMode) has NO basins: it floods every sub-sea-level column from a single global sea instead, so the
+            // scattered-pool machinery is switched off wholesale. basinFloorAt therefore returns NO_BASIN for every v3
+            // column, and the v2 basin carve/fill path is never taken.
             return false;
         }
         long h = hash(p.seed, cellX, cellZ, BASIN_SALT);
@@ -2914,7 +3570,17 @@ public final class SurfaceStamp
         {
             return false;
         }
-        if (dc + r > p.basinInnerRadius)
+        if (p.tileable)
+        {
+            // v2: no disc rim, so the inward-margin is a SQUARE inset. Keeping the whole pool inside half - V2_EDGE_MARGIN
+            // keeps water off the wrap seam (and off the wall), which is the same "no fluid at the edge" guarantee the
+            // disc inner-radius gave, now for the finite square.
+            if (Math.max(Math.abs(pcx), Math.abs(pcz)) + r > p.half - V2_EDGE_MARGIN)
+            {
+                return false;
+            }
+        }
+        else if (dc + r > p.basinInnerRadius)
         {
             return false;
         }
@@ -2959,7 +3625,16 @@ public final class SurfaceStamp
     static boolean siteClear(SurfaceParams p, int gx, int gz, int footprint, int[] scratch)
     {
         double dc = Math.sqrt((double) gx * gx + (double) gz * gz);
-        if (dc + footprint > p.structInnerBound)
+        if (p.tileable)
+        {
+            // keep the whole footprint inside the feature bound (off the outer wall). On v3 this reaches into the margin,
+            // so the margin carries the same structures as the interior and the seam view is consistent.
+            if (Math.max(Math.abs(gx), Math.abs(gz)) + footprint > p.featureBound)
+            {
+                return false;
+            }
+        }
+        else if (dc + footprint > p.structInnerBound)
         {
             return false;
         }
@@ -2998,6 +3673,37 @@ public final class SurfaceStamp
         int jz = (int) (unitAt(h, 40) * (2 * VEG_JITTER + 1)) - VEG_JITTER;
         int gx = cellX * VEG_GRID + VEG_GRID / 2 + jx;
         int gz = cellZ * VEG_GRID + VEG_GRID / 2 + jz;
+        if (p.tileable)
+        {
+            // vegetation covers the whole square, held inside the feature bound (canopies never overhang the outer wall);
+            // its ground height comes from the periodic terrain. On v3 the bound reaches into the margin, so the margin
+            // grows the same vegetation as the interior and the view across the seam is a continuous vegetated landscape.
+            if (Math.abs(gx) > p.featureBound || Math.abs(gz) > p.featureBound)
+            {
+                return false;
+            }
+            if (basinFloorAt(p, gx, gz, scratch) != NO_BASIN)
+            {
+                return false;
+            }
+            int capY = tileableCapY(p, gx, gz);
+            // NO PLANTS ON A FLOODED COLUMN. On v3 the global sea floods any column whose cap sits below seaY (see
+            // fillSeaColumn: a land column is capY >= seaY), so a veg site here would place its feature/cover at capY + 1,
+            // which is UNDERWATER, or on the END theme's packed-ice sea. An underwater plant, or chorus on packed ice,
+            // fails canSurvive on the next block update and BREAKS, dropping an item: that is the "chorus fruits filling
+            // the ice spots, thousands of items" bug. seaMode has no basins (basinFloorAt short-circuits), so this flood
+            // test is the ONLY thing keeping vegetation out of the water on a v3 planet. Excluding the site is
+            // deterministic and shared with the salvage oracle (both call this one method), so stamp and salvage stay in
+            // lockstep, and only NEWLY stamped planets are affected (an already-stamped planet never re-runs this).
+            if (p.hasSea && capY < p.seaY)
+            {
+                return false;
+            }
+            out[0] = gx;
+            out[1] = gz;
+            out[2] = capY;
+            return true;
+        }
         double distSq = (double) gx * gx + (double) gz * gz;
         if (distSq > (double) p.half * p.half)
         {
@@ -3048,7 +3754,9 @@ public final class SurfaceStamp
         double dist = Math.sqrt((double) gx * gx + (double) gz * gz);
         out[0] = gx;
         out[1] = gz;
-        out[2] = capHeight(p.seed, gx, gz, dist, rimRadius(p.seed, p.half, gx, gz), p.baseY);
+        out[2] = p.tileable
+                ? tileableCapY(p, gx, gz)
+                : capHeight(p.seed, gx, gz, dist, rimRadius(p.seed, p.half, gx, gz), p.baseY);
         out[3] = footprint;
         return true;
     }
@@ -3147,6 +3855,185 @@ public final class SurfaceStamp
     {
         long h = hash(seed, gx, gz, 0x51D);
         return unit(h);
+    }
+
+    // === v2 tileable height field ===
+    // The cap Y for a v2 (tileable) column. A domain-warped, multi-octave, PERIODIC relief scaled to the theme amplitude,
+    // minus any crater bowl, clamped to [baseY, baseY + amplitude]. Periodic with period = the planet width (2*half): the
+    // column at dx = -half is identical to the one at dx = +half, so the terrain tiles seamlessly at the two walls (which
+    // is what lets B5 wrap the player edge to edge). The clamp keeps the surface at or above baseY so the fixed bedrock
+    // floor and the fall-catch stay valid, and well under the dimension ceiling.
+    static int tileableCapY(SurfaceParams p, int dx, int dz)
+    {
+        double w = p.half * 2.0;
+        TerrainProfile prof = p.profile;
+        // domain warp: bend the sample point by a periodic offset, so ridgelines curve instead of aligning to a grid. The
+        // offset is itself periodic in (dx, dz) with period w, and the base relief is periodic in its argument with period
+        // w, so the warped result stays exactly periodic.
+        double warp = prof.warp();
+        double wx = dx;
+        double wz = dz;
+        if (warp > 0.0)
+        {
+            wx += warp * (periodicOctave(p.seed, dx, dz, NOISE_BASE_CELLS * 2, w, WARP_SALT_X) - 0.5) * 2.0;
+            wz += warp * (periodicOctave(p.seed, dx, dz, NOISE_BASE_CELLS * 2, w, WARP_SALT_Z) - 0.5) * 2.0;
+        }
+        double relief = periodicRelief(p.seed, wx, wz, w, prof) * prof.amplitude();
+        if (prof.craters())
+        {
+            relief -= craterDepth(p, dx, dz, w);
+        }
+        int cap = p.baseY + (int) Math.round(relief);
+        if (cap < p.baseY)
+        {
+            cap = p.baseY;
+        }
+        int max = p.baseY + prof.amplitude();
+        if (cap > max)
+        {
+            cap = max;
+        }
+        if (p.seaMode && p.hasSea)
+        {
+            int cheb = Math.max(Math.abs(dx), Math.abs(dz));
+            // outer sea-containment wall: lift the terrain of the OUTERMOST ring of the stamped extent above the sea so a
+            // coastal sea can never spill off the stamped ground into the void beyond the margin. This ring sits a full
+            // chunk past the furthest a player can see across the seam, so the wall is never visible from play and does
+            // not need to mirror the interior.
+            if (cheb > p.stampExtent - SEA_WALL_THICKNESS)
+            {
+                int wall = Math.min(max, p.seaY + 3);
+                if (cap < wall)
+                {
+                    cap = wall;
+                }
+            }
+            // centre landing plateau: keep the landing zone dry by lifting the surface within LAND_CENTRE_OUTER of the
+            // cell centre to at least (seaY + LAND_DRY_MARGIN), feathered to nothing at the outer edge so it blends into
+            // the natural terrain. Only ever raises, never lowers, and is zero long before the seam, so it never disturbs
+            // the wrap periodicity.
+            if (cheb <= LAND_CENTRE_OUTER)
+            {
+                int dry = Math.min(max, p.seaY + LAND_DRY_MARGIN);
+                if (dry > cap)
+                {
+                    double lift = cheb <= LAND_CENTRE_INNER ? 1.0
+                            : (double) (LAND_CENTRE_OUTER - cheb) / (LAND_CENTRE_OUTER - LAND_CENTRE_INNER);
+                    int target = cap + (int) Math.round((dry - cap) * lift);
+                    if (target > cap)
+                    {
+                        cap = target;
+                    }
+                }
+            }
+        }
+        return cap;
+    }
+
+    // multi-octave periodic relief in 0..1, blending fractal (rolling) and ridged (mountain) noise by the profile's
+    // mountainWeight. Every octave is periodic with period w (each octave's cell count is NOISE_BASE_CELLS * 2^o and the
+    // sample is normalised by w), so the sum is periodic with period w.
+    private static double periodicRelief(long seed, double x, double z, double w, TerrainProfile prof)
+    {
+        double amp = 1.0;
+        double sum = 0.0;
+        double ridge = 0.0;
+        double norm = 0.0;
+        int cells = NOISE_BASE_CELLS;
+        for (int o = 0; o < prof.octaves(); ++o)
+        {
+            double v = periodicOctave(seed, x, z, cells, w, NOISE_SALT + o);
+            sum += v * amp;
+            // ridged transform: fold the noise so its mid value becomes a sharp crest, squared for steeper flanks.
+            double r = 1.0 - Math.abs(2.0 * v - 1.0);
+            ridge += r * r * amp;
+            norm += amp;
+            amp *= prof.persistence();
+            cells *= 2;
+        }
+        if (norm <= 0.0)
+        {
+            return 0.0;
+        }
+        double fractal = sum / norm;
+        double ridged = ridge / norm;
+        double mw = prof.mountainWeight();
+        return (1.0 - mw) * fractal + mw * ridged;
+    }
+
+    // one octave of value noise sampled on a cells x cells lattice that WRAPS modulo cells (the corner hashes fold with
+    // floorMod), so the field is exactly periodic with period w on both axes: the value at coordinate c equals the value
+    // at c + w. c is a column offset; it is normalised so the planet's [-half, half] span maps across the whole lattice.
+    private static double periodicOctave(long seed, double x, double z, int cells, double w, int salt)
+    {
+        double px = (x + w * 0.5) / w * cells;
+        double pz = (z + w * 0.5) / w * cells;
+        int ix = (int) Math.floor(px);
+        int iz = (int) Math.floor(pz);
+        double fx = px - ix;
+        double fz = pz - iz;
+        double c00 = cornerValue(seed, ix, iz, cells, salt);
+        double c10 = cornerValue(seed, ix + 1, iz, cells, salt);
+        double c01 = cornerValue(seed, ix, iz + 1, cells, salt);
+        double c11 = cornerValue(seed, ix + 1, iz + 1, cells, salt);
+        double sx = smoothstep(fx);
+        double sz = smoothstep(fz);
+        double top = c00 + (c10 - c00) * sx;
+        double bottom = c01 + (c11 - c01) * sx;
+        return top + (bottom - top) * sz;
+    }
+
+    // 0..1 hashed value at a lattice corner, with the corner index folded modulo the lattice cell count so opposite edges
+    // share corners. That shared corner is exactly what makes the octave (and so the whole height field) tile.
+    private static double cornerValue(long seed, int ix, int iz, int cells, int salt)
+    {
+        return unit(hash(seed, Math.floorMod(ix, cells), Math.floorMod(iz, cells), salt));
+    }
+
+    // periodic crater-bowl depth (>= 0) at a v2 column, for barren themes. Impact sites sit on a CRATER_CELLS lattice that
+    // wraps modulo the width, so craters tile with the rest of the terrain. The 3x3 site neighbourhood covers a crater
+    // whose disc spills out of its own cell, and the deepest overlapping bowl wins. Sites near the cell centre are skipped
+    // so the landing zone is never a pit.
+    private static double craterDepth(SurfaceParams p, int dx, int dz, double w)
+    {
+        double cell = w / CRATER_CELLS;
+        int cx = (int) Math.floor((dx + w * 0.5) / cell);
+        int cz = (int) Math.floor((dz + w * 0.5) / cell);
+        double deepest = 0.0;
+        for (int ox = -1; ox <= 1; ++ox)
+        {
+            for (int oz = -1; oz <= 1; ++oz)
+            {
+                int gcx = cx + ox;
+                int gcz = cz + oz;
+                long h = hash(p.seed, Math.floorMod(gcx, CRATER_CELLS), Math.floorMod(gcz, CRATER_CELLS), CRATER_SALT);
+                if (unitAt(h, 24) >= 0.5)
+                {
+                    continue;   // about half the sites host a crater.
+                }
+                double r = cell * (0.18 + 0.22 * unitAt(h, 0));
+                double jx = (unitAt(h, 8) - 0.5) * cell * 0.4;
+                double jz = (unitAt(h, 16) - 0.5) * cell * 0.4;
+                double scx = (gcx + 0.5) * cell - w * 0.5 + jx;
+                double scz = (gcz + 0.5) * cell - w * 0.5 + jz;
+                if (Math.abs(scx) < V2_CENTRE_CLEAR && Math.abs(scz) < V2_CENTRE_CLEAR)
+                {
+                    continue;   // keep the landing zone flat.
+                }
+                double dd = Math.sqrt((dx - scx) * (dx - scx) + (dz - scz) * (dz - scz));
+                if (dd >= r)
+                {
+                    continue;
+                }
+                double t = dd / r;
+                double depth = (0.5 + 0.5 * unitAt(h, 40)) * p.profile.amplitude() * 0.6 * (1.0 - t * t);
+                if (depth > deepest)
+                {
+                    deepest = depth;
+                }
+            }
+        }
+        return deepest;
     }
 
     // classic smoothstep 3t^2 - 2t^3 on 0..1, so the interpolated relief eases at the lattice boundaries.

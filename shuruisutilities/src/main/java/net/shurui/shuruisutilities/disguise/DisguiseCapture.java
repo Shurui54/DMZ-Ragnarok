@@ -86,6 +86,29 @@ public final class DisguiseCapture
     }
 
     /**
+     * The OFFLINE player's suite NICKNAME (empty when they have none), read from the same place the nick feature
+     * writes it: the top level of the player's Forge persistent data ({@code getPersistentData()}, saved under
+     * {@code ForgeData} in {@code playerdata/<uuid>.dat}), key {@code nickname}. Best-effort and a SNAPSHOT, like the
+     * rest of the offline capture: it reads this shard's local file, which is the authority the nick feature reads
+     * for an online player on this shard. BLOCKING: call through {@link #offThread}.
+     */
+    public static String readOfflineNickname(MinecraftServer server, UUID id)
+    {
+        try
+        {
+            File file = server.getWorldPath(LevelResource.PLAYER_DATA_DIR).resolve(id + ".dat").toFile();
+            if (!file.isFile())
+                return "";
+            String nick = NbtIo.readCompressed(file).getCompound("ForgeData").getString("nickname");
+            return nick == null ? "" : nick;
+        }
+        catch (Throwable ignored)
+        {
+            return "";
+        }
+    }
+
+    /**
      * Fill the DMZ appearance fields of {@code v} from a {@link #readOfflineCharacter} tag, parsed with DragonMineZ's
      * OWN code (a fresh {@code Character}, then {@code load}). No-op (hasDmz stays false) for a null tag or a failure.
      */

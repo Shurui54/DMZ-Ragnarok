@@ -15,6 +15,9 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.saveddata.SavedData;
 import net.minecraft.world.phys.Vec3;
 
+// orbital maths + the shared cross-shard clock: a super body now orbits the central sun slowly, its position derived
+// from stored elements at the shared instant so every shard and client agree without syncing a position per tick.
+
 /**
  * Overworld-attached saved data for the seven SUPER dragon-ball bodies: the ONE authoritative home for their progress.
  * Mirrors {@link GeneratedPlanetClaims} and {@link PlanetGarrisonData} (persisted under a fixed name on the overworld
@@ -44,12 +47,24 @@ public final class SuperPlanetData extends SavedData
 {
     private static final String NAME = "shuruisutilities_super_planets";
 
-    // one body's persisted state.
+    // one body's persisted state. Since the space rework a super body ORBITS the central sun slowly on the shared
+    // cross-shard clock, so its authoritative position is DERIVED from orbital ELEMENTS rather than a frozen xyz: a
+    // stored xyz would diverge per shard as each shard's clock advances. The elements (radius from the sun, a start phase
+    // and a period) are the additive schema field. They are derived ONCE from the body's stored position at first load,
+    // so an existing save's current position becomes the orbit's starting point and nothing jumps; a fresh body derives
+    // them from its seeded initial position. {@code pos} is kept as the derivation seed and the last-relocation anchor.
     static final class BodyState
     {
         Vec3 pos;
         boolean claimed;
         boolean ballDropped;
+
+        // orbital elements around the sun. y is the body's fixed plane height. elementsSet is false until derived.
+        double radius;
+        double phase0;
+        double period;
+        double y;
+        boolean elementsSet;
 
         BodyState(Vec3 pos, boolean claimed, boolean ballDropped)
         {
@@ -57,6 +72,38 @@ public final class SuperPlanetData extends SavedData
             this.claimed = claimed;
             this.ballDropped = ballDropped;
         }
+    }
+
+    // Derive (or re-derive) a body's orbital elements from a position, so that at {@code epochMillis} the orbit passes
+    // through exactly that position and drifts on from there. Called at first load (from the stored position, so an
+    // existing save is continuous) and on every relocation (from the fresh spot). The period comes from the same
+    // Kepler-like curve the fixed planets use, which at a super body's large radius is already many hours per turn, i.e.
+    // the "slowly" the design asks for.
+    private static void deriveElements(BodyState st, long epochMillis)
+    {
+        Vec3 sun = PlanetPositions.sunPosition();
+        double dx = st.pos.x - sun.x;
+        double dz = st.pos.z - sun.z;
+        double radius = Math.hypot(dx, dz);
+        if (radius < 1.0)
+        {
+            radius = SuperPlanetPositions.MIN_FROM_EARTH;   // degenerate (on the sun): push out to a sane ring.
+        }
+        double currentAngle = Math.atan2(dz, dx);
+        double period = Orbits.periodMillis(radius);
+        st.radius = radius;
+        st.period = period;
+        st.phase0 = Orbits.phaseForContinuity(currentAngle, period, epochMillis);
+        st.y = st.pos.y;
+        st.elementsSet = true;
+    }
+
+    // the body's live world position at the current shared instant, derived from its orbital elements.
+    private static Vec3 livePosition(BodyState st)
+    {
+        Vec3 sun = PlanetPositions.sunPosition();
+        double[] xz = Orbits.positionXZ(sun.x, sun.z, st.radius, st.phase0, OrbitClock.epochMillis());
+        return new Vec3(xz[0], st.y, xz[1]);
     }
 
     // super id -> its state. Populated for all seven ids by ensureInitialized.
@@ -82,7 +129,19 @@ public final class SuperPlanetData extends SavedData
             Vec3 pos = new Vec3(b.getDouble("x"), b.getDouble("y"), b.getDouble("z"));
             boolean claimed = b.getBoolean("claimed");
             boolean ballDropped = b.getBoolean("ballDropped");
-            s.bodies.put(id, new BodyState(pos, claimed, ballDropped));
+            BodyState st = new BodyState(pos, claimed, ballDropped);
+            // ADDITIVE schema: orbital elements are present only in saves written since the space rework. An older save
+            // has none, so elementsSet stays false and the elements are derived from `pos` on the first touch
+            // (ensureInitialized), making its current position the orbit start. A newer save restores them verbatim.
+            if (b.contains("orbRadius"))
+            {
+                st.radius = b.getDouble("orbRadius");
+                st.phase0 = b.getDouble("orbPhase0");
+                st.period = b.getDouble("orbPeriod");
+                st.y = b.getDouble("orbY");
+                st.elementsSet = true;
+            }
+            s.bodies.put(id, st);
         }
         return s;
     }
@@ -101,6 +160,13 @@ public final class SuperPlanetData extends SavedData
             b.putDouble("z", st.pos.z);
             b.putBoolean("claimed", st.claimed);
             b.putBoolean("ballDropped", st.ballDropped);
+            if (st.elementsSet)
+            {
+                b.putDouble("orbRadius", st.radius);
+                b.putDouble("orbPhase0", st.phase0);
+                b.putDouble("orbPeriod", st.period);
+                b.putDouble("orbY", st.y);
+            }
             list.add(b);
         }
         tag.put("bodies", list);
@@ -121,6 +187,17 @@ public final class SuperPlanetData extends SavedData
                 dirty = true;
             }
         }
+        // derive orbital elements for any body that has none yet (a fresh body, or one loaded from a pre-rework save):
+        // its stored position becomes the orbit start at the current shared instant, so nothing jumps on the first tick.
+        long epoch = OrbitClock.epochMillis();
+        for (BodyState st : bodies.values())
+        {
+            if (!st.elementsSet)
+            {
+                deriveElements(st, epoch);
+                dirty = true;
+            }
+        }
         if (dirty)
         {
             setDirty();
@@ -131,7 +208,7 @@ public final class SuperPlanetData extends SavedData
     public Vec3 position(String superId)
     {
         BodyState st = bodies.get(superId);
-        return st == null ? null : st.pos;
+        return st == null ? null : livePosition(st);
     }
 
     /**
@@ -148,7 +225,7 @@ public final class SuperPlanetData extends SavedData
             {
                 continue;
             }
-            Vec3 c = st.pos;
+            Vec3 c = livePosition(st);
             if (Math.abs(p.x - c.x) <= reach && Math.abs(p.y - c.y) <= reach && Math.abs(p.z - c.z) <= reach)
             {
                 return e.getKey();
@@ -227,7 +304,7 @@ public final class SuperPlanetData extends SavedData
         {
             if (!e.getValue().claimed)
             {
-                out.add(Map.entry(e.getKey(), e.getValue().pos));
+                out.add(Map.entry(e.getKey(), livePosition(e.getValue())));
             }
         }
         return out;
@@ -250,7 +327,7 @@ public final class SuperPlanetData extends SavedData
         {
             if (!e.getKey().equals(superId))
             {
-                others.add(e.getValue().pos);
+                others.add(livePosition(e.getValue()));
             }
         }
         RandomSource random = RandomSource.create();
@@ -258,18 +335,26 @@ public final class SuperPlanetData extends SavedData
         st.pos = fresh;
         st.claimed = false;
         st.ballDropped = false;
+        // the fresh spot becomes the start of a new orbit at the current instant, so the body eases into orbiting from
+        // where it was placed rather than snapping to some other bearing.
+        deriveElements(st, OrbitClock.epochMillis());
         setDirty();
-        return fresh;
+        return livePosition(st);
     }
 
     /** An immutable snapshot of every body's id, position and claimed flag, for the layout sync. Seven entries. */
     public List<PacketSpaceLayoutSync.SuperBody> snapshot()
     {
+        Vec3 sun = PlanetPositions.sunPosition();
         List<PacketSpaceLayoutSync.SuperBody> out = new ArrayList<>(bodies.size());
         for (Map.Entry<String, BodyState> e : bodies.entrySet())
         {
             BodyState st = e.getValue();
-            out.add(new PacketSpaceLayoutSync.SuperBody(e.getKey(), st.pos, st.claimed));
+            // sync the ELEMENTS, not a frozen position, so the client drives each super body's slow orbit off the same
+            // shared clock the server does (OrbitClock) and both stay in step between syncs, exactly like the fixed
+            // planets. The sun centre rides along so the client needs no extra lookup.
+            out.add(new PacketSpaceLayoutSync.SuperBody(
+                    e.getKey(), st.radius, st.phase0, st.period, sun.x, sun.z, st.y, st.claimed));
         }
         return out;
     }

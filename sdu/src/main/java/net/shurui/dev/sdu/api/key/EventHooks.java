@@ -97,6 +97,18 @@ public final class EventHooks
         default void onMetric(ServerPlayer player, String metric, String target, int amount)
         {
         }
+
+        /**
+         * Open one Halloween-style inventory loot box of the given {@code boxType} (e.g. "halloween_box",
+         * "pumpkin_bag") for the player: roll one reward from that box's configured weighted list, grant it (items,
+         * cosmetics, event tokens, commands) and broadcast the announcement if enabled. Returns true when a
+         * configured box was found and rolled, so core consumes exactly one; false when nothing was configured (or
+         * keyless), so core consumes nothing. Keyless: false (the box does nothing on a server without the key).
+         */
+        default boolean openLootBox(ServerPlayer player, String boxType)
+        {
+            return false;
+        }
     }
 
     /** The keyless default until the key installs its own. Never null. */

@@ -90,8 +90,52 @@ public final class EventSchedule
      */
     public static long resolveEpoch(String local, String zone)
     {
-        LocalDateTime ldt = LocalDateTime.parse(local.trim(), LOCAL);
+        LocalDateTime ldt = parseLocal(local);
         return ZonedDateTime.of(ldt, ZoneId.of(zone.trim())).toInstant().toEpochMilli();
+    }
+
+    /**
+     * Read an authored local time. The canonical form is {@link #LOCAL} ("2026-10-24T18:00"), but the forms an admin
+     * naturally types are accepted too: a space instead of the T, trailing seconds, and a bare date (midnight).
+     * Throws when none of them fit, so the caller can name the bad value. Before this, a time typed with a space
+     * silently failed to parse and the editor kept its default epoch of 0, which the validator then reported as a
+     * window "longer than 364 days" (1970 to the end date) instead of as the unreadable time it was.
+     */
+    public static LocalDateTime parseLocal(String local)
+    {
+        if (local == null || local.isBlank())
+            throw new IllegalArgumentException("empty time");
+        String t = local.trim().replace(' ', 'T');
+        if (t.length() == 10)
+            return java.time.LocalDate.parse(t).atStartOfDay();
+        return LocalDateTime.parse(t); // ISO_LOCAL_DATE_TIME: seconds optional
+    }
+
+    /** True if {@link #parseLocal} can read this string. */
+    public static boolean validLocal(String local)
+    {
+        try
+        {
+            parseLocal(local);
+            return true;
+        }
+        catch (Exception e)
+        {
+            return false;
+        }
+    }
+
+    /**
+     * Server-side freeze of the authored window: when both locals and the zone parse, the absolute instants are
+     * recomputed from them, so a client that sent stale or zero epochs still stores the window the admin typed.
+     * Leaves the epochs alone otherwise (the validator then names what could not be read).
+     */
+    public static void freeze(EventDef.Schedule s)
+    {
+        if (s == null || !validZone(s.zone) || !validLocal(s.startLocal) || !validLocal(s.endLocal))
+            return;
+        s.startEpochMillis = resolveEpoch(s.startLocal, s.zone);
+        s.endEpochMillis = resolveEpoch(s.endLocal, s.zone);
     }
 
     /** True if this instant falls inside the half open window [start, end). */
@@ -133,8 +177,8 @@ public final class EventSchedule
         ZoneId z;
         try
         {
-            s = LocalDateTime.parse(startLocal.trim(), LOCAL);
-            e = LocalDateTime.parse(endLocal.trim(), LOCAL);
+            s = parseLocal(startLocal);
+            e = parseLocal(endLocal);
             z = ZoneId.of(zone.trim());
         }
         catch (Exception ex)

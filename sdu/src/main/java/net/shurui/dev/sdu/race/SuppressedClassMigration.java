@@ -40,7 +40,44 @@ public final class SuppressedClassMigration {
      */
     private static final String FALLBACK_CLASS = "berserker";
 
+    /** Classes DMZ knew per race when the server finished starting (lower case), taken before any player joined. */
+    private static final java.util.Map<String, java.util.Set<String>> STARTUP_CLASSES = new java.util.concurrent.ConcurrentHashMap<>();
+
     private SuppressedClassMigration() {
+    }
+
+    /**
+     * Record DMZ's class list for every race once the server has started, before any player can trigger DMZ's
+     * mutating getClassStats. A class in this snapshot is real whatever defined it, so it is never treated as removed.
+     */
+    public static void snapshotStartupClasses() {
+        STARTUP_CLASSES.clear();
+        for (String raceId : RaceFileManager.diskRaceIds()) {
+            try {
+                RaceStatsConfig stats = ConfigManager.getRaceStats(raceId);
+                if (stats == null) {
+                    continue;
+                }
+                java.util.Set<String> ids = new java.util.HashSet<>();
+                for (String c : stats.getAllClasses()) {
+                    if (c != null && !c.isBlank()) {
+                        ids.add(c.toLowerCase(Locale.ROOT));
+                    }
+                }
+                STARTUP_CLASSES.put(raceId.toLowerCase(Locale.ROOT), ids);
+            } catch (Exception e) {
+                DmzNpc.LOGGER.debug("[{}] Could not snapshot classes for race '{}': {}", DmzNpc.MODID, raceId, e.toString());
+            }
+        }
+    }
+
+    // No snapshot for the race means we cannot tell, so treat the class as known and never migrate on a guess.
+    private static boolean knownAtStartup(String raceId, String classId) {
+        if (raceId == null) {
+            return true;
+        }
+        java.util.Set<String> ids = STARTUP_CLASSES.get(raceId.toLowerCase(Locale.ROOT));
+        return ids == null || ids.contains(classId);
     }
 
     public static void migrateIfSuppressed(ServerPlayer player) {
@@ -72,7 +109,12 @@ public final class SuppressedClassMigration {
             java.util.Set<String> defined = RaceFileManager.definedClassIds(character.getRaceName());
             // Only act when we actually have a class list to compare against, so an unreadable or classless race file
             // never migrates a player off a class that is in fact valid.
-            removed = !defined.isEmpty() && !defined.contains(current.toLowerCase(Locale.ROOT));
+            String id = current.toLowerCase(Locale.ROOT);
+            // A class missing from stats.json may still be real: other addons, datapack overlays or another DMZ
+            // version can define classes outside that file (a live keyless server lost warrior, martialartist and
+            // duelist to berserker on every login this way, 2026-09-29). So "removed" also requires DMZ itself not to
+            // have known the class when the server started, before any stat recompute could resurrect a stand-in.
+            removed = !defined.isEmpty() && !defined.contains(id) && !knownAtStartup(character.getRaceName(), id);
         }
         if (!suppressed && !removed) {
             return;

@@ -142,6 +142,17 @@ minecraft {
             // Refused at runtime while ShardSync is active, so it is safe to leave wired.
             property 'dmzr.events.allowFakeClock', (findProperty('fakeClock') ?: 'false').toString()
 
+            // Space edge-wrap diagnostics (dev only), forwarded from gradle -P so a headless server run can exercise
+            // them: -PwrapSelfTest=true runs the boot self-test (SpaceTravelModule.beginWrapSelfTest), -PwrapDebug=true
+            // logs each wrap decision. Both default off, so an ordinary run is unchanged.
+            property 'dmzr.wrapSelfTest', (findProperty('wrapSelfTest') ?: 'false').toString()
+            property 'dmzr.wrapDebug', (findProperty('wrapDebug') ?: 'false').toString()
+
+            // Public planet-conquest self-test (dev only), forwarded from gradle -P so a headless server run can exercise
+            // the boss model table, stat-scaling roll bounds and personal-claim persistence with no client:
+            // -PconquestSelfTest=true runs PlanetConquest.runSelfTest at server start. Default off.
+            property 'dmzr.conquestSelfTest', (findProperty('conquestSelfTest') ?: 'false').toString()
+
             addonMixinConfigs.each { cfg -> args '--mixin.config', cfg }
 
             // Register every addon as a dev mod backed by its subproject source set.

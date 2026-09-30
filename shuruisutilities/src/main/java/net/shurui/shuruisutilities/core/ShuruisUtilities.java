@@ -561,6 +561,8 @@ public class ShuruisUtilities
         // Container-agnostic backstop for the dragon ball whitelist: whenever any container is opened, return any ball
         // sitting in a non-whitelisted slot to the opener. Catches inventories the insertion hooks cannot enumerate.
         net.shurui.shuruisutilities.dragonballbag.DragonBallContainerEject.init();
+        // Headless containment smoke test, only when -Ddmzr.testDragonBallConfine=true; a no-op otherwise.
+        net.shurui.shuruisutilities.dragonballbag.DragonBallConfineSelfTest.initIfRequested();
     }
 
     public void postLoad(FMLLoadCompleteEvent e)
@@ -883,8 +885,9 @@ public class ShuruisUtilities
                 net.shurui.shuruisutilities.god.PacketAngelStaffToggle::encode,
                 net.shurui.shuruisutilities.god.PacketAngelStaffToggle::decode,
                 net.shurui.shuruisutilities.god.PacketAngelStaffToggle::handler);
-        // 82 was the keyblade summon. Left as a hole on purpose: these ids are the wire protocol, so renumbering
-        // what follows would desync every client that has not updated in lockstep.
+        // 82 was the keyblade summon; since 1.5.1 the Space module reuses it for PacketSurfaceSky (registered in
+        // DmzRagnarokSpace, on this channel). Never give 82 to anything else. These ids are the wire protocol, so
+        // renumbering what follows would desync every client that has not updated in lockstep.
         NetworkUtils.registerServerToClient(83, net.shurui.shuruisutilities.dragons.PacketSpinState.class,
                 net.shurui.shuruisutilities.dragons.PacketSpinState::encode,
                 net.shurui.shuruisutilities.dragons.PacketSpinState::decode,
@@ -935,15 +938,13 @@ public class ShuruisUtilities
                 net.shurui.shuruisutilities.senzu.PacketSenzuThrow::encode,
                 net.shurui.shuruisutilities.senzu.PacketSenzuThrow::decode,
                 net.shurui.shuruisutilities.senzu.PacketSenzuThrow::handler);
-        // 93: the rgnpc (ninjin) model pack, streamed from the server folder exactly as the rank badges at 90 are.
-        // Paired with 97 below: the client speaks first about what it already holds, and this carries only what it
-        // turns out to be missing.
+        // 93/97 were rgnpc asset streaming, left as holes. The rgnpc model pack returned to the jar in September
+        // 2026 (see RgNpcPackFinder), so nothing is sent on either. They stay REGISTERED, with inert no-op handlers,
+        // so the ids are never reused and an older peer's packet still decodes cleanly; do not renumber around them.
         NetworkUtils.registerServerToClient(93, net.shurui.shuruisutilities.ragnarok.PacketRgNpcAssets.class,
                 net.shurui.shuruisutilities.ragnarok.PacketRgNpcAssets::encode,
                 net.shurui.shuruisutilities.ragnarok.PacketRgNpcAssets::decode,
                 net.shurui.shuruisutilities.ragnarok.PacketRgNpcAssets::handler);
-        // 97: the other half of 93. The client reports the pack version it holds, and how much of it, so a client
-        // with a warm cache is sent nothing at all and an interrupted transfer resumes instead of restarting.
         NetworkUtils.registerClientToServer(97, net.shurui.shuruisutilities.ragnarok.PacketRgNpcAssetsHave.class,
                 net.shurui.shuruisutilities.ragnarok.PacketRgNpcAssetsHave::encode,
                 net.shurui.shuruisutilities.ragnarok.PacketRgNpcAssetsHave::decode,

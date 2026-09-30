@@ -19,6 +19,10 @@ this program (the LICENSE file). If not, see <https://www.gnu.org/licenses/>.
 If you modify or redistribute any part of it, keep this notice and give credit
 to DMZ Ragnarok and Ragnarok Studios LLC.
 
+NPC models from NinjinEntities (MIT), original authors kaixi, Vidal1sHere and
+Phoenix_II. See assets/dmz_ragnarok/NINJIN-LICENSE.txt in the jar for the full
+MIT notice; it must be kept with those models.
+
 Content that belongs to other projects (DragonMine Z, Minecraft, and the other
 mods it integrates with) remains the property of its owners and under their
 licences.

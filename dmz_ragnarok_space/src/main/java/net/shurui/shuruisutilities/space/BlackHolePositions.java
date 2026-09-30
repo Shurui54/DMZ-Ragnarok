@@ -231,6 +231,12 @@ public final class BlackHolePositions
         {
             return true;
         }
+        // B2: keep black holes out of the reserved inner solar system, so a hole never sits among the sun and the inner
+        // rings. Purely derived, no saved state, so this is safe.
+        if (PlanetPositions.insideInnerSystem(pos))
+        {
+            return true;
+        }
         for (FixedBody planet : SpaceLayout.fixedBodies(server))
         {
             Vec3 c = planet.position;

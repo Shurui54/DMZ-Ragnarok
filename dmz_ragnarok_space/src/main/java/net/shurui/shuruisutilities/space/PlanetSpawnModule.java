@@ -18,6 +18,7 @@ import net.minecraftforge.common.ForgeConfigSpec.Builder;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.server.ServerStartedEvent;
+import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.server.ServerLifecycleHooks;
 
@@ -115,6 +116,9 @@ public class PlanetSpawnModule extends ConfigLoaderBase
     private static ForgeConfigSpec.IntValue cfgGuildRaidSpoilsSeconds;
     private static ForgeConfigSpec.IntValue cfgSurfaceStampBlocksPerTick;
     private static ForgeConfigSpec.IntValue cfgSurfaceColumnDepth;
+    private static ForgeConfigSpec.BooleanValue cfgSurfaceEdgeWrap;
+    private static ForgeConfigSpec.BooleanValue cfgPlanetWeather;
+    private static ForgeConfigSpec.BooleanValue cfgPlanetWeatherEffects;
     private static ForgeConfigSpec.IntValue cfgMoonSurfaceSize;
     // surface water + vegetation (stage 2b)
     private static ForgeConfigSpec.BooleanValue cfgSurfaceWaterEnabled;
@@ -148,6 +152,22 @@ public class PlanetSpawnModule extends ConfigLoaderBase
     private static ForgeConfigSpec.IntValue cfgWildDefenderWeightSaibamen;
     private static ForgeConfigSpec.IntValue cfgWildDefenderWeightFrostDemon;
     private static ForgeConfigSpec.IntValue cfgWildDefenderWeightRobot;
+    // public conquest defender BOSS (PlanetConquest)
+    private static ForgeConfigSpec.BooleanValue cfgConquerEnabled;
+    private static ForgeConfigSpec.DoubleValue cfgConquerStatTolerance;
+    private static ForgeConfigSpec.DoubleValue cfgConquerSpawnDistance;
+    private static ForgeConfigSpec.ConfigValue<String> cfgConquerBossStony;
+    private static ForgeConfigSpec.ConfigValue<String> cfgConquerBossOverworld;
+    private static ForgeConfigSpec.ConfigValue<String> cfgConquerBossNamek;
+    private static ForgeConfigSpec.ConfigValue<String> cfgConquerBossNether;
+    private static ForgeConfigSpec.ConfigValue<String> cfgConquerBossEnd;
+    private static ForgeConfigSpec.ConfigValue<String> cfgConquerBossKaio;
+    private static ForgeConfigSpec.ConfigValue<String> cfgConquerBossOther;
+    // owner-avatar defender for a personally-claimed planet (PlanetOwnerAvatar)
+    private static ForgeConfigSpec.BooleanValue cfgClaimAvatarDefender;
+    private static ForgeConfigSpec.DoubleValue cfgAvatarStatMultiplier;
+    private static ForgeConfigSpec.DoubleValue cfgAvatarRespawnMinutes;
+    private static ForgeConfigSpec.DoubleValue cfgExplodableWindowMinutes;
     // super-body Destroyer God
     private static ForgeConfigSpec.BooleanValue cfgSuperGodEnabled;
     private static ForgeConfigSpec.DoubleValue cfgSuperGodBattlePowerMin;
@@ -206,6 +226,36 @@ public class PlanetSpawnModule extends ConfigLoaderBase
     static int surfaceColumnDepth()
     {
         return surfaceColumnDepth;
+    }
+
+    // Whether walking off the edge of a TILEABLE (generator version 2) planet wraps the player to the opposite edge
+    // instead of stopping them at the invisible rim wall. Legacy (version 1, disc) planets always keep the wall
+    // regardless: their terrain is a wobbled disc with void corners, so there is no matching opposite edge to arrive on.
+    // Read by SpaceTravelModule on the server thread; seeded true so a read before the first bake matches the default.
+    private static boolean surfaceEdgeWrapEnabled = true;
+
+    static boolean surfaceEdgeWrapEnabled()
+    {
+        return surfaceEdgeWrapEnabled;
+    }
+
+    // Per-planet weather (PlanetWeather): the master switch for the whole subsystem (client precipitation/sky/sound and
+    // the server effects below), and a separate switch for the light gameplay effects alone (rain extinguishing fire,
+    // blizzard slowness). Seeded true so a read before the first bake matches the default. Read on the server thread
+    // (PlanetWeatherEffects) and mirrored to the client only implicitly: the client computes weather itself and simply
+    // draws nothing extra when it stands on no synced planet, so a server that turns weather off just stops the effects
+    // while a client that never learns of a planet never draws weather either.
+    private static boolean planetWeatherEnabled = true;
+    private static boolean planetWeatherEffectsEnabled = true;
+
+    public static boolean planetWeatherEnabled()
+    {
+        return planetWeatherEnabled;
+    }
+
+    public static boolean planetWeatherEffectsEnabled()
+    {
+        return planetWeatherEffectsEnabled;
     }
 
     // All knobs for the visible defender NPCs that guard an unowned planet (see PlanetGarrison). Baked below; read by
@@ -352,6 +402,8 @@ public class PlanetSpawnModule extends ConfigLoaderBase
         {
             return;
         }
+        // poll the deferred half of the edge-wrap self-test (-Ddmzr.wrapSelfTest=true); a cheap no-op otherwise.
+        SpaceTravelModule.tickWrapSelfTest(server);
         // debris timer: on its own slow interval, bump any cell whose rubble window has elapsed so a new planet forms.
         // Runs whether or not anyone is in space (the timer is wall-clock game time, not player presence) and reads only
         // the tiny destroyed set, so it is cheap even when the set is empty.
@@ -366,6 +418,9 @@ public class PlanetSpawnModule extends ConfigLoaderBase
         {
             return;
         }
+        // owner-avatar defenders live on the SHARED planet-surface dimension, not open space, so tick them here (throttled
+        // above) before the space-only asteroid work below, which returns early when no one is in open space.
+        PlanetOwnerAvatar.tick(server);
         ServerLevel space = SpaceDimension.level(server);
         if (space == null)
         {
@@ -412,7 +467,22 @@ public class PlanetSpawnModule extends ConfigLoaderBase
         {
             return;
         }
-        PlanetGarrison.onDefenderDeath(server, entity);
+        String clearedPlanet = PlanetGarrison.onDefenderDeath(server, entity);
+        if (clearedPlanet != null)
+        {
+            // the last wild hostile of this planet just fell: begin the PUBLIC conquest boss stage. Spawn the theme boss
+            // near the player who dealt the killing blow (the trigger); a non-player kill spawns none (nothing to scale
+            // to) and the planet stays clear for the next player to trigger via /spaceplanet conquer.
+            ServerLevel surface = SurfaceDimension.level(server);
+            if (surface != null && event.getSource().getEntity() instanceof ServerPlayer killer)
+            {
+                PlanetConquest.onGarrisonCleared(server, surface, clearedPlanet, killer);
+            }
+        }
+        // route a conquest DEFENDER BOSS's death to the personal-claim grant. A non-boss death is a cheap no-op.
+        PlanetConquest.onLivingDeath(server, entity, event.getSource());
+        // route an OWNER-AVATAR defender's death to its planet: opens the timed explodable/respawn windows. No-op otherwise.
+        PlanetOwnerAvatar.onLivingDeath(server, entity);
         // route a Destroyer God's death to its super body: places that body's Super Dragon Ball, guarded against a double
         // drop. A non-god death is a cheap no-op.
         SuperPlanetGod.onGodDeath(server, entity);
@@ -503,6 +573,52 @@ public class PlanetSpawnModule extends ConfigLoaderBase
         // their positions exist for landing, rendering and the radar before any player lands. The login sync then pushes
         // them to each client.
         SuperPlanetData.get(event.getServer());
+        // cheap always-on guard: every rgnpc garrison face id must resolve to a bundled RgNpcModels entry, or a defender
+        // would silently render as the default 2stars (Haze Shenron) face (the old "upa" bug). Logs an ERROR per bad id.
+        PlanetGarrisonRoster.validateRgNpcModelIds();
+        // headless conquest self-test (-Ddmzr.conquestSelfTest=true): a no-op otherwise. Verifies the boss model table,
+        // the stat-scaling roll bounds and personal-claim persistence with no client.
+        PlanetConquest.runSelfTest(event.getServer());
+        maybeDebugForceStamp(event.getServer());
+        // headless edge-wrap self-test (-Ddmzr.wrapSelfTest=true): a no-op otherwise. Its deferred half is polled from
+        // onServerTick below once the test's stamp completes.
+        SpaceTravelModule.beginWrapSelfTest(event.getServer());
+    }
+
+    // release the in-flight surface stamp tasks the instant a server stops, not just when the next one starts. Each
+    // StampTask holds the MinecraftServer and the planet_surface ServerLevel (and, through the level, its loaded chunks),
+    // in the static StampTask.ACTIVE map. That map was cleared only on ServerStartedEvent (resetTasks), so on a
+    // singleplayer client a stamp still in flight when the player left the world kept the whole previous server and its
+    // level pinned on the heap until another world was loaded, a real retained-memory leak across world exits. Clearing
+    // on stop drops those references at once; a partly-stamped planet re-stamps cleanly on its next visit (its generated
+    // flag was never set), exactly as on a start-time reset. Idempotent and cheap.
+    @SubscribeEvent
+    public void onServerStopping(ServerStoppingEvent event)
+    {
+        SurfaceStamp.resetTasks();
+    }
+
+    // batch B4 measurement hook: with -Ddmzr.stampProfilePlanet=<id> (and normally -Ddmzr.stampProfile=true), begin a
+    // surface stamp for that planet id at boot, on no player, so a headless server can measure the new terrain generator's
+    // block count and per-tick cost. The stamp runs on the shared budgeted worker over the following ticks and logs its
+    // profile on completion (SurfaceStamp, behind the same profile flag). A no-op unless the property is set, so it never
+    // affects a normal run.
+    private static void maybeDebugForceStamp(MinecraftServer server)
+    {
+        String id = System.getProperty("dmzr.stampProfilePlanet");
+        if (id == null || id.isEmpty())
+        {
+            return;
+        }
+        ServerLevel surface = SurfaceDimension.level(server);
+        if (surface == null)
+        {
+            return;
+        }
+        net.shurui.shuruisutilities.util.output.logger.LoggingHandler.sulog.info(
+                "[SurfaceStamp] debug force-stamp '{}' (theme {}, size {}); watch for the profile line on completion.",
+                id, SurfaceStamp.surfaceThemeFor(id), GeneratedPlanetClaims.stampedSizeForId(server, id));
+        SurfaceStamp.ensureAndLandingPos(server, surface, id);
     }
 
     /**
@@ -797,6 +913,30 @@ public class PlanetSpawnModule extends ConfigLoaderBase
                         + "means a longer fill at the same surfaceStampBlocksPerTick budget. The maximum is bounded so the deepest "
                         + "column can never reach the dimension floor at Y -64.")
                 .defineInRange("surfaceColumnDepth", 128, 4, 150);
+        cfgSurfaceEdgeWrap = BUILDER
+                .comment("Wrap a player who walks off the edge of a TILEABLE planet (one whose terrain was generated by the "
+                        + "version-2 generator, i.e. stamped after this feature shipped) around to the opposite edge, so the "
+                        + "surface behaves like a small looping world with no invisible wall. The arrival edge carries identical "
+                        + "terrain, so the wrap is seamless, and velocity, facing, fall distance and any ridden pod or mount are "
+                        + "preserved. When false, tileable planets keep the same invisible wall older planets use. Older (disc) "
+                        + "planets ALWAYS keep the wall regardless of this setting, because they have void corners and no matching "
+                        + "opposite edge to arrive on.")
+                .define("surfaceEdgeWrap", true);
+        cfgPlanetWeather = BUILDER
+                .comment("Per-planet weather on generated planet surfaces. All planets share one surface dimension, so "
+                        + "this is our own weather system (not vanilla's per-dimension weather): each planet runs its own "
+                        + "state (clear, rain, storm, snow, blizzard, dust, ash fall or a meteor shower) chosen from its "
+                        + "surface theme and changing over time, computed deterministically from the corrected wall clock "
+                        + "and the planet id so every shard and client agrees. It draws precipitation, darkens the sky, "
+                        + "thickens fog and plays weather sound on the client. Set false to disable planet weather "
+                        + "entirely (clients then draw a plain sky and the effects below never apply).")
+                .define("planetWeather", true);
+        cfgPlanetWeatherEffects = BUILDER
+                .comment("The LIGHT gameplay effects of planet weather, applied server-side to players on a planet "
+                        + "surface: rain and storms extinguish a burning player, and a blizzard imposes a mild movement "
+                        + "slowness. Cheap and safe; set false to keep the weather purely cosmetic. Ignored when "
+                        + "planetWeather is false.")
+                .define("planetWeatherEffects", true);
         cfgMoonSurfaceSize = BUILDER
                 .comment("Edge length (blocks per side) of a MOON's stamped landmass. Every fixed planet body (Earth, Namek, "
                         + "Sacred Kai, and any loaded destination) gets one orbiting moon, and this is how large the surface a "
@@ -953,17 +1093,89 @@ public class PlanetSpawnModule extends ConfigLoaderBase
                 .comment("Relative weight of the OVERWORLD defender family (Nam, Upa, King Chappa, Monaka, and other Earth fighters). 0 excludes it. Default 1.")
                 .defineInRange("wildDefenderWeightOverworld", 1, 0, 1000);
         cfgWildDefenderWeightNamekian = BUILDER
-                .comment("Relative weight of the NAMEKIAN defender family (DragonMineZ's enemy namekian and namek warrior plus the rgnpc slug soldier). 0 excludes it. Default 1.")
+                .comment("Relative weight of the NAMEKIAN defender family (the good Namekian defenders: Nail and the Piccolo line plus the neutral namek warrior). 0 excludes it. Default 1.")
                 .defineInRange("wildDefenderWeightNamekian", 1, 0, 1000);
         cfgWildDefenderWeightSaibamen = BUILDER
-                .comment("Relative weight of the SAIBAMEN defender family (DragonMineZ's own saibaman, all six variants). 0 excludes it. Default 1.")
+                .comment("Relative weight of the SAIBAMEN defender family (repurposed to Earth's human Z-fighters: Krillin, Tien, Yamcha, Chiaotzu, Goten and kid Trunks; the config key keeps its historical name). 0 excludes it. Default 1.")
                 .defineInRange("wildDefenderWeightSaibamen", 1, 0, 1000);
         cfgWildDefenderWeightFrostDemon = BUILDER
-                .comment("Relative weight of the FROST_DEMON defender family (DragonMineZ's three Frieza-Force soldiers plus a Moro soldier). 0 excludes it. Default 1.")
+                .comment("Relative weight of the FROST_DEMON defender family (repurposed to a veteran hero guard: Piccolo and the strongest hybrid warriors; the config key keeps its historical name). 0 excludes it. Default 1.")
                 .defineInRange("wildDefenderWeightFrostDemon", 1, 0, 1000);
         cfgWildDefenderWeightRobot = BUILDER
-                .comment("Relative weight of the ROBOT defender family (DragonMineZ's geti-star robots plus the rgnpc bio-android faces). 0 excludes it. Default 1.")
+                .comment("Relative weight of the ROBOT defender family (the GOOD-era androids 16/17/18). 0 excludes it. Default 1.")
                 .defineInRange("wildDefenderWeightRobot", 1, 0, 1000);
+        cfgConquerEnabled = BUILDER
+                .comment("Master switch for PUBLIC planet CONQUEST (works keyless, in singleplayer and on a keyless server, "
+                        + "no guild needed). When true, clearing every wild defender of an unowned generated planet spawns "
+                        + "ONE theme-fitting main-character defender boss near you; beating it claims the planet PERSONALLY "
+                        + "to your own uuid. When false, no conquest boss spawns and the personal-claim path is off (the "
+                        + "guild claim, on a keyed server, is unaffected). Default true.")
+                .define("conquestEnabled", true);
+        cfgConquerStatTolerance = BUILDER
+                .comment("How far (0..1) the conquest boss's stats may differ from the triggering player's. The boss's max "
+                        + "health is anchored to the player's max health and its battle power to the player's battle power, "
+                        + "then each combat number is rolled independently within +/- this fraction. 0.05 = within 5%, so "
+                        + "the boss is a near-even match. 0 makes it an exact mirror. Default 0.05.")
+                .defineInRange("conquestStatTolerance", 0.05, 0.0, 1.0);
+        cfgConquerSpawnDistance = BUILDER
+                .comment("How far (in blocks) from the triggering player the conquest boss spawns, at a random bearing, "
+                        + "snapped to safe ground. Default 6.")
+                .defineInRange("conquestSpawnDistance", 6.0, 1.0, 64.0);
+        // Conquering a planet is the villain's role, so its defender is a canonical HERO. Every default below is a
+        // GOOD-aligned DragonMineZ character (a normal-sized fighter). These strings are kept byte-identical to
+        // PlanetConquest.defaultTable() and to CONQUEST_BOSS_OLD_DEFAULTS (used for the one-time migration in bakeConfig).
+        cfgConquerBossStony = BUILDER
+                .comment("Comma-separated DragonMineZ saga entity ids the conquest boss is picked from on a STONY (barren "
+                        + "rock) planet. Each must be a registered dragonminez:saga_* entity (its model ships in the "
+                        + "DragonMineZ jar). A missing id is skipped. Default the reformed Prince and the young Saiyan hybrids.")
+                .define("conquestBossStony", "saga_vegeta_mid_ssj,saga_ftrunks_ssj,saga_goten_ssj,saga_kid_trunks_ssj");
+        cfgConquerBossOverworld = BUILDER
+                .comment("Comma-separated saga ids for the conquest boss on an OVERWORLD (Earth-like) planet. Default "
+                        + "Earth's champions.")
+                .define("conquestBossOverworld",
+                        "saga_goku_end_ssj,saga_gohan_end_ssj2,saga_piccolo,saga_krillin,saga_tien_early,saga_yamcha,saga_a17,saga_a18");
+        cfgConquerBossNamek = BUILDER
+                .comment("Comma-separated saga ids for the conquest boss on a NAMEK planet. Default the Namekian defenders.")
+                .define("conquestBossNamek", "saga_nail,saga_piccolo,saga_piccolo_kami");
+        cfgConquerBossNether = BUILDER
+                .comment("Comma-separated saga ids for the conquest boss on a NETHER (demon realm) planet. Default the "
+                        + "strongest heroes and fusions.")
+                .define("conquestBossNether", "saga_vegetto_ssj,saga_gohan_end_ultimate,saga_goku_end_ssj3,saga_gotenks_ssj3");
+        cfgConquerBossEnd = BUILDER
+                .comment("Comma-separated saga ids for the conquest boss on an END (cold space) planet. Default the "
+                        + "pure-Saiyan powerhouses in their highest forms.")
+                .define("conquestBossEnd", "saga_goku_end_ssj3,saga_vegeta_end_ssj2,saga_ftrunks_ssg3,saga_vegetto_base");
+        cfgConquerBossKaio = BUILDER
+                .comment("Comma-separated saga ids for the conquest boss on a KAIO (King Kai's world) planet. Default "
+                        + "otherworld heroes.")
+                .define("conquestBossKaio", "saga_paikuhan,saga_shin,saga_kibito");
+        cfgConquerBossOther = BUILDER
+                .comment("Comma-separated saga ids used for any theme with no list of its own, and as the universal fallback "
+                        + "when a theme's own list has no registered id. Default a mix of the strongest heroes.")
+                .define("conquestBossOther", "saga_paikuhan,saga_goku_end_ssj2,saga_gohan_end_ultimate,saga_vegetto_ssj");
+        cfgClaimAvatarDefender = BUILDER
+                .comment("When true, a personally-conquered planet is guarded by an AVATAR of the owning player: a defender "
+                        + "that renders as the owner (their skin plus DragonMineZ race) and fights with a snapshot of the "
+                        + "owner's stats. It spawns only when a NON-owner is on the planet, and the planet CANNOT be "
+                        + "destroyed while the avatar stands; a challenger who beats it opens a timed window to destroy the "
+                        + "planet before the avatar returns. When false, no avatar spawns and a personally-claimed planet is "
+                        + "freely destroyable (no raid requirement). This is independent of the guild raid-entitlement gate, "
+                        + "which is unaffected either way. Default true.")
+                .define("claimAvatarDefender", true);
+        cfgAvatarStatMultiplier = BUILDER
+                .comment("Multiplier applied to the owner-avatar defender's snapshotted combat stats (health, melee, "
+                        + "defense, ki, battle power). 1.0 makes the avatar an even match for the owner; raise it to make a "
+                        + "claimed planet harder to take. Default 1.0.")
+                .defineInRange("avatarStatMultiplier", 1.0, 0.0, 1000.0);
+        cfgAvatarRespawnMinutes = BUILDER
+                .comment("Minutes after the owner avatar is DEFEATED before it may respawn (when a non-owner challenger is "
+                        + "again on the planet). Default 10.")
+                .defineInRange("avatarRespawnMinutes", 10.0, 0.0, 1440.0);
+        cfgExplodableWindowMinutes = BUILDER
+                .comment("Minutes after the owner avatar is defeated during which the personally-claimed planet CAN be "
+                        + "destroyed. After this window closes the planet is protected again (and the avatar returns per "
+                        + "avatarRespawnMinutes). Default 10.")
+                .defineInRange("explodableWindowMinutes", 10.0, 0.0, 1440.0);
         cfgSuperGodEnabled = BUILDER
                 .comment("Master switch for the Destroyer God that guards each of the seven SUPER dragon-ball bodies in space. When true, landing on a super body (grey until you land on it) spawns one god-tier boss you must beat to make it drop that body's Super Dragon Ball. When false, no god spawns and the ball is placed on landing instead, so the Super set is always obtainable. Default true.")
                 .define("superGodEnabled", true);
@@ -977,6 +1189,32 @@ public class PlanetSpawnModule extends ConfigLoaderBase
                 .comment("How near (in blocks) the CLIENT must be to a SUPER dragon-ball body before it draws at all. This is INDEPENDENT of bodyDrawDistance and small on purpose: super bodies sit 20000..45000 blocks from Earth and at least 15000 apart, so a small cull keeps one from being spotted from across space; the Super radar is what guides you to it. Server-side landing is UNAFFECTED (you can fly into and land on a body you cannot yet see). Default 1000.")
                 .defineInRange("superRenderDistance", 1000.0, 100.0, 45000.0);
         BUILDER.pop();
+    }
+
+    // one-time in-place migration of a conquestBoss* config value: if it still EXACTLY equals the old (villain) default,
+    // rewrite it to the new (good-guy) default; otherwise leave it (an admin edited it, or it is already the new default).
+    // .set() writes into the loaded spec so the new value persists to SpacePlanets.toml on the next save. Never throws.
+    private static void migrateConquestDefault(ForgeConfigSpec.ConfigValue<String> value, String oldDefault,
+                                               String newDefault)
+    {
+        if (value == null)
+        {
+            return;
+        }
+        try
+        {
+            String current = value.get();
+            if (current != null && current.trim().equals(oldDefault))
+            {
+                value.set(newDefault);
+            }
+        }
+        catch (Throwable t)
+        {
+            net.shurui.shuruisutilities.util.output.logger.LoggingHandler.sulog.warn(
+                    "[PlanetConquest] Could not migrate a conquest boss list to its new default; leaving the stored "
+                            + "value in place.", t);
+        }
     }
 
     @Override
@@ -1020,6 +1258,9 @@ public class PlanetSpawnModule extends ConfigLoaderBase
         guildRaidSpoilsSeconds = cfgGuildRaidSpoilsSeconds.get();
         surfaceStampBlocksPerTick = cfgSurfaceStampBlocksPerTick.get();
         surfaceColumnDepth = cfgSurfaceColumnDepth.get();
+        surfaceEdgeWrapEnabled = cfgSurfaceEdgeWrap.get();
+        planetWeatherEnabled = cfgPlanetWeather.get();
+        planetWeatherEffectsEnabled = cfgPlanetWeatherEffects.get();
         // moon surface size: pushed into MoonBody's own volatile constant (setter forces even). Already-stamped moons read
         // their persisted size back, so this only sizes moons stamped after the bake, exactly like the other surface knobs.
         MoonBody.setSurfaceSize(cfgMoonSurfaceSize.get());
@@ -1053,6 +1294,40 @@ public class PlanetSpawnModule extends ConfigLoaderBase
         wildDefenderWeightSaibamen = cfgWildDefenderWeightSaibamen.get();
         wildDefenderWeightFrostDemon = cfgWildDefenderWeightFrostDemon.get();
         wildDefenderWeightRobot = cfgWildDefenderWeightRobot.get();
+        // one-time migration of the conquest boss lists from the old VILLAIN defaults to the new GOOD-guy defaults. This
+        // feature is unreleased, but an operator's existing SpacePlanets.toml still holds the old villain strings; a
+        // changed .define() default never touches an existing file, so we rewrite each conquestBoss* value in place, but
+        // ONLY when it still EXACTLY equals the old default (an admin-edited value is never touched). Idempotent: after the
+        // rewrite the value equals the new default, which differs from the old default, so it never migrates twice.
+        migrateConquestDefault(cfgConquerBossStony, "saga_nappa,saga_raditz,saga_turles,saga_paragus",
+                "saga_vegeta_mid_ssj,saga_ftrunks_ssj,saga_goten_ssj,saga_kid_trunks_ssj");
+        migrateConquestDefault(cfgConquerBossOverworld, "saga_piccolo,saga_cell_perfect,saga_a17,saga_a18",
+                "saga_goku_end_ssj,saga_gohan_end_ssj2,saga_piccolo,saga_krillin,saga_tien_early,saga_yamcha,saga_a17,saga_a18");
+        migrateConquestDefault(cfgConquerBossNamek, "saga_nail,saga_piccolo,saga_slug",
+                "saga_nail,saga_piccolo,saga_piccolo_kami");
+        migrateConquestDefault(cfgConquerBossNether, "saga_dabura,saga_janemba_fat,saga_yakon",
+                "saga_vegetto_ssj,saga_gohan_end_ultimate,saga_goku_end_ssj3,saga_gotenks_ssj3");
+        migrateConquestDefault(cfgConquerBossEnd, "saga_frieza_fp,saga_cooler_5ta,saga_king_cold,saga_ginyu",
+                "saga_goku_end_ssj3,saga_vegeta_end_ssj2,saga_ftrunks_ssg3,saga_vegetto_base");
+        migrateConquestDefault(cfgConquerBossKaio, "saga_paikuhan,saga_kidbuu,saga_shin",
+                "saga_paikuhan,saga_shin,saga_kibito");
+        migrateConquestDefault(cfgConquerBossOther, "saga_paikuhan,saga_frieza_fp,saga_cell_perfect",
+                "saga_paikuhan,saga_goku_end_ssj2,saga_gohan_end_ultimate,saga_vegetto_ssj");
+        // public conquest defender boss: build the theme -> boss-id table from the per-theme config strings and push the
+        // whole config into PlanetConquest (volatile there, read on the server thread).
+        java.util.EnumMap<SurfaceStamp.Theme, java.util.List<String>> conquerTable =
+                new java.util.EnumMap<>(SurfaceStamp.Theme.class);
+        conquerTable.put(SurfaceStamp.Theme.STONY, PlanetConquest.parseIds(cfgConquerBossStony.get()));
+        conquerTable.put(SurfaceStamp.Theme.OVERWORLD, PlanetConquest.parseIds(cfgConquerBossOverworld.get()));
+        conquerTable.put(SurfaceStamp.Theme.NAMEK, PlanetConquest.parseIds(cfgConquerBossNamek.get()));
+        conquerTable.put(SurfaceStamp.Theme.NETHER, PlanetConquest.parseIds(cfgConquerBossNether.get()));
+        conquerTable.put(SurfaceStamp.Theme.END, PlanetConquest.parseIds(cfgConquerBossEnd.get()));
+        conquerTable.put(SurfaceStamp.Theme.KAIO, PlanetConquest.parseIds(cfgConquerBossKaio.get()));
+        conquerTable.put(SurfaceStamp.Theme.OTHERWORLD, PlanetConquest.parseIds(cfgConquerBossOther.get()));
+        PlanetConquest.setConfig(cfgConquerEnabled.get(), cfgConquerStatTolerance.get(),
+                cfgConquerSpawnDistance.get(), conquerTable);
+        PlanetOwnerAvatar.setConfig(cfgClaimAvatarDefender.get(), cfgAvatarStatMultiplier.get(),
+                cfgAvatarRespawnMinutes.get(), cfgExplodableWindowMinutes.get());
         superGodEnabled = cfgSuperGodEnabled.get();
         superGodBattlePowerMin = cfgSuperGodBattlePowerMin.get();
         superGodBattlePowerMax = cfgSuperGodBattlePowerMax.get();

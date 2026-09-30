@@ -30,8 +30,10 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.level.TicketType;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.MoverType;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 
@@ -272,6 +274,14 @@ public class SpaceTravelModule extends ConfigLoaderBase
     // near an inward-dented part of the rim this margin can sit over open void.
     private static final double SURFACE_BOUNDARY_MARGIN = 6.0;
 
+    // How far PAST the real edge (in blocks, into the stamped wrap margin) a player must walk before the seamless wrap
+    // fires on a v3 planet. The margin beyond the edge is real, periodic terrain (the opposite side, pre-rendered), so
+    // the player steps a few blocks onto it and only then is relocated to the identical ground on the far side. The
+    // relocation subtracts one full planet width, so the arrival sits strictly inside the real square (never on the
+    // opposite seam), which is what stops any ping-pong. Kept far smaller than the stamped margin so the destination is
+    // always well inside.
+    private static final double WRAP_TRIGGER_INSET = 6.0;
+
     // Beerus is now a fixed body whose authored build lives IN the shared generated-planet surface dimension
     // (shuruisutilities:planet_surface), seeded there by PlanetRegionSeeder at its authored absolute coordinates. It is
     // NOT a stamped procedural surface and NOT a claimable sugen planet: it keeps its fixed dimension-id key (below), so
@@ -412,6 +422,12 @@ public class SpaceTravelModule extends ConfigLoaderBase
 
         Level level = player.level();
         boolean inSpace = SpaceDimension.isSpace(level);
+
+        // Keep the client's per-planet surface sky (B1) in step: tell it which planet the player is on (theme + space
+        // anchor) so it can colour the sky and draw the sun and sibling planets. Edge-triggered inside SurfaceSkySync,
+        // so it only sends on a change, and run OUTSIDE the cooldown gate so a fresh landing syncs the sky at once
+        // rather than after the 3s grace.
+        maintainSurfaceSky(player, level);
 
         // AUTOPILOT (pod-only launch) is handled OUTSIDE the cooldown gate below so a fresh launch starts moving at
         // once (enterSpace stamps the cooldown, which would otherwise freeze the drive for 3s) and a relog mid-course
@@ -682,6 +698,20 @@ public class SpaceTravelModule extends ConfigLoaderBase
     // escaping climb is never interrupted, so the rim boundary is free to raise Y (ground-snapping a bounce out of void)
     // without ever fighting the climb. Phase 1's return-to-ORIGIN logic lives on the SPACE branch (leaveSpace), a
     // different dimension, so it cannot fire here.
+    // Push the per-planet surface sky descriptor (B1) to the client on change. On a generated planet the client is told
+    // the planet's theme and space-body anchor; on Beerus (footprint-based, no recorded planet id) and everywhere else
+    // it is cleared, so the client's sky falls back to the biome look (Beerus violet, Vegeta green, else black void).
+    // Cheap on the common tick: SurfaceSkySync only sends when the answer differs from what the player was last told.
+    private void maintainSurfaceSky(ServerPlayer player, Level level)
+    {
+        if (!SurfaceDimension.isSurface(level) || withinBeerusFootprint(player.getX(), player.getZ()))
+        {
+            SurfaceSkySync.cleared(player);
+            return;
+        }
+        SurfaceSkySync.update(player, SurfaceTravelData.planetId(player));
+    }
+
     private void tickOnSurface(ServerPlayer player)
     {
         // Beerus is an authored build residing in this shared surface dimension at a FIXED footprint (surface cell 0,0),
@@ -870,6 +900,8 @@ public class SpaceTravelModule extends ConfigLoaderBase
     public void onPlayerLoggedOut(net.minecraftforge.event.entity.player.PlayerEvent.PlayerLoggedOutEvent event)
     {
         surfaceResolveMiss.remove(event.getEntity().getUUID());
+        // drop the per-planet surface-sky memo so the map never grows without bound (see SurfaceSkySync).
+        SurfaceSkySync.forget(event.getEntity().getUUID());
         lastEdgeMessageTick.remove(event.getEntity().getUUID());
         lastSettlementCheckTick.remove(event.getEntity().getUUID());
         // drop the log-dedupe entry; the SpaceAutopilot persistent tag survives logout (an interrupted trip resumes),
@@ -933,20 +965,56 @@ public class SpaceTravelModule extends ConfigLoaderBase
     // so the ordering the surface comment promises is intact.
     private void enforceHorizontalBoundary(ServerPlayer player, String planetId)
     {
-        // staff are exempt from the rim clamp: a creative-mode flyer (matching SpaceHazardModule's convention at line
-        // 80), an opped player, or a vanished admin. They are here to build or moderate and being clamped and frozen at
-        // the edge every tick is exactly the reported bug. The exemption sits at the TOP OF THE CLAMP, not at the
-        // onPlayerTick gate, on purpose: the leave check and the fall-catch above this call still run for them, so a
-        // creative staffer keeps the fly-up-to-leave and the fall rescue. Only the horizontal confinement is skipped.
+        Vec3 centre = SurfaceDimension.cellCentre(planetId);
+        // the STAMPED size (falls back to the derived size for a fresh planet), so the wall/wrap tracks the size the
+        // terrain was actually built at rather than a re-derived one, which the persisted size keeps stable across a
+        // later change to the derived formula.
+        int size = GeneratedPlanetClaims.stampedSizeForId(player.getServer(), planetId);
+        double half = size / 2.0;
+
+        // TILEABLE (generator version 2/3) planets wrap the player across the seam to the opposite edge instead of
+        // walling them in, when the operator has left the wrap on. The periodic height field repeats with period = the
+        // planet width (the column at dx = -half matches the one at dx = +half), so arriving exactly one width away on
+        // the crossed axis lands the player on identical terrain: seamless, same dimension, velocity and facing kept.
+        // Legacy (disc, version 1) planets have void corners and no matching opposite edge, so they always keep the
+        // wall below. tryWrapAcrossSeam returns true once it has taken responsibility for this player this tick (the
+        // common inside-the-square case, or an actual wrap); it returns false only when the TARGET edge is not ready
+        // yet (its terrain/margin is still mid-stamp), in which case we fall through to the wall and hold a non-exempt
+        // player at the edge until it is.
+        boolean wrapOn = PlanetSpawnModule.surfaceEdgeWrapEnabled();
+        boolean tileable = GeneratedPlanetClaims.isTileableSurface(player.getServer(), planetId);
+        if (WRAP_DEBUG)
+        {
+            double dbgDx = player.getX() - centre.x;
+            double dbgDz = player.getZ() - centre.z;
+            wrapLog("boundary planet={} size={} half={} dx={} dz={} wrapEnabled={} tileable={} exempt={} (a false tileable "
+                            + "means this planet was NOT stamped by the tileable generator, so it keeps the wall; fixed/DMZ "
+                            + "planets never reach this method at all, they land in their own dimension)",
+                    planetId, size, half, fmt(dbgDx), fmt(dbgDz), wrapOn, tileable, isBoundaryExempt(player));
+        }
+        // The seamless wrap runs for EVERY player, staff included, and BEFORE the staff exemption below. It is a
+        // relocation onto identical opposite-edge terrain, not a punitive confinement, so an opped / creative / vanished
+        // builder wraps the same as anyone. Running it first is the actual fix for "the wrap around is not working at all"
+        // in singleplayer: a singleplayer host holds op level whenever the world has cheats on, so the old exemption at
+        // the TOP of this method returned before the wrap ever ran, and the tester was silently walled out of it. Only
+        // the hard WALL clamp further down is a confinement, and that is the sole thing the staff exemption skips.
+        // tryWrapAcrossSeam still declines (returns false) when the target edge is not ready, so we then fall through to
+        // the wall for a non-exempt player rather than teleporting onto unbuilt ground.
+        if (wrapOn && tileable && tryWrapAcrossSeam(player, planetId, centre, half, size))
+        {
+            return;
+        }
+
+        // staff (creative / op / vanish) are exempt from the hard rim clamp: being clamped and frozen at the edge every
+        // tick was the reported builder bug. The exemption sits HERE, below the wrap, not at the top of the method, so a
+        // staff builder (and a cheats-on singleplayer tester) still gets the seamless wrap on a tileable planet above,
+        // and only the wall confinement is skipped. The leave check and the fall-catch run before this call, so a
+        // creative staffer keeps the fly-up-to-leave and the fall rescue regardless.
         if (isBoundaryExempt(player))
         {
             return;
         }
-        Vec3 centre = SurfaceDimension.cellCentre(planetId);
-        // the STAMPED half (falls back to the derived half for a fresh planet), so the wall tracks the size the terrain
-        // was actually built at rather than a re-derived one, which the persisted size keeps stable across a later
-        // change to the derived formula.
-        double half = GeneratedPlanetClaims.stampedSizeForId(player.getServer(), planetId) / 2.0;
+
         double limit = half + SURFACE_BOUNDARY_MARGIN;
 
         double minX = centre.x - limit;
@@ -1018,6 +1086,554 @@ public class SpaceTravelModule extends ConfigLoaderBase
         }
         MinecraftServer server = player.getServer();
         return server != null && VanishStorage.get(server).contains(player.getUUID());
+    }
+
+    // The seamless edge wrap for a TILEABLE (v2) planet. Returns true when this method has handled the player for this
+    // tick and the caller must NOT run the wall: that is the common "still inside the square" case (no work) and the
+    // "crossed the seam, wrapped them" case. Returns false ONLY when the player has crossed the seam but the opposite
+    // edge is not ready to receive them yet (the surface is still mid-stamp, so its terrain is not complete), which
+    // asks the caller to fall through to the wall and hold the player at the edge until the surface finishes; the wall
+    // is the exact old behaviour, so a wrap that cannot happen yet degrades to the pre-wrap game rather than dropping
+    // the player into a hole. Never treated as a disconnect or a dimension change: the move is a same-dimension
+    // relocation, so nothing that punishes a quit or fires on arrival is involved.
+    private boolean tryWrapAcrossSeam(ServerPlayer player, String planetId, Vec3 centre, double half, int size)
+    {
+        double[] target = seamWrapTarget(centre.x, centre.z, half, size, player.getX(), player.getZ(),
+                WRAP_TRIGGER_INSET);
+        if (target == null)
+        {
+            // inside the square (or within the wrap-trigger inset of the margin) on both axes: the every-tick case.
+            // Handled (no wall), no work.
+            return true;
+        }
+
+        // The opposite edge must actually exist before we send the player there. A v2 planet is stamped as one whole
+        // square and only flagged surface-generated when that stamp COMPLETES, so a completed surface has both edges
+        // built; an incomplete one might not, and a player is normally frozen through the stamp anyway. If it is not
+        // done, decline (the caller walls them at the edge) so we never teleport onto unbuilt ground.
+        MinecraftServer server = player.getServer();
+        if (server == null || !GeneratedPlanetClaims.get(server).isSurfaceGenerated(planetId))
+        {
+            if (WRAP_DEBUG)
+            {
+                wrapLog("wrap DECLINED for {}: surface not flagged generated yet (mid-stamp), holding at the wall until "
+                        + "the stamp completes", planetId);
+            }
+            return false;
+        }
+        if (WRAP_DEBUG)
+        {
+            wrapLog("wrap FIRING for {}: from ({}, {}) to ({}, {})", planetId, fmt(player.getX()), fmt(player.getZ()),
+                    fmt(target[0]), fmt(target[1]));
+        }
+
+        ServerLevel surface = (ServerLevel) player.level();
+        // move the whole ridden stack together when mounted (a pod, nimbus or mount), otherwise just the player. The
+        // delta is exactly +/- one planet width on the crossed axis, the same offset applied to every entity in the
+        // stack, so their relative seating is preserved.
+        Entity root = player.getRootVehicle();
+        double dx = target[0] - player.getX();
+        double dz = target[1] - player.getZ();
+
+        // force-load the destination chunk around the moved root before the move, so the arrival lands on loaded,
+        // stamped ground rather than briefly in an unloaded column. A POST_TELEPORT ticket (radius 1, keyed to the
+        // entity) matches how the suite's own TeleportHelper readies a destination; the terrain is already on disk, so
+        // touching the chunk to bring it into memory is cheap.
+        ChunkPos destChunk = new ChunkPos(BlockPos.containing(root.getX() + dx, root.getY(), root.getZ() + dz));
+        surface.getChunkSource().addRegionTicket(TicketType.POST_TELEPORT, destChunk, 1, root.getId());
+        surface.getChunk(destChunk.x, destChunk.z);
+
+        if (root == player)
+        {
+            // on foot: a same-dimension connection.teleport (the suite's own single-dimension move), preserving the
+            // exact Y so the player keeps their height above the identical opposite-edge terrain (no ground snap, so a
+            // walker, a jumper and a ki-flyer all cross without a bump), the motion so momentum carries through, and
+            // the fall distance reset so the tiny relocation never reads as a fall.
+            Vec3 velocity = player.getDeltaMovement();
+            player.connection.teleport(target[0], player.getY(), target[1], player.getYRot(), player.getXRot());
+            player.setDeltaMovement(velocity);
+            player.resetFallDistance();
+        }
+        else
+        {
+            moveVehicleStackBy(root, dx, dz);
+        }
+        return true;
+    }
+
+    // Move an entire ridden stack (the root vehicle and every passenger, recursively) by the same horizontal delta,
+    // preserving each entity's motion and clearing its fall distance. The root vehicle's server-side entity tracker
+    // broadcasts the resulting large jump as a teleport to every watching client, so riders follow it through the
+    // mount attachment; a ServerPlayer passenger is also nudged with a position packet so its own client re-anchors
+    // to the moved vehicle rather than briefly rubber-banding to the old spot.
+    private void moveVehicleStackBy(Entity root, double dx, double dz)
+    {
+        for (Entity e : root.getSelfAndPassengers().toList())
+        {
+            Vec3 velocity = e.getDeltaMovement();
+            e.setPos(e.getX() + dx, e.getY(), e.getZ() + dz);
+            e.setDeltaMovement(velocity);
+            e.resetFallDistance();
+            if (e instanceof ServerPlayer sp)
+            {
+                sp.connection.teleport(sp.getX(), sp.getY(), sp.getZ(), sp.getYRot(), sp.getXRot());
+            }
+        }
+    }
+
+    // === v3 wrap-margin protection ===
+    // A v3 planet stamps a periodic MARGIN beyond every edge so a player at the seam sees the opposite side already
+    // rendered. That margin is NOT the player's world: it mirrors the interior, so building or breaking in it would
+    // desync the illusion (the change would not appear on the side it mirrors). Both handlers CANCEL a player edit whose
+    // block sits beyond the real square on a v3 planet and send a throttled notice; staff (creative/op/vanish) are exempt,
+    // matching the rim-boundary exemption, so they can still shape a planet. Registered at LOW so a stronger protection
+    // (a claim guard) that cancels first still wins. Non-margin edits, non-surface levels and non-players are cheap no-ops.
+    @SubscribeEvent(priority = EventPriority.LOW)
+    public void onMarginBreak(net.minecraftforge.event.level.BlockEvent.BreakEvent event)
+    {
+        if (event.getPlayer() instanceof ServerPlayer player && protectMargin(player, event.getLevel(), event.getPos()))
+        {
+            event.setCanceled(true);
+        }
+    }
+
+    @SubscribeEvent(priority = EventPriority.LOW)
+    public void onMarginPlace(net.minecraftforge.event.level.BlockEvent.EntityPlaceEvent event)
+    {
+        if (event.getEntity() instanceof ServerPlayer player && protectMargin(player, event.getLevel(), event.getPos()))
+        {
+            event.setCanceled(true);
+        }
+    }
+
+    // true when the block at pos is in the protected wrap margin of a v3 planet (beyond its real square) and this player
+    // is not staff, so the caller should cancel the edit. Resolves the planet from the block's cell exactly like the
+    // surface tick does, so it costs one tiny stamped-set scan and two hash folds on the (rare) surface-dimension edit.
+    private boolean protectMargin(ServerPlayer player, net.minecraft.world.level.LevelAccessor level,
+            net.minecraft.core.BlockPos pos)
+    {
+        if (!(level instanceof ServerLevel surface) || !SurfaceDimension.isSurface(surface))
+        {
+            return false;
+        }
+        if (isBoundaryExempt(player))
+        {
+            return false;
+        }
+        MinecraftServer server = player.getServer();
+        if (server == null)
+        {
+            return false;
+        }
+        long cellX = SurfaceDimension.cellIndexOf(pos.getX());
+        long cellZ = SurfaceDimension.cellIndexOf(pos.getZ());
+        String planetId = resolveStampedPlanetId(server, cellX, cellZ);
+        if (planetId.isEmpty() || !GeneratedPlanetClaims.isSeaSurface(server, planetId))
+        {
+            return false;
+        }
+        double sizeHalf = GeneratedPlanetClaims.stampedSizeForId(server, planetId) / 2.0;
+        Vec3 centre = SurfaceDimension.cellCentre(planetId);
+        double dx = pos.getX() - centre.x;
+        double dz = pos.getZ() - centre.z;
+        if (Math.abs(dx) <= sizeHalf && Math.abs(dz) <= sizeHalf)
+        {
+            // inside the real square: an ordinary edit, allowed.
+            return false;
+        }
+        long now = player.level().getGameTime();
+        Long last = lastEdgeMessageTick.get(player.getUUID());
+        if (last == null || now - last >= EDGE_MESSAGE_INTERVAL)
+        {
+            lastEdgeMessageTick.put(player.getUUID(), now);
+            player.displayClientMessage(
+                    Component.translatable("message.dmz_ragnarok.core.space_surface_margin"), true);
+        }
+        return true;
+    }
+
+    // Pure geometry for the edge wrap, with NO Minecraft state, so it is trivially unit-testable. Given a planet's
+    // cell centre, its half-width and full width (blocks per side), and a player position, returns the wrapped target
+    // {x, z} when the player has crossed a seam, or null when they are still inside the square on both axes. The wrap
+    // subtracts (or adds) exactly one full width on a crossed axis, which is the height field's period, so the arrival
+    // sits on terrain identical to where the player stepped off. The trigger is STRICT ( > +half or < -half ) and the
+    // arrival is therefore strictly inside (-half, +half) on the crossed axis, so a player who wraps never lands
+    // exactly on the opposite seam and cannot ping-pong; a player standing exactly on an edge column is left alone.
+    // Each axis is decided independently, so a corner crossing wraps both axes in one move.
+    static double[] seamWrapTarget(double centreX, double centreZ, double half, int size, double x, double z,
+            double triggerInset)
+    {
+        double dx = x - centreX;
+        double dz = z - centreZ;
+        // the trigger sits triggerInset blocks INTO the margin past the real edge, so the player walks a few blocks onto
+        // the pre-rendered opposite side before being moved. The relocation always subtracts one full width, so the
+        // arrival is strictly inside the real square (arrival offset = triggerOffset - size, in (-half, ...)), never on
+        // the opposite seam: no ping-pong. A player standing exactly on the trigger line is left alone (strict compare).
+        double trigger = half + triggerInset;
+        boolean pastX = dx > trigger || dx < -trigger;
+        boolean pastZ = dz > trigger || dz < -trigger;
+        if (!pastX && !pastZ)
+        {
+            return null;
+        }
+        double nx = x;
+        double nz = z;
+        if (dx > trigger)
+        {
+            nx = x - size;
+        }
+        else if (dx < -trigger)
+        {
+            nx = x + size;
+        }
+        if (dz > trigger)
+        {
+            nz = z - size;
+        }
+        else if (dz < -trigger)
+        {
+            nz = z + size;
+        }
+        return new double[] { nx, nz };
+    }
+
+    // === Edge-wrap diagnostics and headless self-test (batch B5 follow-up) ===
+    // Enable per-decision logging of the wrap with -Ddmzr.wrapDebug=true, and the boot self-test with
+    // -Ddmzr.wrapSelfTest=true. Both are off by default and cost nothing on a normal run.
+    private static final boolean WRAP_DEBUG = Boolean.getBoolean("dmzr.wrapDebug");
+    private static final boolean WRAP_SELF_TEST = Boolean.getBoolean("dmzr.wrapSelfTest");
+
+    private static void wrapLog(String msg, Object... args)
+    {
+        net.shurui.shuruisutilities.util.output.logger.LoggingHandler.sulog.info("[SpaceWrap] " + msg, args);
+    }
+
+    private static String fmt(double v)
+    {
+        return String.format(java.util.Locale.ROOT, "%.2f", v);
+    }
+
+    // A fresh test planet id in a far, otherwise-unused surface cell so the self-test never collides with a real planet.
+    private static final String WRAP_TEST_PLANET = "dmz_ragnarok:wrap_selftest";
+    // whether the self-test's deferred (post-completion) check still needs to run. Set true when the test begins a stamp,
+    // cleared once the stamp completes and the assertions have run (or on the failure log).
+    private static volatile boolean wrapSelfTestPending = false;
+    // the operator wrap margin saved while the self-test shrinks it for a fast boot stamp, restored once the deferred
+    // half has finished its identity comparison (the oracle must read the SAME margin the stamp used).
+    private static volatile int wrapSelfTestSavedMargin = 12;
+    // vegetation/structures are switched off for the identity stamp (so a wide tree canopy or a village pad cannot read as
+    // a terrain mismatch), then restored; the identity check is a pure terrain+sea reproduction. Saved here.
+    private static volatile boolean wrapSelfTestSavedVeg = true;
+    private static volatile boolean wrapSelfTestSavedStruct = true;
+    // the server tick at which the deferred identity check may run (a short fluid-settle grace after the stamp completes);
+    // -1 means the grace has not been armed yet.
+    private static volatile long wrapSelfTestSettle = -1;
+    // performance markers for the self-test's own report: nanos the synchronous centre patch took (time-to-playable),
+    // the nanoTime and game tick at begin, so the deferred half can log total stamp time and ticks-to-complete.
+    private static volatile long wrapSelfTestPlayableNanos = 0;
+    private static volatile long wrapSelfTestBeginNanos = 0;
+    private static volatile long wrapSelfTestBeginTick = 0;
+
+    /**
+     * Begin the headless edge-wrap self-test if {@code -Ddmzr.wrapSelfTest=true}. Runs the SYNCHRONOUS half now (the pure
+     * geometry of {@link #seamWrapTarget}, and the version bookkeeping: a fresh v2 stamp must record generatorVersion 2
+     * so {@link GeneratedPlanetClaims#isTileableSurface} is true the moment the stamp begins), then arms
+     * {@link #tickWrapSelfTest} to run the DEFERRED half once the stamp finishes (isSurfaceGenerated true, so the full
+     * wrap decision would fire). Called from a module that owns a server-started hook; a no-op unless the flag is set.
+     */
+    static void beginWrapSelfTest(MinecraftServer server)
+    {
+        if (!WRAP_SELF_TEST || server == null)
+        {
+            return;
+        }
+        boolean ok = true;
+
+        // 1) PURE GEOMETRY. Centre at origin, size 200 (half 100). With trigger inset 0: inside -> null; just past +x ->
+        // wraps to just inside -x, strictly within (-half, half); exactly on the edge -> null (strict, no ping-pong); a
+        // corner crossing wraps BOTH axes. Then with the REAL WRAP_TRIGGER_INSET: a point just past the edge but within
+        // the inset must NOT wrap (the player walks onto the margin first), a point past the inset wraps strictly inside,
+        // and an arrival can never re-trigger (no ping-pong).
+        int size = 200;
+        double half = size / 2.0;
+        ok &= assertTrue(seamWrapTarget(0, 0, half, size, 50, 50, 0.0) == null, "inside the square must not wrap");
+        ok &= assertTrue(seamWrapTarget(0, 0, half, size, half, 0, 0.0) == null, "exactly on the +x edge must not wrap");
+        double[] pastX = seamWrapTarget(0, 0, half, size, half + 0.5, 10, 0.0);
+        ok &= assertTrue(pastX != null && pastX[0] > -half && pastX[0] < half && Math.abs(pastX[0] - (half + 0.5 - size)) < 1.0E-6
+                        && pastX[1] == 10, "past +x wraps to strictly inside -x, z unchanged");
+        double[] pastNegZ = seamWrapTarget(0, 0, half, size, 0, -half - 3, 0.0);
+        ok &= assertTrue(pastNegZ != null && pastNegZ[1] > -half && pastNegZ[1] < half
+                        && Math.abs(pastNegZ[1] - (-half - 3 + size)) < 1.0E-6, "past -z wraps to strictly inside +z");
+        double[] corner = seamWrapTarget(0, 0, half, size, half + 1, half + 1, 0.0);
+        ok &= assertTrue(corner != null && corner[0] > -half && corner[0] < half && corner[1] > -half && corner[1] < half,
+                "a corner crossing wraps both axes into the square");
+        // inset behaviour: inside the inset band does not wrap; past the inset does, strictly inside; the arrival cannot
+        // re-trigger, so a second call on the arrival returns null (no ping-pong).
+        ok &= assertTrue(seamWrapTarget(0, 0, half, size, half + WRAP_TRIGGER_INSET - 1, 0, WRAP_TRIGGER_INSET) == null,
+                "a point in the wrap-trigger inset band must NOT wrap (the player walks onto the margin first)");
+        double[] pastInset = seamWrapTarget(0, 0, half, size, half + WRAP_TRIGGER_INSET + 1, 0, WRAP_TRIGGER_INSET);
+        ok &= assertTrue(pastInset != null && pastInset[0] > -half && pastInset[0] < half,
+                "past the inset must wrap strictly inside the real square");
+        ok &= assertTrue(pastInset != null
+                        && seamWrapTarget(0, 0, half, size, pastInset[0], pastInset[1], WRAP_TRIGGER_INSET) == null,
+                "the wrap arrival must not itself re-trigger a wrap (no ping-pong)");
+
+        // 2) VERSION BOOKKEEPING. A v2 record and a v3 record are BOTH tileable (both wrap); only v3 is a sea surface (a
+        // protected margin); a v1 record and an unstamped id are neither.
+        GeneratedPlanetClaims claims = GeneratedPlanetClaims.get(server);
+        claims.recordStampedGeometry(WRAP_TEST_PLANET, size, SurfaceStamp.Theme.OVERWORLD.name(),
+                new GeneratedPlanetClaims.StampParams(64, 3, 1.0, 0.5, 0.0, 0.0, true, true, false,
+                        SurfaceStamp.GEN_VERSION_TILEABLE));
+        ok &= assertTrue(GeneratedPlanetClaims.isTileableSurface(server, WRAP_TEST_PLANET),
+                "a v2 stamp record must read back as a tileable surface at once");
+        ok &= assertTrue(!GeneratedPlanetClaims.isSeaSurface(server, WRAP_TEST_PLANET),
+                "a v2 stamp must NOT be a sea surface (no protected margin)");
+        String seaId = "dmz_ragnarok:wrap_selftest_v3";
+        claims.recordStampedGeometry(seaId, size, SurfaceStamp.Theme.OVERWORLD.name(),
+                new GeneratedPlanetClaims.StampParams(64, 3, 1.0, 0.5, 0.0, 0.0, true, true, false,
+                        SurfaceStamp.GEN_VERSION_SEAS));
+        ok &= assertTrue(GeneratedPlanetClaims.isTileableSurface(server, seaId)
+                        && GeneratedPlanetClaims.isSeaSurface(server, seaId),
+                "a v3 stamp must be BOTH tileable (wraps) and a sea surface (protected margin)");
+        // a v4 (GEN_VERSION_SEAS_COMPACT) stamp: like v3 it is BOTH tileable and a sea surface, but it fills a COMPACT
+        // extent (half + 64, the 4-chunk compact margin under the default 12-chunk operator margin) rather than the full
+        // v3 margin, so it never loads the whole planet-plus-ring at once. This is the version every NEW planet stamps.
+        String compactId = "dmz_ragnarok:wrap_selftest_v4";
+        claims.recordStampedGeometry(compactId, size, SurfaceStamp.Theme.OVERWORLD.name(),
+                new GeneratedPlanetClaims.StampParams(64, 3, 1.0, 0.5, 0.0, 0.0, true, true, false,
+                        SurfaceStamp.GEN_VERSION_SEAS_COMPACT));
+        ok &= assertTrue(GeneratedPlanetClaims.isTileableSurface(server, compactId)
+                        && GeneratedPlanetClaims.isSeaSurface(server, compactId),
+                "a v4 (compact) stamp must be BOTH tileable and a sea surface, like v3");
+        int v4Extent = SurfaceStamp.stampExtentForVersion(SurfaceStamp.GEN_VERSION_SEAS_COMPACT, size);
+        ok &= assertTrue(v4Extent == (size / 2) + 64,
+                "a v4 (compact) stamp must fill half + 64 (the 4-chunk compact margin), got " + v4Extent);
+        claims.clearSurfaceGenerated(compactId);
+        String legacyId = "dmz_ragnarok:wrap_selftest_legacy";
+        claims.recordStampedGeometry(legacyId, size, SurfaceStamp.Theme.OVERWORLD.name(),
+                new GeneratedPlanetClaims.StampParams(64, 3, 1.0, 0.5, 0.0, 0.0, true, true, false,
+                        SurfaceStamp.GEN_VERSION_LEGACY));
+        ok &= assertTrue(!GeneratedPlanetClaims.isTileableSurface(server, legacyId),
+                "a v1 (legacy disc) stamp must NOT be tileable, so it keeps the wall");
+        ok &= assertTrue(!GeneratedPlanetClaims.isTileableSurface(server, "dmz_ragnarok:never_stamped"),
+                "an unstamped planet must not be tileable");
+
+        // 2b) SYSTEM PLANET (GeneratedSystems). A system planet carries a sugen: id and takes NO special surface path:
+        // its surface cell, its stamp and its version bookkeeping are the same id-keyed machinery as an old-scheme
+        // planet (SurfaceDimension folds any id to a cell, GeneratedPlanetClaims keys params by id). This case guards the
+        // specific worry that the wrap only knew old-scheme planets: a v3 system stamp must read back tileable + sea, and
+        // its pure wrap geometry (taken at the system planet's OWN cell centre and stamped size) must wrap a past-edge
+        // position strictly inside the opposite edge, exactly like WRAP_TEST_PLANET above.
+        String systemId = GeneratedPlanets.ID_PREFIX + "5e1f7e57ab90";   // a sugen: id shaped exactly like a live system planet id.
+        claims.recordStampedGeometry(systemId, size, SurfaceStamp.Theme.OVERWORLD.name(),
+                new GeneratedPlanetClaims.StampParams(64, 3, 1.0, 0.5, 0.0, 0.0, true, true, false,
+                        SurfaceStamp.GEN_VERSION_SEAS));
+        ok &= assertTrue(GeneratedPlanetClaims.isTileableSurface(server, systemId)
+                        && GeneratedPlanetClaims.isSeaSurface(server, systemId),
+                "a v3 SYSTEM (sugen:) planet must be tileable and a sea surface, so it wraps like any other planet");
+        Vec3 sysCentre = SurfaceDimension.cellCentre(systemId);
+        int sysSize = GeneratedPlanetClaims.stampedSizeForId(server, systemId);
+        double sysHalf = sysSize / 2.0;
+        double[] sysTarget = seamWrapTarget(sysCentre.x, sysCentre.z, sysHalf, sysSize,
+                sysCentre.x + sysHalf + WRAP_TRIGGER_INSET + 1, sysCentre.z, WRAP_TRIGGER_INSET);
+        ok &= assertTrue(sysTarget != null
+                        && (sysTarget[0] - sysCentre.x) > -sysHalf && (sysTarget[0] - sysCentre.x) < sysHalf,
+                "a past-edge position on a SYSTEM (sugen:) planet must wrap strictly inside the opposite edge");
+        claims.clearSurfaceGenerated(systemId);
+
+        claims.clearSurfaceGenerated(WRAP_TEST_PLANET);
+        claims.clearSurfaceGenerated(seaId);
+        claims.clearSurfaceGenerated(legacyId);
+
+        // 3) REAL v3 STAMP, driven to completion by the server tick, then a block-for-block identity check against the
+        // deterministic oracle. Shrink the wrap margin to keep the boot stamp small and fast; it is restored once the
+        // deferred half has finished comparing (the oracle must read the SAME margin the stamp used). forPlanet reads the
+        // pre-recorded v3 version back, so the stamp is genuinely v3 (sea + margin) at a small size.
+        ServerLevel surface = SurfaceDimension.level(server);
+        if (surface != null)
+        {
+            wrapSelfTestSavedMargin = SurfaceStamp.wrapMarginChunks();
+            wrapSelfTestSavedVeg = SurfaceStamp.vegetationEnabled();
+            wrapSelfTestSavedStruct = SurfaceStamp.structuresEnabled();
+            SurfaceStamp.setWrapMarginChunks(2);
+            // pure terrain+sea identity: no dressing to exclude, no canopy or pad to read as a mismatch.
+            SurfaceStamp.setVegetationEnabled(false);
+            SurfaceStamp.setStructuresEnabled(false);
+            claims.recordStampedGeometry(WRAP_TEST_PLANET, 100, SurfaceStamp.Theme.OVERWORLD.name(),
+                    new GeneratedPlanetClaims.StampParams(48, 3, 1.0, 0.5, 0.0, 0.0, true, true, false,
+                            SurfaceStamp.GEN_VERSION_SEAS));
+            wrapLog("self-test: synchronous checks {} ; beginning a real v3 (sea + margin) stamp of '{}' to verify the "
+                    + "wrap, the sea and the block-identity over the next ticks.", ok ? "PASSED" : "FAILED",
+                    WRAP_TEST_PLANET);
+            // time-to-playable is the synchronous centre patch inside ensureAndLandingPos; total stamp time is measured
+            // from here to completion in the deferred half.
+            wrapSelfTestBeginNanos = System.nanoTime();
+            wrapSelfTestBeginTick = server.getTickCount();
+            SurfaceStamp.ensureAndLandingPos(server, surface, WRAP_TEST_PLANET);
+            wrapSelfTestPlayableNanos = System.nanoTime() - wrapSelfTestBeginNanos;
+            wrapSelfTestPending = true;
+            wrapSelfTestSettle = -1;
+        }
+        else
+        {
+            wrapLog("self-test: synchronous checks {} ; surface dimension unavailable, skipping the live-stamp half.",
+                    ok ? "PASSED" : "FAILED");
+        }
+    }
+
+    /**
+     * Deferred half of the self-test: once the real v3 stamp completes (and a short fluid-settle grace has elapsed),
+     * assert the wrap decision, that a sea and its shore were placed, that the landing zone is dry, and a block-for-block
+     * IDENTITY against the deterministic oracle (proving the placed world equals a pure function of the seed, so any two
+     * runs, before or after the adaptive-budget pacing change, are identical). Restores the wrap margin and disarms.
+     */
+    static void tickWrapSelfTest(MinecraftServer server)
+    {
+        if (!wrapSelfTestPending || server == null)
+        {
+            return;
+        }
+        GeneratedPlanetClaims claims = GeneratedPlanetClaims.get(server);
+        if (!claims.isSurfaceGenerated(WRAP_TEST_PLANET))
+        {
+            return;   // still stamping.
+        }
+        // a short settle so any water block placed on the very last fill tick has had its (no-op, sealed) fluid tick.
+        if (wrapSelfTestSettle < 0)
+        {
+            wrapSelfTestSettle = server.getTickCount() + 20;
+            // the stamp is complete at THIS moment (before the settle wait), so report time-to-playable and total here.
+            long totalMs = (System.nanoTime() - wrapSelfTestBeginNanos) / 1_000_000L;
+            long ticks = server.getTickCount() - wrapSelfTestBeginTick;
+            wrapLog("self-test PERFORMANCE: time-to-playable {} us (synchronous centre patch), total stamp {} ms over {} "
+                    + "server ticks (v3, size 100, margin 2 chunks, adaptive budget). The adaptive per-tick budget is "
+                    + "output-neutral (full budget under low MSPT), so a before/after stamp of the same seed is identical, "
+                    + "which the block-identity check below proves.",
+                    wrapSelfTestPlayableNanos / 1_000L, totalMs, ticks);
+            return;
+        }
+        if (server.getTickCount() < wrapSelfTestSettle)
+        {
+            return;
+        }
+        wrapSelfTestPending = false;
+
+        boolean tileable = GeneratedPlanetClaims.isTileableSurface(server, WRAP_TEST_PLANET);
+        boolean seaSurface = GeneratedPlanetClaims.isSeaSurface(server, WRAP_TEST_PLANET);
+        int size = GeneratedPlanetClaims.stampedSizeForId(server, WRAP_TEST_PLANET);
+        double half = size / 2.0;
+        Vec3 centre = SurfaceDimension.cellCentre(WRAP_TEST_PLANET);
+        double[] target = seamWrapTarget(centre.x, centre.z, half, size, centre.x + half + WRAP_TRIGGER_INSET + 1,
+                centre.z, WRAP_TRIGGER_INSET);
+        boolean wraps = target != null && (target[0] - centre.x) > -half && (target[0] - centre.x) < half;
+
+        boolean ok = assertTrue(tileable, "the completed real stamp must be tileable")
+                & assertTrue(seaSurface, "the completed real stamp must be a v3 sea surface")
+                & assertTrue(size > 0, "the completed real stamp must have a recorded size")
+                & assertTrue(wraps, "a past-edge position on the real stamped planet must wrap inside the opposite edge");
+        ok &= runStampIdentityCheck(server, (ServerLevel) SurfaceDimension.level(server), centre);
+
+        wrapLog("self-test: LIVE-STAMP half {} (planet '{}' size={} tileable={} sea={}). Overall wrap/sea/identity "
+                + "self-test {}.", ok ? "PASSED" : "FAILED", WRAP_TEST_PLANET, size, tileable, seaSurface,
+                ok ? "PASSED" : "FAILED");
+
+        // restore the operator settings and drop the throwaway test planet.
+        SurfaceStamp.setWrapMarginChunks(wrapSelfTestSavedMargin);
+        SurfaceStamp.setVegetationEnabled(wrapSelfTestSavedVeg);
+        SurfaceStamp.setStructuresEnabled(wrapSelfTestSavedStruct);
+        claims.clearSurfaceGenerated(WRAP_TEST_PLANET);
+    }
+
+    /**
+     * Block-for-block identity check of a completed v3 test stamp against the deterministic {@link NaturalSurfaceOracle}.
+     * Sweeps the WHOLE stamped extent (margin included) and every Y from the bedrock floor to just above the terrain/sea
+     * top, skipping columns dressed with vegetation or a structure (which sit above the modelled cap), and asserts every
+     * remaining world block equals what the oracle says the pure generator placed. Also asserts a sea was actually formed
+     * (at least one water block, one shore block) and the centre landing column is dry. A mismatch logs the first few
+     * offenders and fails. This is the "same seed before vs after the performance change is identical" guarantee: the
+     * placement equals a pure function of the seed, so pacing changes cannot alter it.
+     */
+    private static boolean runStampIdentityCheck(MinecraftServer server, ServerLevel surface, Vec3 centre)
+    {
+        if (surface == null)
+        {
+            return assertTrue(false, "identity check: surface dimension unavailable");
+        }
+        NaturalSurfaceOracle oracle = new NaturalSurfaceOracle(server, WRAP_TEST_PLANET);
+        int extent = oracle.stampExtent();
+        int bottomY = oracle.bottomY();
+        int seaY = oracle.seaY();
+        int cx = (int) Math.floor(centre.x);
+        int cz = (int) Math.floor(centre.z);
+        int topScan = Math.max(seaY, bottomY) + 6;
+        long compared = 0;
+        long water = 0;
+        long shore = 0;
+        int mismatches = 0;
+        net.minecraft.core.BlockPos.MutableBlockPos pos = new net.minecraft.core.BlockPos.MutableBlockPos();
+        for (int dx = -extent; dx <= extent; ++dx)
+        {
+            for (int dz = -extent; dz <= extent; ++dz)
+            {
+                for (int y = bottomY - 1; y <= topScan; ++y)
+                {
+                    // skip natural dressing (trees, rock decor, huts, villages and their flattened pads): it sits above
+                    // the modelled cap and is deliberately not part of the terrain oracle.
+                    if (oracle.inVegetationFootprint(dx, dz, y) || oracle.inStructureFootprint(dx, dz, y))
+                    {
+                        continue;
+                    }
+                    net.minecraft.world.level.block.state.BlockState expected = oracle.expectedTerrain(dx, dz, y);
+                    pos.set(cx + dx, y, cz + dz);
+                    net.minecraft.world.level.block.state.BlockState actual = surface.getBlockState(pos);
+                    net.minecraft.world.level.block.state.BlockState want =
+                            expected == null ? net.minecraft.world.level.block.Blocks.AIR.defaultBlockState() : expected;
+                    compared++;
+                    if (expected != null && expected.getBlock() == net.minecraft.world.level.block.Blocks.WATER)
+                    {
+                        water++;
+                    }
+                    if (expected != null && (expected.getBlock() == net.minecraft.world.level.block.Blocks.SAND
+                            || expected.getBlock() == net.minecraft.world.level.block.Blocks.GRAVEL
+                            || expected.getBlock() == net.minecraft.world.level.block.Blocks.CLAY))
+                    {
+                        shore++;
+                    }
+                    if (!actual.equals(want))
+                    {
+                        if (mismatches < 8)
+                        {
+                            wrapLog("identity MISMATCH at ({}, {}, {}): world={} expected={}", dx, y, dz,
+                                    actual.getBlock(), want.getBlock());
+                        }
+                        mismatches++;
+                    }
+                }
+            }
+        }
+        // dry landing: the centre column caps at or above sea level, so the top water block at the centre is not water.
+        pos.set(cx, seaY, cz);
+        boolean centreDry = surface.getBlockState(pos).getBlock() != net.minecraft.world.level.block.Blocks.WATER;
+
+        boolean ok = assertTrue(mismatches == 0,
+                "the placed world must match the deterministic oracle block for block (" + mismatches + " mismatches over "
+                        + compared + " blocks)")
+                & assertTrue(water > 0, "a v3 OVERWORLD stamp must actually flood a sea (water blocks placed)")
+                & assertTrue(shore > 0, "a v3 OVERWORLD sea must dress a shore (sand/gravel/clay at the waterline)")
+                & assertTrue(centreDry, "the centre landing column must be dry (above sea level)");
+        wrapLog("identity check: {} blocks compared, {} water, {} shore, {} mismatches (extent {}).",
+                compared, water, shore, mismatches, extent);
+        return ok;
+    }
+
+    private static boolean assertTrue(boolean condition, String what)
+    {
+        if (!condition)
+        {
+            net.shurui.shuruisutilities.util.output.logger.LoggingHandler.sulog.error(
+                    "[SpaceWrap] self-test ASSERTION FAILED: {}", what);
+        }
+        return condition;
     }
 
     // per-tick handling for a player standing on the Beerus build inside the shared surface dimension. Mirrors
@@ -1345,6 +1961,18 @@ public class SpaceTravelModule extends ConfigLoaderBase
         }
         if (onCourse)
         {
+            // ON A GENERATED-PLANET COURSE: the destination is a generated planet (a system planet or a legacy exempt
+            // one), so land only on the body whose id matches the course, never on any other rock the straight cruise
+            // clips. This is the generated twin of the fixed-body course match above.
+            if (courseKey.startsWith(GeneratedPlanets.ID_PREFIX))
+            {
+                GeneratedPlanets.Generated courseGen = GeneratedPlanets.bodyContaining(server, at, LANDING_MARGIN);
+                if (courseGen != null && courseGen.id.equals(courseKey))
+                {
+                    landOnGeneratedPlanet(player, courseGen);
+                    return true;
+                }
+            }
             // Nothing else may claim a pilot who is on their way somewhere.
             return false;
         }
@@ -2516,22 +3144,49 @@ public class SpaceTravelModule extends ConfigLoaderBase
             return;
         }
         MinecraftServer server = player.getServer();
-        PlanetRegistry.Planet body = bodyForKey(server, SpaceAutopilot.target(player));
-        if (body == null)
+        // Resolve the target's CURRENT position and landing reach. A FIXED main planet resolves through the registry; a
+        // GENERATED planet (a sugen: id set by the star map's set-course) resolves to its live orbital position, from the
+        // system grid or, for a legacy exempt planet, the cells near a player in space. Both orbit, so the target is
+        // re-read every tick and the pod re-aims, exactly as it does for a fixed body. A super id is never an autopilot
+        // target (the star map and PlanetCourse refuse it), so it never reaches here.
+        String autoKey = SpaceAutopilot.target(player);
+        Vec3 target;
+        double reach;
+        PlanetRegistry.Planet body = bodyForKey(server, autoKey);
+        if (body != null)
+        {
+            target = body.position();
+            reach = body.radius() + LANDING_MARGIN;
+        }
+        else if (autoKey.startsWith(GeneratedPlanets.ID_PREFIX))
+        {
+            GeneratedPlanets.Generated g = GeneratedSystems.findPlanetById(server, autoKey);
+            if (g == null)
+            {
+                g = GeneratedPlanets.findGenerated(server, autoKey);
+            }
+            if (g == null)
+            {
+                // the generated target cannot be resolved this instant (out of range of any anchor / destroyed): stop.
+                stopAutopilot(player, "course target is no longer a planet body");
+                return;
+            }
+            target = g.position;
+            reach = g.radius + LANDING_MARGIN;
+        }
+        else
         {
             // the course target is no longer a body (datapack/destination change mid-trip): stop rather than fly on.
             stopAutopilot(player, "course target is no longer a planet body");
             return;
         }
-        logAutopilotStart(player, SpaceAutopilot.target(player));
+        logAutopilotStart(player, autoKey);
 
-        Vec3 target = body.position();
         Vec3 pos = pod.position();
         Vec3 delta = target.subtract(pos);
         double dist = delta.length();
         // once inside the landing volume (a sphere well within the per-axis cube the landing check uses), hold and
         // let tickInSpace fire the landing. Guards against overshooting through the body during the cooldown window.
-        double reach = body.radius() + LANDING_MARGIN;
         if (dist <= reach)
         {
             // stop coasting: zero the pod's own delta so it holds at the body until tickInSpace lands it.

@@ -28,6 +28,19 @@ public final class DisguiseView
     public UUID targetId;
     public String targetName = "";
 
+    // The target's NICKNAME (the suite's chat nickname), captured at disguise time, empty when the target has none.
+    // A snapshot, exactly like every other field here: the whole view is a point-in-time capture of the target's name,
+    // skin, rank, crown and DragonMineZ look, and does not track the target's later edits (staff re-run /disguise to
+    // refresh). displayName() is what every visible surface (chat, tab, nametag, join/leave) shows: the nickname when
+    // set, else the plain account name.
+    public String nickname = "";
+
+    // Whether the disguise is currently ACTIVE. A staff member can toggle a disguise off (/disguise off) without
+    // losing it: the configured view stays stored and synced with enabled=false, and everything renders the real
+    // identity until /disguise on turns it back on. Never sent over the client packet (a disabled disguise is pushed
+    // to clients as a CLEAR, so the client only ever holds active views); persisted and shard-synced only.
+    public boolean enabled = true;
+
     // Target's rank id ("" = none) and crown codepoint (0 = none), so tab / nametag / chat badge match the target.
     public String rankId = "";
     public int crownCodepoint = 0;
@@ -65,12 +78,19 @@ public final class DisguiseView
 
     public DisguiseView() {}
 
+    /** The name every visible surface shows for this disguise: the target's nickname when set, else their plain name. */
+    public String displayName()
+    {
+        return nickname != null && !nickname.isEmpty() ? nickname : targetName;
+    }
+
     public void encode(FriendlyByteBuf buf)
     {
         buf.writeUUID(realId);
         buf.writeUtf(realName);
         buf.writeUUID(targetId);
         buf.writeUtf(targetName);
+        buf.writeUtf(nickname);
         buf.writeUtf(rankId);
         buf.writeVarInt(crownCodepoint);
         buf.writeUtf(skinTexturesValue);
@@ -102,6 +122,7 @@ public final class DisguiseView
         v.realName = buf.readUtf();
         v.targetId = buf.readUUID();
         v.targetName = buf.readUtf();
+        v.nickname = buf.readUtf();
         v.rankId = buf.readUtf();
         v.crownCodepoint = buf.readVarInt();
         v.skinTexturesValue = buf.readUtf();
@@ -140,6 +161,10 @@ public final class DisguiseView
         putStr(t, "realName", realName);
         t.putUUID("target", targetId);
         putStr(t, "targetName", targetName);
+        putStr(t, "nick", nickname);
+        // Additive: only written when toggled off, so an existing entry (and an older jar's) reads back enabled.
+        if (!enabled)
+            t.putBoolean("enabled", false);
         putStr(t, "rank", rankId);
         if (crownCodepoint != 0)
             t.putInt("crown", crownCodepoint);
@@ -178,6 +203,8 @@ public final class DisguiseView
         v.realName = t.getString("realName");
         v.targetId = t.getUUID("target");
         v.targetName = t.getString("targetName");
+        v.nickname = t.getString("nick");
+        v.enabled = !t.contains("enabled") || t.getBoolean("enabled");
         v.rankId = t.getString("rank");
         v.crownCodepoint = t.getInt("crown");
         v.skinTexturesValue = t.getString("skin");

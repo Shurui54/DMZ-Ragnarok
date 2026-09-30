@@ -8,6 +8,7 @@ import net.minecraft.server.level.ServerPlayer;
 
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.server.ServerStartedEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
@@ -56,6 +57,28 @@ public final class BallDormancyEvents
         catch (Throwable t)
         {
             LoggingHandler.sulog.warn("[dormancy] could not record a wish's dormancy: {}", t.toString());
+        }
+    }
+
+    /**
+     * At server start, clear any POISONED dormancy records (a foreign-clock deadline or a stale set id, see {@link
+     * BallDormancy#sanitize}), which is what leaves a set "dormant before being used" after a world moved between
+     * shards or a migration, then log the state of every set so a fresh world is provably all ACTIVE. The ball set
+     * definitions are loaded by now, so the unknown-set check is meaningful. Guarded so a DMZ change degrades to a
+     * no-op.
+     */
+    @SubscribeEvent
+    public static void onServerStarted(ServerStartedEvent event)
+    {
+        try
+        {
+            MinecraftServer server = event.getServer();
+            BallDormancy.sanitize(server);
+            BallDormancy.logStateAtBoot(server);
+        }
+        catch (Throwable t)
+        {
+            LoggingHandler.sulog.warn("[dormancy] server-start sanitize/log failed: {}", t.toString());
         }
     }
 

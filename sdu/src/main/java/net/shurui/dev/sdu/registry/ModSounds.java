@@ -21,6 +21,27 @@ public final class ModSounds {
     public static final RegistryObject<SoundEvent> HAKAI = SOUND_EVENTS.register("hakai",
             () -> SoundEvent.createVariableRangeEvent(new ResourceLocation(DmzNpc.MODID, "hakai")));
 
+    // ------------------------------------------------------------------ Pilaf Mech voice lines
+    //
+    // One sound event per voice trigger for the Pilaf Mech raid boss (PilafMechEntity). Each ships as a
+    // registered-but-silent event (empty "sounds" array in sounds.json) so the owner can later drop recorded
+    // .ogg voice clips into assets/dmz_ragnarok/sounds/pilaf_mech/ and just list them under the matching event.
+    // Minecraft picks a clip at random from the listed variants, so several files can back a single trigger.
+    // The chat/actionbar line always plays; the sound is only heard once real clips are added.
+
+    private static RegistryObject<SoundEvent> voice(String name) {
+        return SOUND_EVENTS.register(name, () -> SoundEvent.createVariableRangeEvent(new ResourceLocation(DmzNpc.MODID, name)));
+    }
+
+    public static final RegistryObject<SoundEvent> PILAF_VOICE_SPAWN = voice("pilaf_mech.voice.spawn");
+    public static final RegistryObject<SoundEvent> PILAF_VOICE_ATTACK = voice("pilaf_mech.voice.attack");
+    public static final RegistryObject<SoundEvent> PILAF_VOICE_HURT = voice("pilaf_mech.voice.hurt");
+    public static final RegistryObject<SoundEvent> PILAF_VOICE_ENRAGE = voice("pilaf_mech.voice.enrage");
+    public static final RegistryObject<SoundEvent> PILAF_VOICE_PHASE2 = voice("pilaf_mech.voice.phase2");
+    public static final RegistryObject<SoundEvent> PILAF_VOICE_LOW_HEALTH = voice("pilaf_mech.voice.low_health");
+    public static final RegistryObject<SoundEvent> PILAF_VOICE_DEATH = voice("pilaf_mech.voice.death");
+    public static final RegistryObject<SoundEvent> PILAF_VOICE_KILL = voice("pilaf_mech.voice.kill");
+
     private ModSounds() {
     }
 }

@@ -39,11 +39,19 @@ public class PacketSpaceLayoutSync implements ISUPacket
     private double generatedDensity;
     private int starSectorSize;
     private double starDensity;
+    // the coarse GENERATED STAR SYSTEM grid params, so the client derives the identical systems (suns + orbiting planets)
+    // the server does. Appended to the wire format (after the epoch below), so the packet id is unchanged.
+    private int systemSectorSize;
+    private double systemDensity;
     private int blackHoleSectorSize;
     private double blackHoleDensity;
     private double ringRadius;
     private double radiusJitter;
     private double drawDistance;
+
+    // the server's current cross-shard-consistent wall-clock epoch (OrbitClock.serverEpochMillis), so the client can drive
+    // fixed-body ORBITS off the same instant the server does. Appended to the wire format, so the packet id is unchanged.
+    private long serverEpochMillis;
 
     // the fixed planet bodies to avoid overlapping (key + position + radius).
     private List<FixedBody> fixed = new ArrayList<>();
@@ -91,9 +99,26 @@ public class PacketSpaceLayoutSync implements ISUPacket
     // (up to seven entries). Super bodies are excluded: the client derives those from the superBodies list above.
     private java.util.Map<Long, Vec3> surfaceBallBodies = new java.util.HashMap<>();
 
-    /** One super body's synced snapshot: its id, current world position and whether its ball has been claimed. */
-    public record SuperBody(String id, Vec3 pos, boolean claimed)
+    /**
+     * One super body's synced snapshot: its id, its ORBITAL ELEMENTS around the central sun (ring radius, start phase,
+     * period, the sun centre and the body's plane height) and whether its ball has been claimed. The client derives the
+     * body's live position from the elements at the shared instant ({@link OrbitClock}) exactly as the server does, so
+     * the two orbit in step between syncs without a per-tick position push. {@link #pos()} is the live position now;
+     * {@link #pos(long)} is it at an explicit epoch (for the self-test).
+     */
+    public record SuperBody(String id, double radius, double phase0, double period, double sunX, double sunZ, double y,
+                            boolean claimed)
     {
+        public Vec3 pos(long epochMillis)
+        {
+            double[] xz = Orbits.positionXZ(sunX, sunZ, radius, phase0, epochMillis);
+            return new Vec3(xz[0], y, xz[1]);
+        }
+
+        public Vec3 pos()
+        {
+            return pos(OrbitClock.epochMillis());
+        }
     }
 
     public PacketSpaceLayoutSync()
@@ -108,12 +133,15 @@ public class PacketSpaceLayoutSync implements ISUPacket
         p.generatedDensity = GeneratedPlanets.density;
         p.starSectorSize = StarPositions.sectorSize;
         p.starDensity = StarPositions.density;
+        p.systemSectorSize = GeneratedSystems.sectorSize;
+        p.systemDensity = GeneratedSystems.density;
         p.blackHoleSectorSize = BlackHolePositions.sectorSize;
         p.blackHoleDensity = BlackHolePositions.density;
         p.ringRadius = PlanetPositions.ringRadius;
         p.radiusJitter = PlanetPositions.radiusJitter;
         p.drawDistance = PlanetSpawnModule.bodyDrawDistance();
         p.superRenderDistance = PlanetSpawnModule.superRenderDistance();
+        p.serverEpochMillis = OrbitClock.serverEpochMillis();
         p.fixed = SpaceLayout.fixedBodies(server);
         p.owners = resolveOwners(server);
         if (server != null)
@@ -179,7 +207,8 @@ public class PacketSpaceLayoutSync implements ISUPacket
         {
             return out;
         }
-        java.util.Map<String, String> claims = GeneratedPlanetClaims.get(server).claims();
+        GeneratedPlanetClaims store = GeneratedPlanetClaims.get(server);
+        java.util.Map<String, String> claims = store.claims();
         for (java.util.Map.Entry<String, String> e : claims.entrySet())
         {
             net.shurui.shuruisutilities.guilds.model.Guild guild =
@@ -187,6 +216,26 @@ public class PacketSpaceLayoutSync implements ISUPacket
             if (guild != null)
             {
                 out.put(e.getKey(), guild.name);
+            }
+        }
+        // PUBLIC personal conquest claims: draw the owning player's name on the body nameplate exactly like a guild name.
+        // Resolved from the profile cache; a uuid with no cached name is skipped (reads as unclaimed) rather than showing
+        // a raw uuid on a nameplate.
+        for (java.util.Map.Entry<String, String> e : store.personalClaims().entrySet())
+        {
+            try
+            {
+                java.util.Optional<com.mojang.authlib.GameProfile> profile =
+                        server.getProfileCache() == null ? java.util.Optional.empty()
+                                : server.getProfileCache().get(java.util.UUID.fromString(e.getValue()));
+                if (profile.isPresent() && profile.get().getName() != null)
+                {
+                    out.put(e.getKey(), profile.get().getName());
+                }
+            }
+            catch (Throwable ignored)
+            {
+                // malformed uuid or cache miss: leave the body reading as unclaimed on the client.
             }
         }
         return out;
@@ -247,9 +296,12 @@ public class PacketSpaceLayoutSync implements ISUPacket
         for (SuperBody b : superBodies)
         {
             buf.writeUtf(b.id());
-            buf.writeDouble(b.pos().x);
-            buf.writeDouble(b.pos().y);
-            buf.writeDouble(b.pos().z);
+            buf.writeDouble(b.radius());
+            buf.writeDouble(b.phase0());
+            buf.writeDouble(b.period());
+            buf.writeDouble(b.sunX());
+            buf.writeDouble(b.sunZ());
+            buf.writeDouble(b.y());
             buf.writeBoolean(b.claimed());
         }
         buf.writeVarInt(surfaceBallBodies.size());
@@ -260,6 +312,9 @@ public class PacketSpaceLayoutSync implements ISUPacket
             buf.writeDouble(e.getValue().y);
             buf.writeDouble(e.getValue().z);
         }
+        buf.writeLong(serverEpochMillis);
+        buf.writeInt(systemSectorSize);
+        buf.writeDouble(systemDensity);
     }
 
     public static PacketSpaceLayoutSync decode(FriendlyByteBuf buf)
@@ -332,11 +387,14 @@ public class PacketSpaceLayoutSync implements ISUPacket
         for (int i = 0; i < sb; ++i)
         {
             String id = buf.readUtf();
-            double x = buf.readDouble();
-            double y = buf.readDouble();
-            double z = buf.readDouble();
+            double radius = buf.readDouble();
+            double phase0 = buf.readDouble();
+            double period = buf.readDouble();
+            double sunX = buf.readDouble();
+            double sunZ = buf.readDouble();
+            double by = buf.readDouble();
             boolean claimed = buf.readBoolean();
-            superBodies.add(new SuperBody(id, new Vec3(x, y, z), claimed));
+            superBodies.add(new SuperBody(id, radius, phase0, period, sunX, sunZ, by, claimed));
         }
         p.superBodies = superBodies;
         int ab = buf.readVarInt();
@@ -350,6 +408,9 @@ public class PacketSpaceLayoutSync implements ISUPacket
             anchors.put(packed, new Vec3(x, y, z));
         }
         p.surfaceBallBodies = anchors;
+        p.serverEpochMillis = buf.readLong();
+        p.systemSectorSize = buf.readInt();
+        p.systemDensity = buf.readDouble();
         return p;
     }
 
@@ -363,6 +424,11 @@ public class PacketSpaceLayoutSync implements ISUPacket
         GeneratedPlanets.density = generatedDensity;
         StarPositions.sectorSize = starSectorSize;
         StarPositions.density = starDensity;
+        GeneratedSystems.sectorSize = systemSectorSize;
+        GeneratedSystems.density = systemDensity;
+        // the client-side whole-universe atlas cache is a pure function of these two params, so drop it whenever they
+        // arrive (they change only on a config reload) and it rebuilds against the new grid on next open.
+        GeneratedSystems.invalidateAll();
         BlackHolePositions.sectorSize = blackHoleSectorSize;
         BlackHolePositions.density = blackHoleDensity;
         PlanetPositions.ringRadius = ringRadius;
@@ -381,6 +447,8 @@ public class PacketSpaceLayoutSync implements ISUPacket
         SpaceLayout.setClientSuperBodies(superBodies);
         SpaceLayout.setClientSuperRenderDistance(superRenderDistance);
         SpaceLayout.setClientSurfaceBallBodies(surfaceBallBodies);
+        // drive client-side fixed-body orbits off the server's cross-shard-consistent clock.
+        OrbitClock.setServerEpoch(serverEpochMillis);
     }
 
     public static void handler(final PacketSpaceLayoutSync message, Supplier<NetworkEvent.Context> ctx)

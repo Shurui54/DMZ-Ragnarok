@@ -202,11 +202,11 @@ public final class SagaFileManager {
     /** Write a saga's file and (re)write its quest folder from scratch. Returns null on success, else an error. */
     /**
      * Advisory only: warn (never reject) if a saga's quest prerequisite points at a saga/quest DMZ's live
-     * registry does not know. It is advisory because DMZ has no runtime rescan, so a quest authored this
-     * session is on disk but not yet in the registry until a restart; a hard reject here would falsely block a
-     * valid gate. The editor's dependent dropdowns are the real author-time guard (they only offer real
-     * sagas/quests), and the client fails OPEN on an unknown target so a bad gate can never silently lock a
-     * saga forever.
+     * registry does not know. It is advisory because this check runs DURING the write, before the post-save
+     * QuestRegistry reload (see DmzQuestReload), so a saga authored earlier in the same session is on disk but
+     * not yet in the registry at check time; a hard reject here would falsely block a valid gate. The editor's
+     * dependent dropdowns are the real author-time guard (they only offer real sagas/quests), and the client
+     * fails OPEN on an unknown target so a bad gate can never silently lock a saga forever.
      */
     private static void warnIfPrereqQuestUnknown(String gatedSagaId, SagaQuestGateConfig.Gate gate) {
         try {

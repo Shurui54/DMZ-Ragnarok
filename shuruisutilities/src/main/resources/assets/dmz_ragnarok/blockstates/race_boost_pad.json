@@ -1,8 +1,12 @@
 {
   "variants": {
-    "facing=north": { "model": "dmz_ragnarok:block/race_boost_pad" },
-    "facing=east":  { "model": "dmz_ragnarok:block/race_boost_pad", "y": 90 },
-    "facing=south": { "model": "dmz_ragnarok:block/race_boost_pad", "y": 180 },
-    "facing=west":  { "model": "dmz_ragnarok:block/race_boost_pad", "y": 270 }
+    "lowered=false,facing=north": { "model": "dmz_ragnarok:block/race_boost_pad" },
+    "lowered=false,facing=east":  { "model": "dmz_ragnarok:block/race_boost_pad", "y": 90 },
+    "lowered=false,facing=south": { "model": "dmz_ragnarok:block/race_boost_pad", "y": 180 },
+    "lowered=false,facing=west":  { "model": "dmz_ragnarok:block/race_boost_pad", "y": 270 },
+    "lowered=true,facing=north":  { "model": "dmz_ragnarok:block/race_boost_pad_lowered" },
+    "lowered=true,facing=east":   { "model": "dmz_ragnarok:block/race_boost_pad_lowered", "y": 90 },
+    "lowered=true,facing=south":  { "model": "dmz_ragnarok:block/race_boost_pad_lowered", "y": 180 },
+    "lowered=true,facing=west":   { "model": "dmz_ragnarok:block/race_boost_pad_lowered", "y": 270 }
   }
 }

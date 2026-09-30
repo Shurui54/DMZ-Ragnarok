@@ -7,11 +7,10 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import net.minecraft.world.Container;
-import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.items.wrapper.InvWrapper;
 
-import net.shurui.shuruisutilities.compat.dmz.DragonBallSets;
+import net.shurui.shuruisutilities.dragonballbag.DragonBallConfine;
 
 /**
  * The capability route into a vanilla-style {@link Container}. Forge exposes a {@link Container} to automation as an
@@ -41,14 +40,11 @@ public abstract class MixinInvWrapper
     private void su$blockDragonBallIntoContainer(int slot, ItemStack stack, boolean simulate,
             CallbackInfoReturnable<ItemStack> cir)
     {
-        if (!DragonBallSets.isDragonBall(stack))
+        // A ball or the bag reached through a capability is allowed only when this wraps the player's own inventory.
+        // Any other vanilla container refuses it (nothing accepted).
+        if (DragonBallConfine.containerRefuses(stack, getInv()))
         {
-            return;
+            cir.setReturnValue(stack);
         }
-        if (getInv() instanceof Inventory)
-        {
-            return; // the player's own inventory, reached through a capability: an allowed home
-        }
-        cir.setReturnValue(stack); // any other vanilla container: nothing accepted
     }
 }

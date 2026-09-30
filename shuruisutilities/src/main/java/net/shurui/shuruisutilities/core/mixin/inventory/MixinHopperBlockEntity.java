@@ -10,7 +10,7 @@ import net.minecraft.world.Container;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.entity.HopperBlockEntity;
 
-import net.shurui.shuruisutilities.compat.dmz.DragonBallSets;
+import net.shurui.shuruisutilities.dragonballbag.DragonBallConfine;
 
 /**
  * Closes the one gap the GUI containment mixin ({@code core.mixin.inventory.MixinSlot}) always admitted: a dragon ball
@@ -45,9 +45,11 @@ public abstract class MixinHopperBlockEntity
     private static void su$blockDragonBallHopperMove(Container source, Container destination, ItemStack stack,
             Direction direction, CallbackInfoReturnable<ItemStack> cir)
     {
-        if (DragonBallSets.isDragonBall(stack))
+        // A hopper never feeds a player inventory, so any dragon ball or dragon ball bag reaching this method is bound
+        // for machinery and is refused: nothing moved, the item stays where it is.
+        if (DragonBallConfine.isConfined(stack))
         {
-            cir.setReturnValue(stack); // nothing moved: the ball stays where it is
+            cir.setReturnValue(stack);
         }
     }
 }

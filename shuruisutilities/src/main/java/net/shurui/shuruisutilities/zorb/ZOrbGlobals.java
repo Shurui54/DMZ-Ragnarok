@@ -18,6 +18,19 @@ import net.minecraft.network.FriendlyByteBuf;
  */
 public class ZOrbGlobals
 {
+    /**
+     * Config schema version, used for one-time default migrations (see {@link #migrate()}). A file written before
+     * migrations existed lacks this key, so Gson leaves it at 0 and the migration runs once; a fresh install and any
+     * admin save stamp it {@link #CONFIG_VERSION}, so a deliberately chosen value is never rewritten.
+     */
+    public static final int CONFIG_VERSION = 1;
+    public int configVersion = 0;
+
+    // The world-spawner cap defaults these versions replaced, kept so the migration only touches untouched files.
+    private static final int OLD_MAX_TRAILS_PER_DIM = 40;
+    private static final int OLD_MAX_TRAILS_SERVER = 200;
+    private static final int OLD_MAINT_PER_CYCLE = 2;
+
     // --- legacy per-chain / anti-farm globals (unchanged) ---
     public int maxChainsPerPlayer = 1;
     public int maxChainsServer = 40;
@@ -40,20 +53,25 @@ public class ZOrbGlobals
     public List<String> openWorldDimensions = new ArrayList<>(Arrays.asList(
             "minecraft:overworld", "dragonminez:namek", "dmz_ragnarok:namekow", "dmz_ragnarok:kaiow"));
     /** Most trails alive in one dimension at once (the network-wide cap, read from the synced pool). */
-    public int maxTrailsPerDimension = 40;
+    public int maxTrailsPerDimension = 6;
     /** Absolute ceiling across all dimensions, a safety cap on the whole pool. */
-    public int maxTrailsServer = 200;
+    public int maxTrailsServer = 24;
     /** Seconds an uncollected trail lives before it relocates to a fresh spot (keeps the pool topped up, moving). */
     public int trailLifetimeSec = 300;
     /** Seconds a collected (tombstoned) trail is kept so the claim propagates before it is GC'd. */
     public int tombstoneGraceSec = 30;
     /** Minimum spacing in blocks between two trail anchors in one dimension. */
     public double trailMinSeparation = 40.0;
+    /**
+     * Minimum empty gap in blocks between the ORBS of two trails (owner, 2026-09-29: some trails were touching). The
+     * spawner measures each trail's reach from its anchor (orbs x spacing), so this holds whatever the shapes are.
+     */
+    public double trailMinGap = 16.0;
     /** Closest a new trail seeds to a player; the far edge derives from the server view distance. */
     public int seedRingMin = 24;
     /** Maintenance cadence in ticks, and how many placement attempts per cycle (spread the cost). */
     public int maintCycleTicks = 20;
-    public int maintPlacementsPerCycle = 2;
+    public int maintPlacementsPerCycle = 1;
 
     // --- chain shape / placement ---
     public int chainMin = 5;
@@ -102,6 +120,7 @@ public class ZOrbGlobals
     public ZOrbGlobals copy()
     {
         ZOrbGlobals g = new ZOrbGlobals();
+        g.configVersion = configVersion;
         g.maxChainsPerPlayer = maxChainsPerPlayer;
         g.maxChainsServer = maxChainsServer;
         g.afkSec = afkSec;
@@ -122,6 +141,7 @@ public class ZOrbGlobals
         g.trailLifetimeSec = trailLifetimeSec;
         g.tombstoneGraceSec = tombstoneGraceSec;
         g.trailMinSeparation = trailMinSeparation;
+        g.trailMinGap = trailMinGap;
         g.seedRingMin = seedRingMin;
         g.maintCycleTicks = maintCycleTicks;
         g.maintPlacementsPerCycle = maintPlacementsPerCycle;
@@ -155,8 +175,28 @@ public class ZOrbGlobals
         return g;
     }
 
+    /**
+     * One-time default migration. Only a file older than {@link #CONFIG_VERSION} is touched, and each cap is lowered
+     * ONLY when it still holds the exact old default (an operator who deliberately picked a value, or picked the old
+     * default and saved through the editor, keeps it: an admin save stamps {@link #CONFIG_VERSION}). After running,
+     * the version is stamped so it never fires again. Idempotent and safe to call on every load and on every incoming
+     * shard payload (a peer already on the new version carries {@link #CONFIG_VERSION} and is left untouched).
+     */
+    public void migrate()
+    {
+        if (configVersion < 1)
+        {
+            // 1.5.0 shipped world-spawner caps an order of magnitude too high; lower untouched files.
+            if (maxTrailsPerDimension == OLD_MAX_TRAILS_PER_DIM) maxTrailsPerDimension = 6;
+            if (maxTrailsServer == OLD_MAX_TRAILS_SERVER) maxTrailsServer = 24;
+            if (maintPlacementsPerCycle == OLD_MAINT_PER_CYCLE) maintPlacementsPerCycle = 1;
+        }
+        configVersion = CONFIG_VERSION;
+    }
+
     public void sanitize()
     {
+        if (configVersion < 0) configVersion = 0;
         if (maxChainsPerPlayer < 1) maxChainsPerPlayer = 1;
         if (maxChainsServer < 1) maxChainsServer = 1;
         if (afkSec < 0) afkSec = 0;
@@ -179,6 +219,7 @@ public class ZOrbGlobals
         if (trailLifetimeSec < 5) trailLifetimeSec = 5;
         if (tombstoneGraceSec < 5) tombstoneGraceSec = 5;
         if (!(trailMinSeparation >= 0)) trailMinSeparation = 0;
+        if (!(trailMinGap >= 0)) trailMinGap = 0;
         if (seedRingMin < 1) seedRingMin = 1;
         if (maintCycleTicks < 1) maintCycleTicks = 1;
         if (maintPlacementsPerCycle < 1) maintPlacementsPerCycle = 1;
@@ -235,6 +276,7 @@ public class ZOrbGlobals
         buf.writeVarInt(trailLifetimeSec);
         buf.writeVarInt(tombstoneGraceSec);
         buf.writeDouble(trailMinSeparation);
+        buf.writeDouble(trailMinGap);
         buf.writeVarInt(seedRingMin);
         buf.writeVarInt(maintCycleTicks);
         buf.writeVarInt(maintPlacementsPerCycle);
@@ -290,6 +332,7 @@ public class ZOrbGlobals
         g.trailLifetimeSec = buf.readVarInt();
         g.tombstoneGraceSec = buf.readVarInt();
         g.trailMinSeparation = buf.readDouble();
+        g.trailMinGap = buf.readDouble();
         g.seedRingMin = buf.readVarInt();
         g.maintCycleTicks = buf.readVarInt();
         g.maintPlacementsPerCycle = buf.readVarInt();

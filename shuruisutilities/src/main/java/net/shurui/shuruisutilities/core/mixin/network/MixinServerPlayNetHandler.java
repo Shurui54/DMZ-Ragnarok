@@ -13,6 +13,7 @@ import net.shurui.shuruisutilities.util.events.world.SignEditEvent;
 import net.shurui.shuruisutilities.util.output.logger.LoggingHandler;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.ParseResults;
+import com.mojang.brigadier.StringReader;
 
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
@@ -98,6 +99,23 @@ public class MixinServerPlayNetHandler
         if (source instanceof CommandSourceStack css && css.getEntity() != null)
             source = css.withPermission(4);
         return dispatcher.parse(command, (CommandSourceStack) source);
+    }
+
+    // Same elevation for TAB COMPLETION. handleCustomCommandSuggestions parses the partial line with the player's
+    // own un-elevated source and feeds it to getCompletionSuggestions, so a node whose requires() reads the source
+    // (or, via MixinDmzCommandPermission, honours the source level) is skipped for a non-op and the client gets no
+    // suggestions: the DMZ symptom is "will not auto complete". Elevate the same way parseCommand does so completion
+    // reaches the argument nodes; the client tree (MixinCommands) and CommandExecutionGuard remain the real gate, and
+    // suggestions are not execution, so this leaks nothing a non-op could run. This parse takes a StringReader, a
+    // different overload from parseCommand's String one. remap=false: parse() is a brigadier method.
+    @Redirect(method = "handleCustomCommandSuggestions", at = @At(value = "INVOKE",
+            target = "Lcom/mojang/brigadier/CommandDispatcher;parse(Lcom/mojang/brigadier/StringReader;Ljava/lang/Object;)Lcom/mojang/brigadier/ParseResults;",
+            remap = false))
+    private ParseResults<CommandSourceStack> fe$elevateSuggestionSource(CommandDispatcher<CommandSourceStack> dispatcher, StringReader reader, Object source)
+    {
+        if (source instanceof CommandSourceStack css && css.getEntity() != null)
+            source = css.withPermission(4);
+        return dispatcher.parse(reader, (CommandSourceStack) source);
     }
 
     // The grave totem "open inside spawn protection" exemption used to live here as an @Redirect on the

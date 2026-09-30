@@ -70,6 +70,9 @@ public final class TrackValidator
         if (mainOrder.size() < 3)
             r.errors.add("The main route is not a closed cycle of at least three nodes (found " + mainOrder.size()
                     + " main node(s) before it broke).");
+        else if (mainSuccessor(byId, mainOrder.get(mainOrder.size() - 1)) != def.startNode)
+            r.errors.add("The main route does not loop back to the start (it ends at node "
+                    + mainOrder.get(mainOrder.size() - 1) + "). In Node mode, right-click the start node to close the lap.");
 
         // Every main node should be part of that single cycle.
         for (TrackNode n : def.nodes)

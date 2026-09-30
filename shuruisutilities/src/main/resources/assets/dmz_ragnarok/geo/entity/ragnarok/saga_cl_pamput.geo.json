@@ -1,0 +1,447 @@
+{
+  "format_version": "1.12.0",
+  "minecraft:geometry": [
+    {
+      "description": {
+        "identifier": "geometry.pamput",
+        "texture_width": 128,
+        "texture_height": 64,
+        "visible_bounds_width": 3,
+        "visible_bounds_height": 3,
+        "visible_bounds_offset": [
+          0,
+          1,
+          0
+        ]
+      },
+      "bones": [
+        {
+          "name": "head",
+          "pivot": [
+            0.0,
+            24.0,
+            0.0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -4.0,
+                24.0,
+                -4.0
+              ],
+              "size": [
+                8.0,
+                8.0,
+                8.0
+              ],
+              "uv": [
+                0,
+                0
+              ]
+            }
+          ],
+          "parent": "waist"
+        },
+        {
+          "name": "head__hairsides",
+          "pivot": [
+            0.0,
+            29.1,
+            1.2
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -5.0,
+                26.1,
+                0.3
+              ],
+              "size": [
+                10.0,
+                6.0,
+                4.0
+              ],
+              "uv": [
+                90,
+                25
+              ]
+            }
+          ],
+          "parent": "head__hair"
+        },
+        {
+          "name": "head__hairtop",
+          "pivot": [
+            0.0,
+            28.4,
+            0.0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -3.5,
+                31.4,
+                -4.0
+              ],
+              "size": [
+                7.0,
+                2.0,
+                8.0
+              ],
+              "uv": [
+                94,
+                2
+              ]
+            }
+          ],
+          "parent": "head__hair"
+        },
+        {
+          "name": "head__hairback",
+          "pivot": [
+            0.0,
+            28.7,
+            4.9
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -3.5,
+                25.7,
+                4.7
+              ],
+              "size": [
+                7.0,
+                6.0,
+                1.0
+              ],
+              "uv": [
+                68,
+                16
+              ]
+            }
+          ],
+          "parent": "head__hair"
+        },
+        {
+          "name": "left_arm",
+          "pivot": [
+            5.0,
+            22.0,
+            0.0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                4.0,
+                12.0,
+                -2.0
+              ],
+              "size": [
+                4.0,
+                12.0,
+                4.0
+              ],
+              "uv": [
+                26,
+                19
+              ]
+            }
+          ],
+          "parent": "waist"
+        },
+        {
+          "name": "right_arm",
+          "pivot": [
+            -5.0,
+            22.0,
+            0.0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -8.0,
+                12.0,
+                -2.0
+              ],
+              "size": [
+                4.0,
+                12.0,
+                4.0
+              ],
+              "uv": [
+                26,
+                19
+              ],
+              "mirror": true
+            }
+          ],
+          "parent": "waist"
+        },
+        {
+          "name": "head__hair",
+          "pivot": [
+            0.0,
+            28.7,
+            0.0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -4.5,
+                24.7,
+                0.0
+              ],
+              "size": [
+                9.0,
+                8.0,
+                5.0
+              ],
+              "uv": [
+                65,
+                1
+              ]
+            }
+          ],
+          "parent": "head"
+        },
+        {
+          "name": "head__hairback2",
+          "pivot": [
+            0.0,
+            28.7,
+            5.9
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -2.5,
+                26.7,
+                5.2
+              ],
+              "size": [
+                5.0,
+                4.0,
+                1.0
+              ],
+              "uv": [
+                68,
+                24
+              ]
+            }
+          ],
+          "parent": "head__hairback"
+        },
+        {
+          "name": "left_leg",
+          "pivot": [
+            2.0,
+            12.0,
+            0.0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                0.0,
+                0.0,
+                -2.0
+              ],
+              "size": [
+                4.0,
+                12.0,
+                4.0
+              ],
+              "uv": [
+                0,
+                35
+              ]
+            }
+          ],
+          "parent": "root"
+        },
+        {
+          "name": "body",
+          "pivot": [
+            0.0,
+            24.0,
+            0.0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -4.0,
+                12.0,
+                -2.0
+              ],
+              "size": [
+                8.0,
+                12.0,
+                4.0
+              ],
+              "uv": [
+                0,
+                17
+              ]
+            }
+          ],
+          "parent": "waist"
+        },
+        {
+          "name": "head__hairfront",
+          "pivot": [
+            0.0,
+            29.5,
+            -2.6
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -4.5,
+                28.5,
+                -5.0
+              ],
+              "size": [
+                9.0,
+                4.0,
+                5.0
+              ],
+              "uv": [
+                34,
+                3
+              ]
+            }
+          ],
+          "parent": "head__hair"
+        },
+        {
+          "name": "head__hairsides3",
+          "pivot": [
+            0.0,
+            28.1,
+            1.6
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -5.5,
+                27.1,
+                0.7
+              ],
+              "size": [
+                11.0,
+                4.0,
+                3.0
+              ],
+              "uv": [
+                91,
+                44
+              ]
+            }
+          ],
+          "parent": "head__hairsides"
+        },
+        {
+          "name": "head__hairsides2",
+          "pivot": [
+            0.0,
+            29.1,
+            -0.5
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -5.0,
+                30.1,
+                -4.7
+              ],
+              "size": [
+                10.0,
+                2.0,
+                5.0
+              ],
+              "uv": [
+                90,
+                36
+              ]
+            }
+          ],
+          "parent": "head__hairsides"
+        },
+        {
+          "name": "right_leg",
+          "pivot": [
+            -2.0,
+            12.0,
+            0.0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -4.0,
+                0.0,
+                -2.0
+              ],
+              "size": [
+                4.0,
+                12.0,
+                4.0
+              ],
+              "uv": [
+                0,
+                35
+              ],
+              "mirror": true
+            }
+          ],
+          "parent": "root"
+        },
+        {
+          "name": "head__hairtop2",
+          "pivot": [
+            0.0,
+            28.4,
+            0.0
+          ],
+          "cubes": [
+            {
+              "origin": [
+                -2.0,
+                31.9,
+                -2.5
+              ],
+              "size": [
+                4.0,
+                2.0,
+                5.0
+              ],
+              "uv": [
+                95,
+                14
+              ]
+            }
+          ],
+          "parent": "head__hairtop"
+        },
+        {
+          "name": "root",
+          "pivot": [
+            0,
+            0,
+            0
+          ],
+          "cubes": []
+        },
+        {
+          "name": "waist",
+          "pivot": [
+            0,
+            12,
+            0
+          ],
+          "cubes": [],
+          "parent": "root"
+        }
+      ]
+    }
+  ]
+}

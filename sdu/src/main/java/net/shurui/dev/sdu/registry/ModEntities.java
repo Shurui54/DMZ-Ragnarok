@@ -49,6 +49,22 @@ public final class ModEntities {
                     .clientTrackingRange(16)
                     .build("pumpkin_puppet"));
 
+    /**
+     * Pilaf Mech: the Halloween 2026 RAID boss (given Duke Snipperjack's native-boss treatment). Registered
+     * unconditionally so its geo always bakes and its saved instances always resolve; whether it may be SPAWNED
+     * is decided by the raid system that names {@code dmz_ragnarok:pilaf_mech} as its boss, and that raid is
+     * gated to the Halloween event (see the {@code pilaf_mech} raid in the key's Halloween bundle). The base box is
+     * the Pilaf Mech rig's native footprint (~4.0 wide by ~12.375 tall); {@link net.shurui.dev.sdu.entity.PilafMechEntity#SCALE}
+     * (0.6) then scales render and hitbox together to a ~2.4 by ~7.4 raid boss.
+     */
+    public static final RegistryObject<EntityType<net.shurui.dev.sdu.entity.PilafMechEntity>> PILAF_MECH =
+            ENTITY_TYPES.register("pilaf_mech", () -> EntityType.Builder
+                    .of(net.shurui.dev.sdu.entity.PilafMechEntity::new, MobCategory.MONSTER)
+                    .sized(4.0f, 12.375f)
+                    .clientTrackingRange(24)
+                    .fireImmune()
+                    .build("pilaf_mech"));
+
     private ModEntities() {
     }
 }

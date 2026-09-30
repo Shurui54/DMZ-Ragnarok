@@ -181,6 +181,90 @@ public final class PlanetCourse
         return true;
     }
 
+    /**
+     * Arm a course (and, if the player is aboard a pod in a launch-eligible place, the launch autopilot) to a planet
+     * named by its key, for the SPACE STAR MAP's "set course" button. This is the body-key counterpart to
+     * {@link #setCourseIfBody}, which resolves through a DMZ destination id: the star map already knows the key, so it
+     * hands it straight here. Course targets are FIXED main planets ({@link PlanetRegistry#bodies}) AND GENERATED planets
+     * (a {@code sugen:} id, a system planet or a legacy exempt one), never the sun, a system star or a SUPER body (a super
+     * key is refused explicitly below, and the autopilot / landing keep it excluded). Writes only the same transient
+     * course/autopilot persistent tags the existing flow writes: no new persisted state, no schema change.
+     *
+     * @return true if a course was set (the caller then checks {@link SpaceAutopilot#isActive} to tell an armed launch
+     *         autopilot from a compass-only pip), false if {@code bodyKey} is not a valid course target
+     */
+    public static boolean armCourseToBody(ServerPlayer player, String bodyKey)
+    {
+        MinecraftServer server = player.getServer();
+        if (server == null || bodyKey == null || bodyKey.isEmpty())
+        {
+            return false;
+        }
+        // A SUPER dragon ball body is NEVER a course or autopilot target. It is not a fixed body, so the registry scan
+        // below already refuses it, but reject it explicitly here so the one shared course entry (star map, and anything
+        // that routes through it) can never steer to a super body even if a super id ever collided with a body key. The
+        // caller turns a false into the translated "not a supported destination" notice.
+        if (SuperPlanetPositions.isSuper(bodyKey))
+        {
+            return false;
+        }
+        // resolve the course target's key and current position. A FIXED main planet (a real DMZ dimension) resolves
+        // through the registry; a GENERATED planet (a sugen: id, a system planet or a legacy claimed/stamped one)
+        // resolves to its live orbital position. A super body was already refused above, and the sun / a system star are
+        // not sugen: ids so they never resolve here.
+        String key;
+        Vec3 pos;
+        PlanetRegistry.Planet body = null;
+        for (PlanetRegistry.Planet p : PlanetRegistry.bodies(server))
+        {
+            if (p.key.equals(bodyKey))
+            {
+                body = p;
+                break;
+            }
+        }
+        if (body != null)
+        {
+            key = body.key;
+            pos = body.position();
+        }
+        else if (bodyKey.startsWith(GeneratedPlanets.ID_PREFIX))
+        {
+            // a generated planet: a system planet (resolved from the deterministic system grid) or a legacy exempt one
+            // (resolved from the cells near a player in space). Its position ORBITS, so the pip is set at where it is now
+            // and the autopilot re-reads it live each tick.
+            GeneratedPlanets.Generated g = GeneratedSystems.findPlanetById(server, bodyKey);
+            if (g == null)
+            {
+                g = GeneratedPlanets.findGenerated(server, bodyKey);
+            }
+            if (g == null)
+            {
+                return false;
+            }
+            key = g.id;
+            pos = g.position;
+        }
+        else
+        {
+            return false;
+        }
+        // record the course and (re)assert the compass pip at the target's position, exactly like setCourseIfBody.
+        player.getPersistentData().putString(COURSE_TAG, key);
+        SpaceCompassBridge.setCourse(player, SpaceDimension.ID.toString(), pos.x, pos.y, pos.z);
+        // arm the launch autopilot ONLY when aboard a pod and in a place a launch is allowed from (already in space, or an
+        // eligible non-forbidden launch dimension), mirroring the pod branch of handleTravel. On foot, or in a forbidden
+        // dimension, only the compass pip is set and the player navigates by hand.
+        boolean canLaunch = isRidingSpacePod(player)
+                && (SpaceDimension.isSpace(player.level())
+                        || SpaceTravelModule.canLaunchFrom(server, player.level().dimension()));
+        if (canLaunch)
+        {
+            SpaceAutopilot.set(player, key);
+        }
+        return true;
+    }
+
     // the planet key the player's course points at, or "" if none.
     public static String courseKey(ServerPlayer player)
     {

@@ -22,5 +22,7 @@ public final class ModBusEvents {
                 net.shurui.dev.sdu.entity.DukeSnipperjackEntity.createAttributes().build());
         event.put(ModEntities.PUMPKIN_PUPPET.get(),
                 net.shurui.dev.sdu.entity.PumpkinPuppetEntity.createAttributes().build());
+        event.put(ModEntities.PILAF_MECH.get(),
+                net.shurui.dev.sdu.entity.PilafMechEntity.createAttributes().build());
     }
 }

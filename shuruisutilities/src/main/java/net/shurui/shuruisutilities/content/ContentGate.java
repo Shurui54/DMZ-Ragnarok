@@ -82,7 +82,11 @@ public final class ContentGate
             return local;
         local = new HashSet<>();
         addAll(local, net.shurui.shuruisutilities.content.ContentItems.ITEMS.getEntries());
-        addAll(local, net.shurui.shuruisutilities.corrupted.CorruptedBalls.ITEMS.getEntries());
+        // The corrupted/defiled dragon balls (CorruptedBalls) are deliberately NOT gated here: the corrupted/defiled
+        // cycle is PUBLIC (1.5.0 decision, only the admin ShadowDragonEditor is key-side). Gating them made a keyless
+        // server, singleplayer included, cancel right-click and placement of the defiled balls, so the shadow dragon
+        // event could never be triggered by clicking a gathered set. ShadowDragonKeylessDefaults exists precisely so
+        // a keyless server runs the encounter with default stats and spots, so the balls must stay usable there.
         // The katchin tool set is PUBLIC as of 2.0 (PublicContent.FEATURE_KATCHIN): its tools, smithing templates
         // and block items are only added to the locked set when that feature is withheld, so on a keyless server
         // they stay usable. Withdrawing the feature relocks them with no other edit.

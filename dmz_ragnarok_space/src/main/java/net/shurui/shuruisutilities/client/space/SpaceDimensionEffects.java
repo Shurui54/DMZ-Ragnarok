@@ -98,7 +98,7 @@ public class SpaceDimensionEffects extends DimensionSpecialEffects
     // Radius of the camera-centred shell every element is built on. The stars have used 100 since vanilla; every other
     // layer sits on the SAME shell so the one shared pose transform moves the whole sky as a rigid backdrop. Kept as a
     // named constant now that many populations depend on it agreeing.
-    private static final double SHELL_RADIUS = 100.0D;
+    protected static final double SHELL_RADIUS = 100.0D;
 
     // How many candidate points we scatter for the general field. Some are rejected (too near the sphere centre), so the
     // drawn count is a little lower. ~4500 reads as a rich, deep field; the band and clusters add more on top of this.
@@ -363,9 +363,11 @@ public class SpaceDimensionEffects extends DimensionSpecialEffects
 
     // All three built lazily on the first renderSky call (each needs a live GL context) and then reused for the life of
     // the client. Never rebuilt per frame. Null until the first frame draws them.
-    private VertexBuffer starBuffer;
-    private VertexBuffer nebulaBuffer;
-    private VertexBuffer galaxyBuffer;
+    // protected so the surface subclass (PlanetSurfaceEffects) can reuse the same three prebuilt buffers rather than
+    // owning a second copy of the whole deep-sky field.
+    protected VertexBuffer starBuffer;
+    protected VertexBuffer nebulaBuffer;
+    protected VertexBuffer galaxyBuffer;
 
     // The accumulated parallax offset the sky is currently translated by, per axis. Fed by the per-frame camera delta
     // and eased back toward zero by the decay. This is a continuous accumulator: it only ever changes by small bounded
@@ -538,18 +540,7 @@ public class SpaceDimensionEffects extends DimensionSpecialEffects
     public boolean renderSky(ClientLevel level, int ticks, float partialTick, PoseStack poseStack, Camera camera,
                              Matrix4f projectionMatrix, boolean isFoggy, Runnable setupFog)
     {
-        if (this.nebulaBuffer == null)
-        {
-            this.nebulaBuffer = buildNebulaBuffer();
-        }
-        if (this.galaxyBuffer == null)
-        {
-            this.galaxyBuffer = buildGalaxyBuffer();
-        }
-        if (this.starBuffer == null)
-        {
-            this.starBuffer = buildStarBuffer();
-        }
+        ensureBuffers();
 
         // The framebuffer was already cleared to our fog colour (black, from getBrightnessDependentFogColor) before
         // this call, so the backdrop is a flat black void. We only need to lay the sky over it. Depth mask off so the
@@ -579,12 +570,30 @@ public class SpaceDimensionEffects extends DimensionSpecialEffects
         return true;
     }
 
+    // Build the three static sky buffers on the first call that has a GL context, then reuse them for the life of the
+    // client. Extracted from renderSky so the surface subclass can share the identical field without a second copy.
+    protected void ensureBuffers()
+    {
+        if (this.nebulaBuffer == null)
+        {
+            this.nebulaBuffer = buildNebulaBuffer();
+        }
+        if (this.galaxyBuffer == null)
+        {
+            this.galaxyBuffer = buildGalaxyBuffer();
+        }
+        if (this.starBuffer == null)
+        {
+            this.starBuffer = buildStarBuffer();
+        }
+    }
+
     // Build the shared sky pose for this frame: the camera view rotation, then the slow drift yaw, then the accumulated
     // travel parallax translation. Advancing the parallax accumulator has a per-frame side effect, so this is called
     // exactly once per frame and the resulting matrix is reused for every layer. Post-multiplying the translate onto
     // the camera view (the incoming pose) lands it in a world-aligned frame, keeping the parallax direction consistent
     // as the player turns. We build into a copy so nothing downstream sees our transform.
-    private Matrix4f buildSkyPose(PoseStack poseStack, Camera camera, int ticks, float partialTick)
+    protected Matrix4f buildSkyPose(PoseStack poseStack, Camera camera, int ticks, float partialTick)
     {
         Vec3 pos = camera.getPosition();
         updateParallax(pos, (ticks + partialTick) / 20.0D);
@@ -773,7 +782,19 @@ public class SpaceDimensionEffects extends DimensionSpecialEffects
     // shader with the dust and galaxies.
     void drawStars(Matrix4f skyPose, Matrix4f projectionMatrix)
     {
-        RenderSystem.setShaderColor(STAR_BRIGHTNESS, STAR_BRIGHTNESS, STAR_BRIGHTNESS, 1.0F);
+        drawStars(skyPose, projectionMatrix, STAR_BRIGHTNESS);
+    }
+
+    // Same star draw, but with an explicit brightness multiply so the surface subclass can FADE the field in and out
+    // with its synthetic day/night cycle and its atmosphere thickness (a thick daytime sky washes the stars out, a thin
+    // or night sky lets them through). brightnessMul <= 0 skips the draw entirely.
+    protected void drawStars(Matrix4f skyPose, Matrix4f projectionMatrix, float brightnessMul)
+    {
+        if (brightnessMul <= 0.0F || this.starBuffer == null)
+        {
+            return;
+        }
+        RenderSystem.setShaderColor(brightnessMul, brightnessMul, brightnessMul, 1.0F);
         this.starBuffer.bind();
         this.starBuffer.drawWithShader(skyPose, projectionMatrix, GameRenderer.getPositionColorShader());
         VertexBuffer.unbind();
@@ -784,7 +805,7 @@ public class SpaceDimensionEffects extends DimensionSpecialEffects
     // per-vertex colour and the centre-to-rim alpha gradient, so the shader colour is left at full white and does
     // nothing but pass the vertices through. Same additive blend and depth-off state as the stars (set once in
     // renderSky).
-    private void drawNebulae(Matrix4f skyPose, Matrix4f projectionMatrix)
+    protected void drawNebulae(Matrix4f skyPose, Matrix4f projectionMatrix)
     {
         RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
         this.nebulaBuffer.bind();
@@ -795,7 +816,7 @@ public class SpaceDimensionEffects extends DimensionSpecialEffects
     // Draw the prebuilt galaxy fan buffer (galaxies, bright-star glows and comets) under the shared sky pose, exactly
     // like the dust. Drawn after the dust and before the stars so these brighter objects sit over the faint clouds but
     // under the pinpoint stars.
-    private void drawGalaxies(Matrix4f skyPose, Matrix4f projectionMatrix)
+    protected void drawGalaxies(Matrix4f skyPose, Matrix4f projectionMatrix)
     {
         RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
         this.galaxyBuffer.bind();

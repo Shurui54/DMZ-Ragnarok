@@ -38,6 +38,16 @@ public class MixinServerPlayNetHandlerLeaveMsg
             VanishHooks.announcePresenceToSeers(player, message);
             return;
         }
+        // DISGUISE: on a single server (network off), a disguised player leaves under the disguise name. On a network
+        // this vanilla leave is suppressed and the key announces instead, so this only bites the non-networked case;
+        // keyless the store is empty, so it never fires. Vanish takes precedence above.
+        if (player != null)
+        {
+            String shown = net.shurui.shuruisutilities.disguise.DisguiseState.visibleName(player.getUUID());
+            if (shown != null)
+                message = net.minecraft.network.chat.Component.translatable("multiplayer.player.left", shown)
+                        .withStyle(net.minecraft.ChatFormatting.YELLOW);
+        }
         list.broadcastSystemMessage(message, overlay);
     }
 }

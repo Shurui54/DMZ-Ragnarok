@@ -50,8 +50,18 @@ public class EventEditScreen extends FieldEditScreen
             "gui.dmz_ragnarok.core.event.sub_quests",
             "gui.dmz_ragnarok.core.event.sub_shop",
             "gui.dmz_ragnarok.core.event.sub_holograms",
-            "gui.dmz_ragnarok.core.event.sub_floors" };
+            "gui.dmz_ragnarok.core.event.sub_floors",
+            "gui.dmz_ragnarok.core.event.sub_lootboxes" };
     private static final int SUB_FLOORS = 5;
+
+    /** The event-token variants the loot box token helper and the Rewards token field offer, matching
+     * {@code EventTokenItem}'s variants. A stored off-list variant is still shown and stays selectable. */
+    private static final List<String> TOKEN_VARIANTS = List.of(
+            "halloween", "candy", "candy_corn", "chocolate_dabura", "chocolate_dabura_wrapped");
+
+    /** The theme keys the website styles ({@code body.theme-<key>}); "" is none. Extend this one list to add more;
+     * a stored off-list key is still shown and stays selectable. */
+    private static final List<String> THEME_KEYS = List.of("halloween");
 
     private static final List<String> LOOT_HOSTS;
     static
@@ -70,9 +80,16 @@ public class EventEditScreen extends FieldEditScreen
     private final List<String> pickRegions;
     private final List<String> pickRaids;
     private final List<String> pickRifts;
+    /** The server's live dimension ids (overworld, nether, end, dungeon and any dynamic/space dims), from packet 128. */
+    private final List<String> pickDims;
+    /** "*" (every region) plus the region names, the option list for the region-mob targets multi-select. */
+    private final List<String> targetOptions = new ArrayList<>();
     /** Floor picker for "add floor": values are floor numbers, labels the provider's human labels. */
     private final List<String> floorValues = new ArrayList<>();
     private final List<String> floorLabels = new ArrayList<>();
+    /** Cosmetic catalogue picker for the loot box reward helper (ids + human names, from the packet-128 picks). */
+    private final List<String> pickCosmeticIds = new ArrayList<>();
+    private final List<String> pickCosmeticNames = new ArrayList<>();
     private int section = 0;
 
     // Content sub-editor state: the active sub-section, the shared temp-field set its add block binds to, the row
@@ -81,6 +98,10 @@ public class EventEditScreen extends FieldEditScreen
     private final String[] ct = new String[6];
     private int cEdit = -1;
     private int cScroll = 0;
+    /** The loot box being edited on the Loot Boxes sub (index into content.lootBoxes), or -1 for the box list. */
+    private int lbBox = -1;
+    /** Within one box: false shows its Settings view, true shows its Rewards view (keeps each view short enough). */
+    private boolean lbRewards = false;
     /** The label typed for a floor add, applied when the server's copied config comes back (acceptFloor). */
     private String pendingFloorLabel = "";
 
@@ -92,6 +113,9 @@ public class EventEditScreen extends FieldEditScreen
         this.pickRegions = readList(p, "regions");
         this.pickRaids = readList(p, "raids");
         this.pickRifts = readList(p, "rifts");
+        this.pickDims = readList(p, "dims");
+        targetOptions.add("*");
+        targetOptions.addAll(pickRegions);
         ListTag floors = p.getList("floors", Tag.TAG_COMPOUND);
         for (int i = 0; i < floors.size(); i++)
         {
@@ -99,6 +123,8 @@ public class EventEditScreen extends FieldEditScreen
             floorValues.add(Integer.toString(f.getInt("n")));
             floorLabels.add(f.getString("label"));
         }
+        pickCosmeticIds.addAll(readList(p, "cosmeticIds"));
+        pickCosmeticNames.addAll(readList(p, "cosmeticNames"));
         java.util.Arrays.fill(ct, "");
     }
 
@@ -115,6 +141,43 @@ public class EventEditScreen extends FieldEditScreen
     {
         applyFields();
         section = s;
+        rebuildWidgets();
+    }
+
+    /**
+     * Jump straight to the Content tab's Loot Boxes sub, optionally into one box's reward editor ({@code boxIndex}
+     * &gt;= 0) or the box list ({@code boxIndex} &lt; 0). For the dev visual-test harness; safe to call once the
+     * screen is initialised.
+     */
+    public void showLootBoxesTab(int boxIndex)
+    {
+        showLootBoxesTab(boxIndex, false);
+    }
+
+    public void showLootBoxesTab(int boxIndex, boolean rewards)
+    {
+        section = SECTION_CONTENT;
+        sub = SUB_KEYS.length - 1;
+        resetContentInputs();
+        lbBox = boxIndex;
+        lbRewards = rewards;
+        rebuildWidgets();
+    }
+
+    /** Jump to a top-level tab (0 General .. 5 Rewards, 6 Content) for the dev visual-test harness. */
+    public void showSection(int s)
+    {
+        section = Math.max(0, Math.min(s, SECTION_KEYS.length - 1));
+        rebuildWidgets();
+    }
+
+    /** Jump straight to a Content sub-section (0 Regions .. 6 Loot Boxes) for the dev visual-test harness. */
+    public void showContentSub(int subIndex)
+    {
+        section = SECTION_CONTENT;
+        sub = Math.max(0, Math.min(subIndex, SUB_KEYS.length - 1));
+        lbBox = -1;
+        resetContentInputs();
         rebuildWidgets();
     }
 
@@ -200,7 +263,9 @@ public class EventEditScreen extends FieldEditScreen
 
     private void buildTheme()
     {
-        tf(tr("gui.dmz_ragnarok.core.event.field_theme_key"), def.theme.key, v -> def.theme.key = v);
+        df(tr("gui.dmz_ragnarok.core.event.field_theme_key"), THEME_KEYS, def.theme.key,
+                v -> def.theme.key = v == null ? "" : v.trim());
+        tip(tr("gui.dmz_ragnarok.core.event.theme_key_tip"));
         cf(tr("gui.dmz_ragnarok.core.event.field_primary"), () -> def.theme.primary, v -> def.theme.primary = v);
         cf(tr("gui.dmz_ragnarok.core.event.field_accent"), () -> def.theme.accent, v -> def.theme.accent = v);
         cf(tr("gui.dmz_ragnarok.core.event.field_background"), () -> def.theme.background, v -> def.theme.background = v);
@@ -233,13 +298,13 @@ public class EventEditScreen extends FieldEditScreen
 
     private void buildRewards()
     {
-        tf(tr("gui.dmz_ragnarok.core.event.field_token_variant"), def.content.tokens.variant,
+        df(tr("gui.dmz_ragnarok.core.event.field_token_variant"), TOKEN_VARIANTS, def.content.tokens.variant,
                 v -> def.content.tokens.variant = v == null ? "" : v.trim());
         tf(tr("gui.dmz_ragnarok.core.event.field_token_name"), def.content.tokens.displayName,
                 v -> def.content.tokens.displayName = v);
         bf(tr("gui.dmz_ragnarok.core.event.field_board_on"), def.content.leaderboard.enabled,
                 () -> def.content.leaderboard.enabled = !def.content.leaderboard.enabled);
-        tf(tr("gui.dmz_ragnarok.core.event.field_board_metric"), def.content.leaderboard.metric,
+        df(tr("gui.dmz_ragnarok.core.event.field_board_metric"), METRICS, def.content.leaderboard.metric,
                 v -> def.content.leaderboard.metric = v == null ? "" : v.trim());
         tf(tr("gui.dmz_ragnarok.core.event.field_board_topn"), intStr(def.content.leaderboard.topN),
                 v -> def.content.leaderboard.topN = Math.max(0, parseI(v, def.content.leaderboard.topN)));
@@ -262,6 +327,7 @@ public class EventEditScreen extends FieldEditScreen
     {
         applyFields();
         sub = s;
+        lbBox = -1;
         resetContentInputs();
         rebuildWidgets();
     }
@@ -300,7 +366,8 @@ public class EventEditScreen extends FieldEditScreen
             case 2 -> buildQuestsSub();
             case 3 -> buildShopSub();
             case 4 -> buildHologramsSub();
-            default -> buildFloorsSub();
+            case 5 -> buildFloorsSub();
+            default -> buildLootBoxesSub();
         }
     }
 
@@ -321,9 +388,14 @@ public class EventEditScreen extends FieldEditScreen
         // ct: 0 template region, 1 targets (;), 2 dims (;)
         df(tr("gui.dmz_ragnarok.core.event.field_mob_template"), pickRegions, ct(0), v -> ct[0] = v);
         tip(tr("gui.dmz_ragnarok.core.event.mob_template_tip"));
-        tf(tr("gui.dmz_ragnarok.core.event.field_mob_targets"), ct(1), v -> ct[1] = v);
+        // Targets and dims stay semicolon-joined in ct[] (the stored format), but are picked with multi-selects: the
+        // dropdown reads the split list and writes it back joined. A "*" (every region) option and any stored value
+        // no longer in the list (a deleted region, an unloaded dim) stay selectable through dfMulti's own preserving.
+        dfMulti(tr("gui.dmz_ragnarok.core.event.field_mob_targets"), targetOptions, splitList(ct(1)),
+                list -> ct[1] = joinList(list));
         tip(tr("gui.dmz_ragnarok.core.event.mob_targets_tip"));
-        tf(tr("gui.dmz_ragnarok.core.event.field_mob_dims"), ct(2), v -> ct[2] = v);
+        dfMulti(tr("gui.dmz_ragnarok.core.event.field_mob_dims"), pickDims, splitList(ct(2)),
+                list -> ct[2] = joinList(list));
         tip(tr("gui.dmz_ragnarok.core.event.mob_dims_tip"));
 
         List<EventDef.RegionMobAdd> rows = def.content.regionMobs;
@@ -484,9 +556,9 @@ public class EventEditScreen extends FieldEditScreen
 
     private void buildHologramsSub()
     {
-        // ct: 0 dim, 1 x, 2 y, 3 z, 4 text
-        tf(tr("gui.dmz_ragnarok.core.event.field_holo_dim"), ct(0).isBlank() ? "minecraft:overworld" : ct(0),
-                v -> ct[0] = v);
+        // ct: 0 dim, 1 x, 2 y, 3 z, 4 text. A blank dim commits as minecraft:overworld (see the add block below); a
+        // stored dim no longer in the list stays selectable through df's own off-list preserving.
+        df(tr("gui.dmz_ragnarok.core.event.field_holo_dim"), pickDims, ct(0), v -> ct[0] = v);
         label(tr("gui.dmz_ragnarok.core.event.field_holo_pos"), 14, rowY + 2);
         int fx = fieldColX(), third = (fieldColW() - 2 * GuiTheme.UNIT) / 3;
         rawField(fx, rowY + 1, third, ct(1), v -> ct[1] = v).setHint(Component.literal("x"));
@@ -608,6 +680,273 @@ public class EventEditScreen extends FieldEditScreen
         sub = SUB_FLOORS;
         resetContentInputs();
         rebuildWidgets();
+    }
+
+    // ---- Loot Boxes: a two-level editor (box list, then one box's weighted reward bundles) ----------------------
+    //
+    // The Halloween Box and the Pumpkin Bag (and any others an admin adds) are LootBox entries on the local def. The
+    // box list adds/opens/removes boxes; opening one edits its display name, announcement toggle + template (with a
+    // live preview), and its weighted reward list. Every reward row is a weight, an optional rarity and a set of
+    // reward-grammar tokens (the same grammar the rest of the event loot uses, plus token:<variant> and cosmetic:).
+    // Helper buttons append a token from the held item, a chosen token variant + count, or a catalogue cosmetic. All
+    // edits are local; the whole def ships on Save (packet 129) and the key validates before persisting.
+
+    private void buildLootBoxesSub()
+    {
+        List<EventDef.LootBox> boxes = def.content.lootBoxes;
+        if (lbBox >= 0 && lbBox < boxes.size())
+            buildOneLootBox(boxes.get(lbBox));
+        else
+        {
+            lbBox = -1;
+            buildLootBoxList(boxes);
+        }
+    }
+
+    private void buildLootBoxList(List<EventDef.LootBox> boxes)
+    {
+        // ct: 0 new box type
+        tf(tr("gui.dmz_ragnarok.core.event.field_lb_type"), ct(0), v -> ct[0] = v);
+        tip(tr("gui.dmz_ragnarok.core.event.lb_type_tip"));
+        addBlock(boxes.size(), () -> {
+            String bt = sanitizeType(ct(0));
+            if (bt.isBlank())
+                return false;
+            for (EventDef.LootBox b : boxes)
+                if (bt.equals(b.boxType))
+                    return false;
+            EventDef.LootBox box = new EventDef.LootBox();
+            box.boxType = bt;
+            box.displayName = "&6" + bt.replace('_', ' ');
+            boxes.add(box);
+            return true;
+        }, null);
+
+        int rh = 13;
+        int listTop = rowY;
+        int cap = rowsThatFit(listTop, rh);
+        cScroll = Math.max(0, Math.min(cScroll, Math.max(0, boxes.size() - cap)));
+        int end = Math.min(boxes.size(), cScroll + cap);
+        for (int i = cScroll; i < end; i++)
+        {
+            final int index = i;
+            int ry = listTop + (i - cScroll) * rh;
+            EventDef.LootBox b = boxes.get(i);
+            String name = b.displayName == null || b.displayName.isBlank() ? b.boxType : b.displayName.replace('&', '§');
+            label("§f" + name + " §7" + b.boxType + " §8"
+                    + tr("gui.dmz_ragnarok.core.event.lb_reward_count", b.rewards.size()), 14, ry + 3, 0xFFFFFFFF);
+            int delX = rowControlRight() - 42;
+            int openX = delX - 2 - 34;
+            btn(openX, ry, 34, GuiTheme.ROW_HEIGHT, Component.translatable("gui.dmz_ragnarok.core.event.btn_open"),
+                    () -> { applyFields(); resetContentInputs(); lbBox = index; lbRewards = false; rebuildWidgets(); });
+            btn(delX, ry, 42, GuiTheme.ROW_HEIGHT, Component.translatable("gui.dmz_ragnarok.core.btn.delete"),
+                    () -> { applyFields(); boxes.remove(index); rebuildWidgets(); });
+        }
+        scrollList(14, uiWidth, listTop, rh, cap, boxes.size(), cScroll,
+                v -> { applyFields(); cScroll = v; rebuildWidgets(); });
+    }
+
+    private void buildOneLootBox(EventDef.LootBox box)
+    {
+        // Back to the box list, plus a two-cell Settings / Rewards nav so each view stays short enough to fit above
+        // the footer with room for the reward list.
+        btn(14, rowY, 70, GuiTheme.BUTTON_HEIGHT,
+                Component.translatable("gui.dmz_ragnarok.core.event.btn_lb_back"),
+                () -> { applyFields(); resetContentInputs(); lbBox = -1; rebuildWidgets(); });
+        String[] caps = { tr("gui.dmz_ragnarok.core.event.lb_tab_settings"),
+                tr("gui.dmz_ragnarok.core.event.lb_tab_rewards") };
+        int navX = 92;
+        int navW = uiWidth - navX - 14;
+        int cellW = (navW - GuiTheme.UNIT) / 2;
+        int below = rowY;
+        below = tabs(navX, rowY, cellW, new String[] { caps[0] }, lbRewards ? -1 : 0,
+                ignored -> { applyFields(); lbRewards = false; java.util.Arrays.fill(ct, ""); cEdit = -1; rebuildWidgets(); });
+        below = tabs(navX + cellW + GuiTheme.UNIT, rowY, cellW, new String[] { caps[1] }, lbRewards ? 0 : -1,
+                ignored -> { applyFields(); lbRewards = true; java.util.Arrays.fill(ct, ""); cEdit = -1; rebuildWidgets(); });
+        rowY = below + 4;
+
+        if (lbRewards)
+            buildBoxRewards(box);
+        else
+            buildBoxSettings(box);
+    }
+
+    /** The box's own settings: display name, the announcement toggle + template, and a live preview line. */
+    private void buildBoxSettings(EventDef.LootBox box)
+    {
+        label("§7" + tr("gui.dmz_ragnarok.core.event.field_lb_type") + " §f" + box.boxType, 14, rowY + 2);
+        rowY += ROW_H;
+        tf(tr("gui.dmz_ragnarok.core.event.field_lb_name"), box.displayName, v -> box.displayName = v);
+        bf(tr("gui.dmz_ragnarok.core.event.field_lb_announce"), box.announce, () -> box.announce = !box.announce);
+        tf(tr("gui.dmz_ragnarok.core.event.field_lb_template"), box.announceTemplate,
+                v -> box.announceTemplate = v == null ? "" : v);
+        tip(tr("gui.dmz_ragnarok.core.event.lb_template_tip"));
+        label("§7" + tr("gui.dmz_ragnarok.core.event.lb_preview") + " §r" + previewAnnounce(box), 14, rowY + 2);
+        rowY += ROW_H;
+    }
+
+    /** The box's weighted reward bundles: the add/edit form (with token helpers) then the reward list with reorder. */
+    private void buildBoxRewards(EventDef.LootBox box)
+    {
+        // ct: 0 weight, 1 rarity, 2 tokens, 3 variant pick, 4 token count, 5 cosmetic pick. Weight + rarity share a
+        // row, and the token variant + cosmetic pickers share a row, to keep the form short.
+        label(tr("gui.dmz_ragnarok.core.event.field_lb_weight") + " / "
+                + tr("gui.dmz_ragnarok.core.event.field_lb_rarity"), 14, rowY + 2);
+        int fx = fieldColX();
+        int half = (fieldColW() - GuiTheme.UNIT) / 2;
+        rawField(fx, rowY + 1, half, ct(0).isBlank() ? "1" : ct(0), v -> ct[0] = v)
+                .setHint(Component.literal("weight"));
+        rawField(fx + half + GuiTheme.UNIT, rowY + 1, half, ct(1), v -> ct[1] = v)
+                .setHint(Component.literal("rarity"));
+        rowY += ROW_H;
+
+        tf(tr("gui.dmz_ragnarok.core.event.field_lb_tokens"), ct(2), v -> ct[2] = v);
+
+        label(tr("gui.dmz_ragnarok.core.event.field_lb_varpick") + " / "
+                + tr("gui.dmz_ragnarok.core.event.field_lb_cospick"), 14, rowY + 5);
+        dfAt(fx, rowY, half, TOKEN_VARIANTS, ct(3).isBlank() ? "candy_corn" : ct(3), v -> ct[3] = v);
+        dfNamedAt(fx + half + GuiTheme.UNIT, rowY, half, pickCosmeticIds, pickCosmeticNames, ct(5), v -> ct[5] = v);
+        rowY += ROW_H;
+
+        // Helper buttons that append one token to the tokens field, plus a small token-count field for + Token.
+        int hY = rowY + GuiTheme.UNIT;
+        btn(14, hY, 46, GuiTheme.BUTTON_HEIGHT, Component.translatable("gui.dmz_ragnarok.core.event.btn_lb_hand"),
+                this::appendHandToken);
+        btn(62, hY, 52, GuiTheme.BUTTON_HEIGHT, Component.translatable("gui.dmz_ragnarok.core.event.btn_lb_token"),
+                () -> { applyFields(); String var = sanitizeType(ct(3)); if (!var.isBlank())
+                        appendToken("token:" + var + ":" + Math.max(1, parseI(ct(4), 1))); });
+        rawField(116, hY, 22, ct(4).isBlank() ? "1" : ct(4), v -> ct[4] = v).setHint(Component.literal("x"));
+        btn(140, hY, 74, GuiTheme.BUTTON_HEIGHT, Component.translatable("gui.dmz_ragnarok.core.event.btn_lb_cos"),
+                () -> { applyFields(); String id = ct(5).trim(); if (!id.isBlank()) appendToken("cosmetic:" + id); });
+        rowY = hY + GuiTheme.BUTTON_HEIGHT + 4;
+
+        List<EventDef.LootBox.Reward> rows = box.rewards;
+        addBlock(rows.size(), () -> {
+            List<String> toks = splitList(ct(2));
+            if (toks.isEmpty())
+                return false;
+            EventDef.LootBox.Reward r = new EventDef.LootBox.Reward();
+            r.weight = Math.max(1, parseI(ct(0), 1));
+            r.rarity = ct(1).trim();
+            r.tokens.addAll(toks);
+            put(rows, r);
+            return true;
+        }, null);
+        rewardRowList(rows);
+    }
+
+    /** Append one grammar token to the reward tokens field (ct[2]), preserving what is already typed. */
+    private void appendToken(String token)
+    {
+        applyFields();
+        String cur = ct(2);
+        ct[2] = cur.isBlank() ? token : cur + "; " + token;
+        rebuildWidgets();
+    }
+
+    /** "From hand": append an item token for the admin's currently held main-hand item. */
+    private void appendHandToken()
+    {
+        net.minecraft.client.player.LocalPlayer p = net.minecraft.client.Minecraft.getInstance().player;
+        if (p == null)
+            return;
+        net.minecraft.world.item.ItemStack held = p.getMainHandItem();
+        if (held.isEmpty())
+            return;
+        net.minecraft.resources.ResourceLocation id =
+                net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(held.getItem());
+        appendToken("item:" + id + ":" + held.getCount());
+    }
+
+    /** The reward list for one box: a line per bundle with Up/Down reorder plus Edit and Delete. */
+    private void rewardRowList(List<EventDef.LootBox.Reward> rows)
+    {
+        int rh = 13;
+        int listTop = rowY;
+        int cap = rowsThatFit(listTop, rh);
+        cScroll = Math.max(0, Math.min(cScroll, Math.max(0, rows.size() - cap)));
+        int end = Math.min(rows.size(), cScroll + cap);
+        for (int i = cScroll; i < end; i++)
+        {
+            final int index = i;
+            int ry = listTop + (i - cScroll) * rh;
+            EventDef.LootBox.Reward r = rows.get(i);
+            String rarity = r.rarity == null || r.rarity.isBlank() ? "" : " §8[" + r.rarity + "]";
+            label((index == cEdit ? "§e> " : "") + "§7w" + r.weight + rarity + " §f" + joinList(r.tokens),
+                    14, ry + 3, 0xFFFFFFFF);
+            int delX = rowControlRight() - 42;
+            int editX = delX - 2 - 30;
+            int downX = editX - 2 - 14;
+            int upX = downX - 2 - 14;
+            btn(upX, ry, 14, GuiTheme.ROW_HEIGHT, Component.literal("↑"), () -> moveReward(rows, index, -1));
+            btn(downX, ry, 14, GuiTheme.ROW_HEIGHT, Component.literal("↓"), () -> moveReward(rows, index, 1));
+            btn(editX, ry, 30, GuiTheme.ROW_HEIGHT, Component.translatable("gui.dmz_ragnarok.core.btn.edit"), () -> {
+                applyFields();
+                java.util.Arrays.fill(ct, "");
+                ct[0] = intStr(r.weight);
+                ct[1] = r.rarity;
+                ct[2] = joinList(r.tokens);
+                cEdit = index;
+                rebuildWidgets();
+            });
+            btn(delX, ry, 42, GuiTheme.ROW_HEIGHT, Component.translatable("gui.dmz_ragnarok.core.btn.delete"), () -> {
+                applyFields();
+                rows.remove(index);
+                if (cEdit == index)
+                {
+                    java.util.Arrays.fill(ct, "");
+                    cEdit = -1;
+                }
+                else if (cEdit > index)
+                {
+                    cEdit--;
+                }
+                rebuildWidgets();
+            });
+        }
+        scrollList(14, uiWidth, listTop, rh, cap, rows.size(), cScroll,
+                v -> { applyFields(); cScroll = v; rebuildWidgets(); });
+    }
+
+    private void moveReward(List<EventDef.LootBox.Reward> rows, int index, int delta)
+    {
+        applyFields();
+        int to = index + delta;
+        if (to < 0 || to >= rows.size())
+            return;
+        java.util.Collections.swap(rows, index, to);
+        if (cEdit == index)
+            cEdit = to;
+        else if (cEdit == to)
+            cEdit = index;
+        rebuildWidgets();
+    }
+
+    /** Render the box's announcement template with sample values, so the admin sees the coloured line it produces. */
+    private String previewAnnounce(EventDef.LootBox box)
+    {
+        if (!box.announce)
+            return "§8(" + tr("gui.dmz_ragnarok.core.event.field_lb_announce") + ": off)";
+        String tpl = box.announceTemplate == null ? "" : box.announceTemplate;
+        String name = box.displayName == null || box.displayName.isBlank() ? box.boxType : box.displayName;
+        return tpl.replace("{player}", "Steve").replace("{box}", name).replace("{item}", "3x Candy")
+                .replace('&', '§');
+    }
+
+    /** Sanitise a box type / token variant to lowercase letters, digits and underscore (never a colon or space). */
+    private static String sanitizeType(String s)
+    {
+        if (s == null)
+            return "";
+        StringBuilder sb = new StringBuilder();
+        for (char c : s.trim().toLowerCase(java.util.Locale.ROOT).toCharArray())
+        {
+            if (c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_')
+                sb.append(c);
+            else if (c == ' ' || c == '-')
+                sb.append('_');
+        }
+        return sb.toString();
     }
 
     // ---- shared add block + row list ----------------------------------------------------------------------------

@@ -203,16 +203,30 @@ public final class PlanetInfoServer
         // guild disbanded is treated as unclaimed, exactly like the command and buster paths.
         try
         {
-            String ownerGuildId = claims.owner(id);
-            if (ownerGuildId != null)
+            // PUBLIC personal conquest claim takes precedence in the display: reuse the owner-name field so the overlay's
+            // existing "owned by X" line shows the conquering player, with no packet change (member count 1, battle power 0
+            // because a personal claim has no guild behind it).
+            String personalOwner = claims.personalOwner(id);
+            if (personalOwner != null)
             {
-                Guild guild = GuildManager.byId(ownerGuildId);
-                if (guild != null)
+                v.claimed = true;
+                v.ownerGuildName = personalOwnerName(server, personalOwner);
+                v.ownerMemberCount = 1;
+                v.ownerBattlePower = 0.0;
+            }
+            else
+            {
+                String ownerGuildId = claims.owner(id);
+                if (ownerGuildId != null)
                 {
-                    v.claimed = true;
-                    v.ownerGuildName = guild.name;
-                    v.ownerMemberCount = guild.memberCount();
-                    v.ownerBattlePower = guild.battlePower();
+                    Guild guild = GuildManager.byId(ownerGuildId);
+                    if (guild != null)
+                    {
+                        v.claimed = true;
+                        v.ownerGuildName = guild.name;
+                        v.ownerMemberCount = guild.memberCount();
+                        v.ownerBattlePower = guild.battlePower();
+                    }
                 }
             }
         }
@@ -223,6 +237,27 @@ public final class PlanetInfoServer
         }
 
         return v;
+    }
+
+    // resolve a personal-claim owner uuid to a display name via the profile cache, falling back to the raw uuid. Never
+    // throws: a cache miss or malformed uuid just shows the uuid.
+    private static String personalOwnerName(MinecraftServer server, String uuid)
+    {
+        try
+        {
+            java.util.Optional<com.mojang.authlib.GameProfile> profile =
+                    server == null || server.getProfileCache() == null ? java.util.Optional.empty()
+                            : server.getProfileCache().get(java.util.UUID.fromString(uuid));
+            if (profile.isPresent() && profile.get().getName() != null)
+            {
+                return profile.get().getName();
+            }
+        }
+        catch (Throwable ignored)
+        {
+            // fall through to the raw uuid.
+        }
+        return uuid;
     }
 
     // print the built view to the caller's chat as the one-shot /planet look readout. Uses the SAME gui.*.planetinfo.*

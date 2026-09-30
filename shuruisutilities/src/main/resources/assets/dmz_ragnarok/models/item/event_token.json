@@ -6,6 +6,30 @@
   "overrides": [
     {
       "predicate": {
+        "dmz_ragnarok:variant": 1
+      },
+      "model": "dmz_ragnarok:item/event_token_candy"
+    },
+    {
+      "predicate": {
+        "dmz_ragnarok:variant": 2
+      },
+      "model": "dmz_ragnarok:item/event_token_candy_corn"
+    },
+    {
+      "predicate": {
+        "dmz_ragnarok:variant": 3
+      },
+      "model": "dmz_ragnarok:item/event_token_chocolate_dabura"
+    },
+    {
+      "predicate": {
+        "dmz_ragnarok:variant": 4
+      },
+      "model": "dmz_ragnarok:item/event_token_chocolate_dabura_wrapped"
+    },
+    {
+      "predicate": {
         "custom_model_data": 1
       },
       "model": "dmz_ragnarok:item/event_token_candy"

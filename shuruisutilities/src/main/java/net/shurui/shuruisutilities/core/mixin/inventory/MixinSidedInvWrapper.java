@@ -8,7 +8,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.items.wrapper.SidedInvWrapper;
 
-import net.shurui.shuruisutilities.compat.dmz.DragonBallSets;
+import net.shurui.shuruisutilities.dragonballbag.DragonBallConfine;
 
 /**
  * The sided capability route into a vanilla {@link net.minecraft.world.WorldlyContainer} (a furnace face, a brewing
@@ -29,7 +29,9 @@ public abstract class MixinSidedInvWrapper
     private void su$blockDragonBallIntoSidedContainer(int slot, ItemStack stack, boolean simulate,
             CallbackInfoReturnable<ItemStack> cir)
     {
-        if (DragonBallSets.isDragonBall(stack))
+        // A sided wrapper only ever wraps a WorldlyContainer (a furnace face, brewing stand, ...), never the player
+        // inventory, so a ball or the bag reaching here is always bound for a block container and is refused.
+        if (DragonBallConfine.isConfined(stack))
         {
             cir.setReturnValue(stack);
         }

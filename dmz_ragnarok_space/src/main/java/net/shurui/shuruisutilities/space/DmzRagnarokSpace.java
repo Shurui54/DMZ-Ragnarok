@@ -42,6 +42,7 @@ public class DmzRagnarokSpace {
         PlanetGarrisonDefenderEntities.ENTITY_TYPES.register(modEventBus);
         PlanetSaiyanGarrisonEntities.ENTITY_TYPES.register(modEventBus);
         PlanetSaiyanTownEntities.ENTITY_TYPES.register(modEventBus);
+        PlanetOwnerAvatarEntities.ENTITY_TYPES.register(modEventBus);
         SuperBallEntities.ENTITY_TYPES.register(modEventBus);
 
         modEventBus.addListener(this::commonSetup);
@@ -82,5 +83,15 @@ public class DmzRagnarokSpace {
         // space-pod autopilot sync: the controlling client integrates the pod toward the synced target.
         NetworkUtils.registerServerToClient(61, PacketSpaceAutopilotSync.class,
                 PacketSpaceAutopilotSync::encode, PacketSpaceAutopilotSync::decode, PacketSpaceAutopilotSync::handler);
+        // per-planet surface sky (B1): the theme and space-body anchor of the planet a player stands on, so the client
+        // colours its sky and draws the sun and sibling planets. Id 82 (a free SU-channel id; the Space ids are
+        // 49,50,52,53,54,58,61 and 82 collides with none of the core/module/key ids).
+        NetworkUtils.registerServerToClient(82, PacketSurfaceSky.class,
+                PacketSurfaceSky::encode, PacketSurfaceSky::decode, PacketSurfaceSky::handler);
+        // space STAR MAP set-course / engage-autopilot (C2S): the star map hands the server a fixed-body key to steer
+        // to, and the server arms the same course/autopilot the pod menu does. Id 151: 150 is core's cosmetic art
+        // stream (registerBothWays in ShuruisUtilities), and 151 is the next free SU id on both branches.
+        NetworkUtils.registerClientToServer(151, PacketStarMapCourse.class,
+                PacketStarMapCourse::encode, PacketStarMapCourse::decode, PacketStarMapCourse::handler);
     }
 }

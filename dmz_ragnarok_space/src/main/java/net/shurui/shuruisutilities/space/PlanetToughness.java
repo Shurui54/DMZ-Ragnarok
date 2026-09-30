@@ -31,6 +31,13 @@ public final class PlanetToughness
             return Math.max(1.0, PlanetBusterModule.clashWildToughness());
         }
 
+        // A SYSTEM SUN is the hardest target: busting it takes out its whole system, so it resists far harder than a wild
+        // planet. Flat and high, on the same ki-damage scale, so only a strong developed blast can open and win its clash.
+        if (GeneratedSystems.isSystemStar(planetId))
+        {
+            return Math.max(1.0, PlanetBusterModule.clashStarToughness());
+        }
+
         String owningGuildId = GeneratedPlanetClaims.get(server).owner(planetId);
         if (owningGuildId == null)
         {

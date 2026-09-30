@@ -1,6 +1,5 @@
 package net.shurui.shuruisutilities.space;
 
-import java.util.ArrayList;
 import java.util.List;
 
 import net.minecraft.server.MinecraftServer;
@@ -256,6 +255,12 @@ public final class StarPositions
         {
             return true;
         }
+        // B2: keep stars out of the reserved inner solar system (the sun and the approach to the innermost ring), so the
+        // sun-and-rings core reads deliberately rather than cluttered. Purely derived, no saved state, so this is safe.
+        if (PlanetPositions.insideInnerSystem(pos))
+        {
+            return true;
+        }
         for (FixedBody planet : SpaceLayout.fixedBodies(server))
         {
             Vec3 c = planet.position;
@@ -276,34 +281,11 @@ public final class StarPositions
      */
     public static List<Star> starsNear(MinecraftServer server, Vec3 around, double range)
     {
-        List<Star> out = new ArrayList<>();
-        int sector = sectorSize;
-        int minCx = Math.floorDiv((int) Math.floor(around.x - range), sector);
-        int maxCx = Math.floorDiv((int) Math.floor(around.x + range), sector);
-        int minCy = Math.floorDiv((int) Math.floor(around.y - range), sector);
-        int maxCy = Math.floorDiv((int) Math.floor(around.y + range), sector);
-        int minCz = Math.floorDiv((int) Math.floor(around.z - range), sector);
-        int maxCz = Math.floorDiv((int) Math.floor(around.z + range), sector);
-        double rangeSq = range * range;
-
-        for (int cx = minCx; cx <= maxCx; ++cx)
-        {
-            for (int cy = minCy; cy <= maxCy; ++cy)
-            {
-                for (int cz = minCz; cz <= maxCz; ++cz)
-                {
-                    Star s = starFor(server, cx, cy, cz);
-                    if (s == null)
-                    {
-                        continue;
-                    }
-                    if (s.position.distanceToSqr(around) <= rangeSq)
-                    {
-                        out.add(s);
-                    }
-                }
-            }
-        }
-        return out;
+        // Since the space rework the stars in the sky ARE the system suns: each is the centre of a generated star system
+        // (one sun, 5 to 9 orbiting planets), enumerated by {@link GeneratedSystems}. This one method is the seam through
+        // which the renderer draws them and the burn hazard heats them, unchanged. The old scattered decorative-star
+        // derivation ({@link #starFor} / {@link #candidateFor}) is retired and no longer called; the {@link Star} record,
+        // the radius band and the id namespace live on here because the system suns and the hazard/scan bounds reuse them.
+        return GeneratedSystems.starsNear(server, around, range);
     }
 }

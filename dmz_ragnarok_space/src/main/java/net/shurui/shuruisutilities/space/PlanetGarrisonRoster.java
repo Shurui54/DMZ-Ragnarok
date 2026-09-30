@@ -13,6 +13,7 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraftforge.registries.ForgeRegistries;
 
+import net.shurui.shuruisutilities.ragnarok.RgNpcModels;
 import net.shurui.shuruisutilities.util.output.logger.LoggingHandler;
 
 /**
@@ -47,20 +48,28 @@ public final class PlanetGarrisonRoster
     }
 
     // DragonMineZ registered entity ids, confirmed present in the dragonminez-2.1.3.jar lang (entity.dragonminez.<id>).
-    // saibaman ships as six texture variants saga_saibaman1..6 (all SagaSaibamanEntity, a full combat DBSagasEntity), so
-    // the SAIBAMEN family draws evenly from all six. The enemy namekian is cc_namekian; namek_warrior is a second DMZ
-    // namekian face. The frost-demon family draws on the three Frieza-Force soldiers plus a Moro soldier; the robot family
-    // draws on the geti-star robots. Ids are held as strings and resolved lazily, never as compiled class references, per
-    // the class note.
+    // Conquering a planet is the villain's role, so its wild GARRISON is the world's HEROES, not enemy mobs. The families
+    // still carry their historical NAMES (persisted by name, see PlanetGarrison, so they must not be renamed), but the
+    // faces they spawn are now GOOD-aligned DragonMineZ characters (all normal-sized DBSagasEntity fighters):
+    //   NAMEKIAN  -> Nail and the Piccolo line plus the neutral namek warrior (was the enemy namekian + slug soldier).
+    //   SAIBAMEN  -> Earth's human Z-fighters (was the six saibaman creatures).
+    //   FROST_DEMON -> a veteran hero guard, Piccolo and the hybrid warriors (was the Frieza-Force soldiers).
+    //   ROBOT     -> the GOOD-era androids 16/17/18 (was the geti-star robots + a bio-android face).
+    // Ids are held as strings and resolved lazily, never as compiled class references, per the class note.
     private static final String DMZ = "dragonminez";
-    private static final String[] SAIBAMAN_IDS =
-            {"saga_saibaman1", "saga_saibaman2", "saga_saibaman3", "saga_saibaman4", "saga_saibaman5", "saga_saibaman6"};
-    private static final String NAMEKIAN_ENEMY_ID = "cc_namekian";
+    // Earth's human Z-fighters, one row each; a full combat DBSagasEntity apiece.
+    private static final String[] Z_FIGHTER_HUMAN_IDS =
+            {"saga_krillin", "saga_tien_early", "saga_yamcha", "saga_chaoz", "saga_goten_ssj", "saga_kid_trunks_ssj"};
     private static final String NAMEKIAN_WARRIOR_ID = "namek_warrior";
-    private static final String[] FROST_DEMON_IDS =
-            {"saga_friezasoldier01", "saga_friezasoldier02", "saga_friezasoldier03", "saga_morosoldier"};
-    private static final String[] ROBOT_DMZ_IDS =
-            {"robot1", "robot2", "robot3", "robotxv", "saga_gete_robot"};
+    // the good Namekian defenders: Nail and the Piccolo line, plus the neutral namek warrior.
+    private static final String[] NAMEKIAN_HERO_IDS =
+            {"saga_nail", "saga_piccolo", "saga_piccolo_kami", NAMEKIAN_WARRIOR_ID};
+    // a veteran hero guard for the (renamed-in-spirit) FROST_DEMON slot: Piccolo and the strongest hybrid warriors.
+    private static final String[] HERO_ELITE_IDS =
+            {"saga_piccolo", "saga_gohan_mid_ssj2", "saga_vegeta_mid_ssj", "saga_ftrunks_ssj"};
+    // the GOOD-era androids for the ROBOT slot: 16 (a true robot) and the reformed 17/18.
+    private static final String[] GOOD_ANDROID_IDS =
+            {"saga_a16", "saga_a17", "saga_a18"};
 
     /** One roster face: a factory that mints a fresh, un-added defender entity, or null to skip this row. */
     public interface Member
@@ -142,16 +151,24 @@ public final class PlanetGarrisonRoster
         // armor), with a small chance to be one of the three stronger named NPCs. A single member suffices because the
         // variety lives in the per-spawn appearance roll, not in the roster row.
         SAIYAN(List.of(new SaiyanMember())),
-        // Earth's fighters: pure rgnpc faces.
-        OVERWORLD(rgnpc("nam", "upa", "kingchappa", "monaka", "mastershen", "jackiechun", "ninjamurasaki", "grandpagohan")),
-        // Namekians: MIXED, DMZ's own enemy namekian and namek warrior plus the rgnpc slug soldier.
+        // Red Ribbon Army outpost: pure rgnpc faces, all bundled NinjinEntities saga models (the classic Red Ribbon
+        // cast). Name kept for the persisted-by-name contract, so planets already stamped OVERWORLD keep loading and
+        // simply wear the new faces. Every id here is a LIVE RgNpcModels entry, so setModelId never falls back to the
+        // default 2stars face (Haze Shenron), which is exactly what the old, non-existent "upa" id used to do here.
+        OVERWORLD(rgnpc("saga_cl_red_ribbon_soldier_gunner", "saga_cl_red_ribbon_soldier_bazooka",
+                "saga_cl_officer_black", "saga_cl_ninja_murasaki", "saga_cl_colonel_silver", "saga_cl_colonel_violet",
+                "saga_cl_general_blue", "saga_cl_general_white", "saga_cl_major_metallitron", "saga_cl_mercenary_tao",
+                "saga_cl_android8", "saga_cl_commander_red")),
+        // Namekian heroes: Nail and the Piccolo line plus the neutral namek warrior (all DMZ faces).
         NAMEKIAN(namekianMembers()),
-        // Saibamen: DMZ's own saibaman mob ONLY (SU has no saibaman art of its own).
-        SAIBAMEN(saibamanMembers()),
-        // Frost demons: DMZ's own Frieza-Force soldiers and a Moro soldier ONLY (all DMZ faces).
-        FROST_DEMON(frostDemonMembers()),
-        // Robots: MIXED, DMZ's geti-star robots plus the rgnpc bio-android faces.
-        ROBOT(robotMembers());
+        // Earth's human Z-fighters (Krillin, Tien, Yamcha, Chiaotzu, Goten, kid Trunks). Name kept for the persisted-by-name
+        // contract; these are heroes now, not saibaman creatures.
+        SAIBAMEN(zFighterHumanMembers()),
+        // A veteran hero guard (Piccolo and the strongest hybrid warriors). Name kept for the persisted-by-name contract;
+        // there is no good frost demon, so this slot is the elite hero defenders.
+        FROST_DEMON(heroEliteMembers()),
+        // The GOOD-era androids 16/17/18. Name kept for the persisted-by-name contract.
+        ROBOT(goodAndroidMembers());
 
         private final List<Member> members;
 
@@ -182,51 +199,48 @@ public final class PlanetGarrisonRoster
         return out;
     }
 
-    // NAMEKIAN is a mixed family: DMZ's own enemy namekian and namek warrior plus the rgnpc slug soldier (a generic
-    // green namekian-shaped face). Both DMZ ids resolve lazily, so a version drift on either degrades to fewer faces.
+    // NAMEKIAN is pure DMZ now: the good Namekian defenders (Nail and the Piccolo line) plus the neutral namek warrior.
+    // Every id resolves lazily, so a version drift on any one degrades to fewer faces.
     private static List<Member> namekianMembers()
     {
-        List<Member> out = new ArrayList<>();
-        out.add(new DmzMember(NAMEKIAN_ENEMY_ID));
-        out.add(new DmzMember(NAMEKIAN_WARRIOR_ID));
-        out.add(new RgNpcMember("slugsoldier"));
-        return out;
-    }
-
-    // SAIBAMEN is pure DMZ: one row per saibaman texture variant.
-    private static List<Member> saibamanMembers()
-    {
-        List<Member> out = new ArrayList<>(SAIBAMAN_IDS.length);
-        for (String id : SAIBAMAN_IDS)
+        List<Member> out = new ArrayList<>(NAMEKIAN_HERO_IDS.length);
+        for (String id : NAMEKIAN_HERO_IDS)
         {
             out.add(new DmzMember(id));
         }
         return out;
     }
 
-    // FROST_DEMON is pure DMZ: the three Frieza-Force soldiers plus a Moro soldier.
-    private static List<Member> frostDemonMembers()
+    // SAIBAMEN slot is Earth's human Z-fighters now: one row per hero (all DMZ faces).
+    private static List<Member> zFighterHumanMembers()
     {
-        List<Member> out = new ArrayList<>(FROST_DEMON_IDS.length);
-        for (String id : FROST_DEMON_IDS)
+        List<Member> out = new ArrayList<>(Z_FIGHTER_HUMAN_IDS.length);
+        for (String id : Z_FIGHTER_HUMAN_IDS)
         {
             out.add(new DmzMember(id));
         }
         return out;
     }
 
-    // ROBOT is a mixed family: DMZ's geti-star robots plus the rgnpc bio-android face (biomen). The six biowarrior1..6
-    // faces were dropped: they are the only high-resolution (1280x640) models reachable by random selection, and the
-    // user wants no high-res NPCs on planets. biomen and everything else in the roster are 256x256 or smaller, so the
-    // family is still well populated (5 DMZ robots + biomen).
-    private static List<Member> robotMembers()
+    // FROST_DEMON slot is a veteran hero guard now: Piccolo and the strongest hybrid warriors (all DMZ faces).
+    private static List<Member> heroEliteMembers()
     {
-        List<Member> out = new ArrayList<>();
-        for (String id : ROBOT_DMZ_IDS)
+        List<Member> out = new ArrayList<>(HERO_ELITE_IDS.length);
+        for (String id : HERO_ELITE_IDS)
         {
             out.add(new DmzMember(id));
         }
-        out.add(new RgNpcMember("biomen"));
+        return out;
+    }
+
+    // ROBOT slot is the GOOD-era androids now: 16 (a true robot) and the reformed 17/18 (all DMZ faces, normal-sized).
+    private static List<Member> goodAndroidMembers()
+    {
+        List<Member> out = new ArrayList<>(GOOD_ANDROID_IDS.length);
+        for (String id : GOOD_ANDROID_IDS)
+        {
+            out.add(new DmzMember(id));
+        }
         return out;
     }
 
@@ -263,6 +277,67 @@ public final class PlanetGarrisonRoster
         }
         // unreachable (roll < total), but fall back defensively.
         return families[0];
+    }
+
+    /**
+     * Every distinct rgnpc model id any family's roster can put on a garrison defender, collected across ALL families.
+     * Only the OVERWORLD family wears rgnpc faces today; the others mint DragonMineZ saga entities, which never go
+     * through {@link RgNpcModels}. Collecting across all families means a future rgnpc-faced family is guarded for free.
+     */
+    public static List<String> rgnpcModelIds()
+    {
+        List<String> out = new ArrayList<>();
+        for (Family fam : Family.values())
+        {
+            for (Member m : fam.members)
+            {
+                if (m instanceof RgNpcMember rm && !out.contains(rm.modelId()))
+                {
+                    out.add(rm.modelId());
+                }
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Startup guard: every rgnpc model id this roster can spawn MUST resolve through {@link RgNpcModels#resolveId} to a
+     * live bundled entry. A null resolution means {@code PlanetGarrisonDefenderEntity}/Model would silently fall back to
+     * {@link RgNpcModels#DEFAULT_ID} (the 2stars Haze Shenron face), which is exactly the non-existent "upa" id bug this
+     * guard exists to catch. Returns the list of ids that do NOT resolve (empty when all are fine) and logs each one
+     * clearly. Never throws. Cheap (a dozen map lookups), so it is called on every server start.
+     */
+    public static List<String> validateRgNpcModelIds()
+    {
+        List<String> ids = rgnpcModelIds();
+        List<String> bad = new ArrayList<>();
+        for (String id : ids)
+        {
+            String resolved;
+            try
+            {
+                resolved = RgNpcModels.resolveId(id);
+            }
+            catch (Throwable t)
+            {
+                resolved = null;
+            }
+            if (resolved == null)
+            {
+                bad.add(id);
+                LoggingHandler.sulog.error(
+                        "[PlanetGarrison] rgnpc garrison model id '{}' does NOT resolve to a bundled RgNpcModels entry; a "
+                                + "defender wearing it would fall back to the default '{}' face (Haze Shenron). Add the "
+                                + "bundled model or fix the id.", id, RgNpcModels.DEFAULT_ID);
+            }
+        }
+        if (bad.isEmpty())
+        {
+            LoggingHandler.sulog.info(
+                    "[PlanetGarrison] all {} rgnpc garrison model id(s) resolve to bundled entries (no default fallback).",
+                    ids.size());
+        }
+        return bad;
     }
 
     // parse a stored family name back to the enum, or null if it is unknown (a config/family rename between saves).

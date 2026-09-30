@@ -57,7 +57,9 @@ public final class DisguiseIdentity
         DisguiseView v = DisguiseClientCache.get(id);
         if (v == null)
             return original;
-        Component name = Component.literal(v.targetName);
+        // The TEXT shown is the target's nickname when they have one, else their plain name. The scoreboard team is
+        // still looked up by the account name (targetName), since team membership is keyed by account name, not nick.
+        Component name = Component.literal(v.displayName());
         try
         {
             net.minecraft.client.multiplayer.ClientLevel level = net.minecraft.client.Minecraft.getInstance().level;

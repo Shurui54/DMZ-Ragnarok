@@ -43,6 +43,9 @@ public final class ZOrbGlobalStore
         if (next == null)
             return;
         next.sanitize();
+        // An explicit admin save is a deliberate choice: stamp the current schema so the one-time default migration
+        // never rewrites a value the operator picked (even when it equals an old default).
+        next.configVersion = ZOrbGlobals.CONFIG_VERSION;
         globals = next;
         save();
     }
@@ -59,11 +62,16 @@ public final class ZOrbGlobalStore
                 if (loaded != null)
                 {
                     loaded.sanitize();
+                    boolean needsSave = loaded.configVersion < ZOrbGlobals.CONFIG_VERSION;
+                    loaded.migrate();
                     globals = loaded;
+                    if (needsSave)
+                        save(); // persist the lowered defaults once, so a restart does not re-migrate
                     return;
                 }
             }
             globals = new ZOrbGlobals();
+            globals.configVersion = ZOrbGlobals.CONFIG_VERSION; // fresh install already carries the new defaults
         }
         catch (Throwable t)
         {
@@ -108,6 +116,9 @@ public final class ZOrbGlobalStore
         if (incoming == null)
             throw new IllegalStateException("zorbs:globals payload did not parse");
         incoming.sanitize();
+        // Robust under a rolling deploy: a payload from a shard still on the old jar carries version 0 and the old
+        // caps, so migrate it here too. A peer already on the new version carries CONFIG_VERSION and is untouched.
+        incoming.migrate();
         globals = incoming;
         save();
     }

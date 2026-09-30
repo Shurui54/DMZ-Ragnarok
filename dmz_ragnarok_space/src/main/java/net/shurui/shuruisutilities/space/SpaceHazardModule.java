@@ -66,6 +66,11 @@ public class SpaceHazardModule
     // near the centre, leaving the vast majority of the (now far larger) field as escapable, strengthening pull.
     private static final double NO_RETURN_HORIZON_FACTOR = 3.0;
 
+    // How far past the sun's true surface a player is shoved back out. The sun is not enterable: any player (or a pod, or
+    // a body parked at an old position by a pre-B2 layout) that reaches the surface is pushed to SUN_RADIUS + this every
+    // tick, so nobody is ever left inside the sun.
+    private static final double SUN_PUSH_MARGIN = 20.0;
+
     @SubscribeEvent
     public void onServerTick(TickEvent.ServerTickEvent event)
     {
@@ -80,10 +85,8 @@ public class SpaceHazardModule
         }
         boolean stars = PlanetSpawnModule.starsEnabled();
         boolean holes = PlanetSpawnModule.blackHolesEnabled();
-        if (!stars && !holes)
-        {
-            return;
-        }
+        // the SUN is always a hazard (it is the fixed centre of the system, not a config-toggled scenery field), so we
+        // never early-out on the star/hole toggles: the loop below always runs the sun push and burn.
         ServerLevel space = SpaceDimension.level(server);
         if (space == null)
         {
@@ -119,6 +122,9 @@ public class SpaceHazardModule
             {
                 continue;
             }
+            // the sun always applies (push out of the body every tick, burn on the burn tick), independent of the
+            // star/hole toggles, because the sun is the fixed centre of the system rather than a scenery field.
+            applySun(server, space, player, burnTick);
             if (holes)
             {
                 applyBlackHoles(server, space, player);
@@ -126,6 +132,53 @@ public class SpaceHazardModule
             if (stars && burnTick)
             {
                 applyStarBurn(server, space, player);
+            }
+        }
+    }
+
+    // The central SUN hazard: a NO-FLY body plus a heat field, reusing the star burn magnitudes and death source. The sun
+    // sits at PlanetPositions.sunPosition() with a true half-extent SUN_RADIUS and a heat field out to SUN_DANGER_RADIUS.
+    // A player who reaches the body is pushed back out (the sun cannot be entered, and a body parked at an old pre-B2
+    // position is never left inside it); a player inside the field is burned on the burn tick, scaling from the outer edge
+    // to the surface exactly like a star. Pod riders are shoved by moving the pod (dragPod), on-foot players by teleport.
+    private void applySun(MinecraftServer server, ServerLevel space, ServerPlayer player, boolean burnTick)
+    {
+        Vec3 sun = PlanetPositions.sunPosition();
+        Vec3 p = player.position();
+        double dist = Math.sqrt(sun.distanceToSqr(p));
+        double surface = PlanetPositions.SUN_RADIUS;
+        double danger = PlanetPositions.sunDangerRadius();
+        double noFly = surface + SUN_PUSH_MARGIN;
+
+        if (dist < noFly)
+        {
+            // outward unit direction (a stable default if somehow dead centre), then shove the player/pod out to noFly.
+            Vec3 dir = dist < 1.0E-4 ? new Vec3(1.0, 0.0, 0.0) : p.subtract(sun).scale(1.0 / dist);
+            double step = noFly - dist;
+            boolean inPod = player.getVehicle() instanceof SpacePodEntity;
+            if (!(inPod && dragPod(player, (SpacePodEntity) player.getVehicle(), dir, step)))
+            {
+                Vec3 target = sun.add(dir.scale(noFly));
+                player.teleportTo(space, target.x, target.y, target.z, player.getYRot(), player.getXRot());
+                player.hurtMarked = true;
+            }
+            // now sitting at the no-fly shell, which is inside the heat field, so the burn below still applies.
+            dist = noFly;
+            player.displayClientMessage(Component.translatableWithFallback(
+                    "message.dmz_ragnarok.core.space_sun_no_fly",
+                    "The sun's heat throws you back. You cannot fly into it."), true);
+        }
+
+        if (burnTick && dist < danger)
+        {
+            double t = (danger - dist) / (danger - surface);
+            t = Math.max(0.0, Math.min(1.0, t));
+            double frac = lerp(PlanetSpawnModule.starDamageOuter(), PlanetSpawnModule.starDamageInner(), t);
+            float damage = (float) (frac * player.getMaxHealth());
+            if (damage > 0.0F)
+            {
+                player.invulnerableTime = 0;
+                player.hurt(SpaceHazardDamage.star(space), damage);
             }
         }
     }

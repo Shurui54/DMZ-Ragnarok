@@ -224,6 +224,12 @@ public class SUConfig extends ConfigLoaderBase
     // (oculus / iris / optifine) is present because they replace the whole pipeline and grabbing their G-buffer is garbage.
     public static boolean lensingEnabled;
 
+    // true (default) = the client draws a tapered engine wake ribbon plus a rear exhaust glow behind every space pod
+    // flying in SU's space dimension (the local player's pod and any nearby pods). false = no trail is drawn. Purely
+    // client-side (sampled from the pods' own interpolated motion, no packet), a client-only cosmetic ignored on a
+    // dedicated server.
+    public static boolean podTrailsEnabled;
+
     // Gravity multiplier seeded for the shuruisutilities:planet_vegeta dimension into DragonMineZ's own per-dimension
     // gravity config (GeneralServerConfig.gravity.gravityPerWorld). 10.0 = ten times normal, the Planet Vegeta feel.
     // Seeded once, only if the key is absent, so retuning it here or directly in DMZ's general-server.json is never
@@ -314,6 +320,7 @@ public class SUConfig extends ConfigLoaderBase
     static ForgeConfigSpec.BooleanValue SUflightAura;
     static ForgeConfigSpec.BooleanValue SUsuiteAnnouncements;
     static ForgeConfigSpec.BooleanValue SUlensingEnabled;
+    static ForgeConfigSpec.BooleanValue SUpodTrailsEnabled;
     static ForgeConfigSpec.DoubleValue SUplanetVegetaGravity;
     static ForgeConfigSpec.BooleanValue SUwishTrackingEnabled;
     static ForgeConfigSpec.IntValue SUwishTrackingThreshold;
@@ -578,6 +585,12 @@ public class SUConfig extends ConfigLoaderBase
                 "shader mod (oculus / iris / optifine) is loaded, or if the pass throws once, because those mods replace",
                 "the render pipeline and sampling their framebuffer produces garbage.")
                 .define("BlackHoleLensing", true);
+        SUpodTrailsEnabled = BUILDER.comment(
+                "When true (default), the client draws a tapered engine wake ribbon and a rear exhaust glow behind every",
+                "space pod flying in SU's space dimension (the local player's own pod and any nearby pods). Set to false",
+                "to draw no trail. This is a client-only cosmetic preference sampled from each pod's own motion (no packet)",
+                "and is ignored on a dedicated server.")
+                .define("SpacePodTrails", true);
         BUILDER = ShuruisUtilities.load(BUILDER, isReload);
         BUILDER.pop();
 
@@ -868,6 +881,7 @@ public class SUConfig extends ConfigLoaderBase
         flightAura = SUflightAura.get();
         suiteAnnouncements = SUsuiteAnnouncements.get();
         lensingEnabled = SUlensingEnabled.get();
+        podTrailsEnabled = SUpodTrailsEnabled.get();
         planetVegetaGravity = SUplanetVegetaGravity.get();
         wishTrackingEnabled = SUwishTrackingEnabled.get();
         wishTrackingThreshold = SUwishTrackingThreshold.get();

@@ -160,6 +160,122 @@ public final class BallDormancy
     }
 
     /**
+     * Clear POISONED dormancy records at boot, keeping genuine in-range dormancy untouched. A record's deadline is
+     * stamped with the WRITING server's clock: game time for every set but super ({@link #WALL_CLOCK_SET}), wall
+     * clock for super. Read on a DIFFERENT server's clock, a deadline can land far beyond anything a fresh LOCAL mark
+     * could ever produce: a world's overworld SavedData copied between shards whose world ages differ (game clock) or
+     * whose wall clocks run hours apart (super, see reference-shard-clock-stamps-need-the-db-clock: the hosts were
+     * ~41h apart), or an old migration, leaves a record the local clock will not reach for a very long time, so the
+     * set reads dormant though it was never wished on THIS server. That is the "dormant before being used" report.
+     * This mirrors the shard-sync guard that rewinds a cursor found ahead of the authoritative clock.
+     *
+     * <p>A record is WRONG (and woken here) when:
+     * <ul>
+     *   <li>its set id is not a live DragonMineZ ball set (a stale id from before 1.5.0 or a migration), or</li>
+     *   <li>its GAME deadline exceeds {@code overworldGameTime + WEEK_TICKS}, the most a fresh local mark can set, or</li>
+     *   <li>its WALL deadline exceeds {@code now + SUPER_WALL_MILLIS}, likewise for the wall-clock super set.</li>
+     * </ul>
+     * Because game time only advances and a genuine mark set {@code deadline = markTime + duration}, a genuine record
+     * always satisfies {@code deadline <= nowOnThatClock + duration}; only a foreign-clock record can exceed it, so
+     * this discriminator never touches a real post-wish dormancy still counting down. Idempotent, never throws.
+     */
+    public static void sanitize(MinecraftServer server)
+    {
+        if (server == null)
+            return;
+        BallDormancyStorage storage;
+        try
+        {
+            storage = BallDormancyStorage.get(server);
+        }
+        catch (Throwable t)
+        {
+            return;
+        }
+        long gameTime = overworldGameTime(server);
+        long now = System.currentTimeMillis();
+        long maxGameDeadline = gameTime + WEEK_TICKS;
+        long maxWallDeadline = now + SUPER_WALL_MILLIS;
+        boolean anyCleared = false;
+        for (String setId : storage.dormantSets())
+        {
+            BallDormancyStorage.Dormant d = storage.get(setId);
+            if (d == null)
+                continue;
+            String reason = null;
+            if (!isKnownSet(setId))
+                reason = "no live DMZ ball set by that id (stale/migrated record)";
+            else if (d.clock() == BallDormancyStorage.Clock.WALL)
+            {
+                if (d.deadline() > maxWallDeadline)
+                    reason = "wall-clock deadline " + d.deadline() + " is beyond max " + maxWallDeadline
+                            + " (record from a clock ahead of this server)";
+            }
+            else if (d.deadline() > maxGameDeadline)
+                reason = "game-time deadline " + d.deadline() + " is beyond max " + maxGameDeadline
+                        + " (record from a world age ahead of this server)";
+            if (reason != null)
+            {
+                storage.clear(setId);
+                anyCleared = true;
+                LoggingHandler.sulog.warn("[dormancy] cleared a wrong dormant record for {}: {}", setId, reason);
+            }
+        }
+        if (anyCleared)
+        {
+            BallDormancySync.broadcast(server);
+            refreshRadar(server);
+        }
+    }
+
+    /** True when the id names a dragon ball set DragonMineZ currently knows (guarded; false on any lookup failure). */
+    private static boolean isKnownSet(String setId)
+    {
+        try
+        {
+            return DragonBallDefinitions.getBallSet(setId) != null;
+        }
+        catch (Throwable t)
+        {
+            // Cannot prove it unknown, so keep the record rather than wrongly waking a valid set.
+            return true;
+        }
+    }
+
+    /**
+     * Log the dormancy state of every live DragonMineZ ball set once at boot: a headless-visible proof that a fresh
+     * world starts with every set ACTIVE and that {@link #sanitize} left only genuine dormancy behind. Never throws.
+     */
+    public static void logStateAtBoot(MinecraftServer server)
+    {
+        if (server == null)
+            return;
+        try
+        {
+            for (DragonBallSetDefinition def : DragonBallDefinitions.getBallSets())
+            {
+                if (def == null || def.getId() == null)
+                    continue;
+                String setId = def.getId();
+                if (isDormant(server, setId))
+                {
+                    long remaining = remainingMillis(server, setId);
+                    LoggingHandler.sulog.info("[dormancy] boot state: {} = DORMANT ({} left)", setId,
+                            remaining < 0L ? "?" : formatDuration(remaining));
+                }
+                else
+                {
+                    LoggingHandler.sulog.info("[dormancy] boot state: {} = ACTIVE", setId);
+                }
+            }
+        }
+        catch (Throwable t)
+        {
+            LoggingHandler.sulog.warn("[dormancy] boot state log failed: {}", t.toString());
+        }
+    }
+
+    /**
      * The periodic sweep: wake any dormant set whose deadline has passed on its own clock. Called every few ticks
      * from {@link BallDormancyEvents}. For each waking set it clears the record, re-syncs clients and radar, and
      * announces the wake network wide. Cheap when nothing is dormant.
@@ -247,6 +363,72 @@ public final class BallDormancy
         {
             LoggingHandler.sulog.warn("[dormancy] wake announcement for {} failed: {}", setId, t.toString());
         }
+    }
+
+    /**
+     * Milliseconds until a set wakes, on its own clock, or a negative value when it is not dormant. GAME clock sets
+     * convert their remaining ticks at 50 ms per tick; WALL clock sets subtract from the real clock. Read from the
+     * authoritative {@link BallDormancyStorage} on THIS server, which is the authority for the shard the caller is
+     * on (dormancy is deliberately local SavedData, not a cross-shard row: each server counts its own week / real
+     * day from the summon it saw). Never throws.
+     */
+    public static long remainingMillis(MinecraftServer server, String setId)
+    {
+        if (server == null || setId == null)
+            return -1L;
+        try
+        {
+            BallDormancyStorage.Dormant d = BallDormancyStorage.get(server).get(setId);
+            if (d == null)
+                return -1L;
+            if (d.clock() == BallDormancyStorage.Clock.WALL)
+                return Math.max(0L, d.deadline() - System.currentTimeMillis());
+            long ticksLeft = d.deadline() - overworldGameTime(server);
+            return Math.max(0L, ticksLeft * 50L);
+        }
+        catch (Throwable t)
+        {
+            return -1L;
+        }
+    }
+
+    /**
+     * The action-bar / chat line a radar shows for one set: "The Earth dragon balls are active" when the set is not
+     * dormant, or "The Earth dragon balls awaken in 2d 4h 13m" while it is. Returns an "unknown" line only when the
+     * server or storage cannot be read at all, so the radar always says something truthful. Computed here on the
+     * server, where the deadline lives (the client is only told WHICH sets are dormant, never the deadline).
+     */
+    public static Component radarStatus(MinecraftServer server, String setId)
+    {
+        Component name = displayName(setId);
+        if (server == null || setId == null || setId.isEmpty())
+            return Component.translatable("message.dmz_ragnarok.core.dormancy.radar.unknown", name)
+                    .withStyle(ChatFormatting.GRAY);
+        long remaining = remainingMillis(server, setId);
+        if (remaining < 0L)
+            return Component.translatable("message.dmz_ragnarok.core.dormancy.radar.active", name)
+                    .withStyle(ChatFormatting.AQUA);
+        return Component.translatable("message.dmz_ragnarok.core.dormancy.radar.awaken", name,
+                Component.literal(formatDuration(remaining))).withStyle(ChatFormatting.GOLD);
+    }
+
+    // Compact "2d 4h 13m" style, at most the three coarsest non-zero units, English-neutral unit letters so it reads
+    // the same in every locale. Anything under a minute reads "less than a minute" rather than "0m".
+    private static String formatDuration(long millis)
+    {
+        long totalMinutes = millis / 60000L;
+        if (totalMinutes <= 0L)
+            return "<1m";
+        long days = totalMinutes / (24L * 60L);
+        long hours = (totalMinutes % (24L * 60L)) / 60L;
+        long minutes = totalMinutes % 60L;
+        StringBuilder sb = new StringBuilder();
+        if (days > 0L)
+            sb.append(days).append("d ");
+        if (hours > 0L || days > 0L)
+            sb.append(hours).append("h ");
+        sb.append(minutes).append("m");
+        return sb.toString();
     }
 
     /** A human name for a set: its declared display name if any, else the id with its first letter capitalised. */

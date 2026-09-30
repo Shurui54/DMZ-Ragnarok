@@ -5,7 +5,6 @@ import java.util.function.Supplier;
 import net.shurui.shuruisutilities.commons.network.ISUPacket;
 
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.network.NetworkEvent;
 
 /**
@@ -68,10 +67,9 @@ public class PacketRgNpcAssetsHave implements ISUPacket
     @Override
     public void handle(NetworkEvent.Context context)
     {
-        ServerPlayer player = context.getSender();
-        if (player == null)
-            return;
-        RgNpcAssetServer.reportFrom(player, version, haveChunks);
+        // INERT HOLE. Packet id 97 was the client's rgnpc asset handshake, retired in September 2026 when the model
+        // set returned to the jar. Kept registered so the id is never reused and an older client's report decodes
+        // without error; the server does nothing with it now.
     }
 
     public static void handler(final PacketRgNpcAssetsHave message, Supplier<NetworkEvent.Context> ctx)

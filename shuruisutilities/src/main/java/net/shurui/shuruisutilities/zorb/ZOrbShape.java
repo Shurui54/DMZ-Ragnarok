@@ -11,7 +11,9 @@ public enum ZOrbShape
     /** A straight line from the start heading. */
     LINE,
     /** A trail that also hops up and back down in a shallow sine arc every few orbs. */
-    ARC;
+    ARC,
+    /** A clean, evenly spaced closed circle at one height, centred on the anchor (reads well as an airborne ring). */
+    RING;
 
     /** Resolve a stored name to a shape, defaulting to {@link #TRAIL} on anything unknown (never throws). */
     public static ZOrbShape byName(String name)

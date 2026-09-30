@@ -172,7 +172,10 @@ public class ZOrbRenderer extends EntityRenderer<ZOrbEntity>
                           float alpha)
     {
         float bob = (float) Math.sin(age * 0.09) * 0.02F;
-        float s = baseRadius * 0.9F;
+        // A flat camera-facing quad has to sit INSIDE the shell sphere (radius == baseRadius at the inactive pulse),
+        // so its half-diagonal (s * sqrt(2)) must stay under baseRadius. 0.55 keeps the whole glyph, corners and all,
+        // comfortably within the ball at every orb size (the last orb scales baseRadius, so this stays proportional).
+        float s = baseRadius * 0.55F;
         float a = Math.min(1.0F, alpha + 0.3F);
 
         pose.pushPose();

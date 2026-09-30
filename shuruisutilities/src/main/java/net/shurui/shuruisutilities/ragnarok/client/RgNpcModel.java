@@ -33,6 +33,9 @@ public class RgNpcModel extends GeoModel<RgNpcEntity> {
     private static final String TEX_PREFIX = "textures/entity/ragnarok/";
     private static final String TEX_SUFFIX = ".png";
 
+    /** A geo name that is deliberately never bundled: a removed/unknown id resolves here so the saiyan draws. */
+    private static final String ABSENT_GEO = "rgnpc_absent";
+
     // remembers which bad values we have already warned about so a broken sync logs once, not every frame.
     // getTextureResource / getModelResource run per entity per frame, so unbounded logging would flood the log.
     private static final Set<String> WARNED = Collections.synchronizedSet(new HashSet<>());
@@ -62,10 +65,18 @@ public class RgNpcModel extends GeoModel<RgNpcEntity> {
     // recomputes exactly the model's own decision. Null if the id will not form a valid location.
     private static ResourceLocation wantedGeo(RgNpcEntity animatable) {
         String id = animatable.getModelId();
-        if (!RgNpcModels.isValidId(id)) {
-            id = RgNpcModels.DEFAULT_ID;
+        String canon = RgNpcModels.resolveId(RgNpcModels.sanitize(id));
+        if (canon == null) {
+            // A blank / unset id is the default model; a NON-blank id that resolves to nothing is a character that
+            // was removed when the streamed set was replaced by the bundled saga models, so it draws the generated
+            // saiyan (a non-present location makes RgNpcFallback report a miss) rather than a wrong character.
+            if (id == null || id.isBlank()) {
+                canon = RgNpcModels.DEFAULT_ID;
+            } else {
+                return build(GEO_PREFIX, ABSENT_GEO, GEO_SUFFIX);
+            }
         }
-        return build(GEO_PREFIX, RgNpcModels.geoId(id), GEO_SUFFIX);
+        return build(GEO_PREFIX, RgNpcModels.geoId(canon), GEO_SUFFIX);
     }
 
     /**

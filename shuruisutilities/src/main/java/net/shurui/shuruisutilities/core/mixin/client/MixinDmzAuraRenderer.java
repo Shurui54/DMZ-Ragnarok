@@ -10,11 +10,14 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 import com.dragonminez.common.init.entities.SpacePodEntity;
 import com.mojang.blaze3d.vertex.PoseStack;
 
+import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 
 import org.joml.Matrix4f;
+import org.joml.Quaternionf;
+import org.joml.Vector3f;
 
 import net.shurui.shuruisutilities.client.autopilot.SpaceAutopilotClient;
 import net.shurui.shuruisutilities.util.output.logger.LoggingHandler;
@@ -31,16 +34,21 @@ import net.shurui.shuruisutilities.util.output.logger.LoggingHandler;
  * aura via {@code VertexBuffer.drawWithShader} with the pose AS the model-view, no separate RenderSystem modelview), and
  * the {@code mulPose(camera.rotation())} + {@code mulPose(YP180)} pair only billboards the quad. We {@link Redirect}
  * exactly the {@code scale} call in that block (ordinal 2 across the whole method: two earlier {@code scale} calls set up
- * the model matrices first) and, only for the local autopilot pilot, add ONE fixed half turn so the plume points out
- * the back instead of up, then enlarge it.</p>
+ * the model matrices first) and, for a pod pilot, reorient the aura in TRUE WORLD SPACE so its long axis points out the
+ * back of the pod (opposite the pod's heading), then enlarge it, before applying the scale.</p>
  *
- * <p>This used to weld the plume to the pod in WORLD space: it cancelled DMZ's two billboard multipliers and laid the
- * aura's long axis along the pod's rear heading, so the exhaust turned with the pod and never with the camera. That
- * reads better on paper and it did not survive contact. Cancelling another mod's matrices means depending on exactly
- * which matrices they are, and that assumption breaks under a shaderpack view stack, under DMZ's over-shoulder camera,
- * and any time DMZ reorders that block. When it broke it did not fail quietly: the plume swung, span, or aimed
- * forwards. A fixed rotation on top of whatever billboard DMZ built cannot do any of that, because nothing in it reads
- * the camera or the pod. The cost is stated plainly: the plume trails rather than tracking the pod's yaw.</p>
+ * <p>The plume is welded to the pod's rear in the world, so it points straight back from every camera angle: the pilot
+ * in first or third person, and any OTHER player watching the pod go by, all see the exhaust behind it rather than
+ * standing up like a normal aura. We do this by cancelling exactly DMZ's OWN two billboard multipliers
+ * ({@code mulPose(camera.rotation())} then {@code mulPose(YP180)}) and laying our world orientation on in their place:
+ * {@code append = YP180 * camera.rotation()^-1 * worldOrient}, so the pose keeps whatever world->view it already baked
+ * (vanilla OR a shaderpack view stack) and ends at {@code world->view * worldOrient}. Cancelling DMZ's own multipliers
+ * rather than reconstructing world->view from the camera is what makes it correct under Iris too: under Iris the pose
+ * DMZ bakes does NOT carry the half turn {@code camera.rotation()} carries, so reconstructing the view left a stray 180
+ * that aimed the plume forwards. An earlier build reverted this to a fixed screen-space half turn to dodge that bug, but
+ * a fixed turn only reads as "back" from one angle and points down or sideways from every other, which is the regression
+ * this restores. {@code require = 0} plus a full try/catch means any future DMZ reshape of this block degrades to DMZ's
+ * own scale, never a crash, so the fragility that motivated the revert cannot take the client down.</p>
  *
  * <p>Ordinal choice is deliberate, not incidental. Another aura-shaping mod redirects {@code mulPose(camera.rotation())}
  * (ordinal 0) and the trailing {@code translate} (ordinal 2) in this SAME method. Two {@code @Redirect}s on one
@@ -67,11 +75,6 @@ public abstract class MixinDmzAuraRenderer
     // uniform enlargement on X and Y so the exhaust reads bigger than a standing aura. Z is left alone on purpose: even
     // after the world-space reorientation below the plume should not have its own depth stretched. Tuning knob.
     private static final float POD_AURA_ENLARGE = 1.6F;
-
-    // Half turn about the billboard's Z, which takes the aura's long axis (local +Y) from pointing up to pointing
-    // back. The one knob for which way the exhaust lies; 180 is straight out the back. Nothing here reads the camera
-    // or the pod, so whatever this is set to, it stays there.
-    private static final float POD_AURA_BACKWARD_DEG = 180.0F;
 
     // fraction of the pod's bounding-box height, measured up from its origin (its feet/base), that locates the pod's
     // visual centre. The centre redirect drops the aura by the live ride offset (down to the pod origin) and then lifts
@@ -116,31 +119,61 @@ public abstract class MixinDmzAuraRenderer
         }
         try
         {
-            // pod exhaust is an autopilot-only cue for the LOCAL pilot; anyone else, or any non-autopilot pod, falls
-            // through to DMZ's own scale unchanged. See su$podExhaustActive for how the client learns the autopilot state.
-            SpacePodEntity pod = su$podExhaustActive(player) ? su$ridingSpacePod(player) : null;
-            if (pod != null)
+            // Reshape the aura into rear-pointing exhaust for a pod pilot. WHO qualifies:
+            //   - the LOCAL pilot, only under autopilot (a genuinely powered-up hand-flying local pilot keeps a normal
+            //     aura, matching MixinDmzAuraLayer's show/hide decision);
+            //   - ANY remote pilot whose aura is being drawn, so other players watching a pod see the exhaust point out
+            //     the back too. A remote client cannot see that pod's autopilot state, so we do not gate remote pods on
+            //     it: a pod pilot's aura reads as thrust regardless.
+            SpacePodEntity pod = su$ridingSpacePod(player);
+            boolean localPilot = player == Minecraft.getInstance().player;
+            boolean reshape = pod != null && (!localPilot || SpaceAutopilotClient.isActive());
+            Camera camera = Minecraft.getInstance().gameRenderer.getMainCamera();
+            if (reshape && camera != null)
             {
-                // The plume is pointed backwards and LEFT there. It used to be welded to the pod in world space:
-                // DMZ's own billboard multipliers were cancelled and the aura's long axis laid along the pod's rear
-                // heading, so the exhaust turned with the pod and never with the camera. That is the better idea on
-                // paper and it did not survive contact. Cancelling another mod's matrices means depending on exactly
-                // which matrices they are, and that assumption breaks under a shaderpack view stack, under DMZ's
-                // over-shoulder camera, and any time DMZ reorders that block; when it broke, the plume swung, span or
-                // aimed forward instead of failing quietly.
-                //
-                // So: keep DMZ's billboard exactly as it built it and add ONE fixed rotation on top. The aura's long
-                // axis is local +Y, so a half turn about the billboard's Z points it the other way, out the back. It
-                // cannot swing, because nothing here reads the camera or the pod's heading. The cost is honest: the
-                // plume no longer tracks the pod's yaw, it simply trails. The line trail behind the pod is drawn
-                // elsewhere (DashTrailRenderer) and is untouched by any of this.
-                pose.mulPose(com.mojang.math.Axis.ZP.rotationDegrees(POD_AURA_BACKWARD_DEG));
+                // The aura reaches this draw in a pose that already BAKES world->view (DMZ draws it via
+                // VertexBuffer.drawWithShader with pose.last().pose() AS the model-view), then multiplies in
+                // mulPose(camera.rotation()) and mulPose(YP180) to billboard the quad. We UNDO exactly those two DMZ
+                // multipliers and lay worldOrient on in their place, so the aura's long axis points out the pod's rear
+                // in the WORLD, welded to the pod: it turns with the pod's heading, never with the camera, and reads
+                // correctly for the pilot AND for any other viewer, because nothing about the orientation depends on
+                // where the camera is. Cancelling DMZ's OWN camera.rotation()/YP180 (rather than rebuilding world->view
+                // from the camera) is what keeps it correct under the Iris shaderpack view stack, where the baked pose
+                // does not carry the half turn camera.rotation() carries.
 
-                // enlarge into an exhaust plume, exactly as before.
+                // The aura's long axis is LOCAL +Y (DMZ's billboard quad spans local X/Y in the z=0 plane with the
+                // texture top at +Y, and DMZ's trailing translate(0, 0.7, 0) lifts the flame up +Y).
+                final Vector3f auraLongAxis = new Vector3f(0f, 1f, 0f);
+
+                // The pod's rear in world space, opposite its facing. MC forward = (-sin(yaw)cos(pitch), -sin(pitch),
+                // cos(yaw)cos(pitch)); rear is its negation, so the exhaust points exactly opposite travel/facing in 3D
+                // (a climb or dive tilts the plume too). getViewYRot/getViewXRot are interpolated so it stays smooth.
+                float yawRad = (float) Math.toRadians(pod.getViewYRot(partialTick));
+                float pitchRad = (float) Math.toRadians(pod.getViewXRot(partialTick));
+                float cosPitch = (float) Math.cos(pitchRad);
+                Vector3f rearWorld = new Vector3f(
+                        (float) Math.sin(yawRad) * cosPitch,
+                        (float) Math.sin(pitchRad),
+                        (float) -Math.cos(yawRad) * cosPitch);
+                if (rearWorld.lengthSquared() < 1.0e-6f)
+                {
+                    rearWorld.set(0f, 0f, -1f);
+                }
+
+                // shortest-arc rotation that carries the aura's long axis onto the pod's rear.
+                Quaternionf worldOrient = new Quaternionf().rotationTo(auraLongAxis, rearWorld.normalize());
+
+                // Undo DMZ's billboard pair and apply worldOrient as one appended rotation. Cancelling only DMZ's own
+                // multipliers leaves the pose's baked world->view (vanilla or shaderpack) untouched.
+                Quaternionf camRotInv = new Quaternionf(camera.rotation()).conjugate();
+                Quaternionf append = new Quaternionf().rotationY((float) Math.PI).mul(camRotInv).mul(worldOrient);
+                pose.mulPose(append);
+
+                // enlarge into an exhaust plume.
                 pose.scale(sx * POD_AURA_ENLARGE, sy * POD_AURA_ENLARGE, sz);
                 return;
             }
-            // not the local pilot, or no autopilot armed: the exact vanilla scale, zero behaviour change for everyone else.
+            // not a qualifying pod pilot (or no camera): the exact vanilla scale, zero behaviour change for everyone else.
             pose.scale(sx, sy, sz);
         }
         catch (Throwable t)
@@ -217,22 +250,10 @@ public abstract class MixinDmzAuraRenderer
     // (the scale redirect for its heading, the centre redirect for its live Y and bounding box), so this returns it and
     // keeps the single ride walk in one place. This walk is duplicated per caller across the codebase (server-side
     // PlanetCourse and SpaceTravelModule each have their own, and MixinDmzAuraLayer walks an AbstractClientPlayer), which
-    // matches the established idiom rather than forcing a shared helper through the working aura-layer mixin.
-    // true only when the pod exhaust should shape this aura: the rendered player is the LOCAL client's own player AND
-    // that client's space autopilot is armed. SpaceAutopilotClient is the client mirror the server syncs (via
-    // PacketSpaceAutopilotSync) ONLY to the controlling pilot, so it describes the local player and no one else; a remote
-    // pod pilot's autopilot state is simply not known on this client, so their aura is never reshaped into an exhaust.
-    // This is the client-side twin of the server's SpaceAutopilot.isActive(player) that the space-hazard immunity uses,
-    // so the two features cannot disagree about when a pod is "auto travelling".
-    private static boolean su$podExhaustActive(Player player)
-    {
-        if (player == null || player != Minecraft.getInstance().player)
-        {
-            return false;
-        }
-        return SpaceAutopilotClient.isActive();
-    }
-
+    // matches the established idiom rather than forcing a shared helper through the working aura-layer mixin. The local
+    // pilot's autopilot state (the extra gate on the LOCAL pilot only) comes from SpaceAutopilotClient, the client mirror
+    // the server syncs via PacketSpaceAutopilotSync to the controlling pilot; a remote pod pilot's autopilot is unknown
+    // here, which is why remote pods are reshaped whenever their aura is drawn rather than gated on it.
     private static SpacePodEntity su$ridingSpacePod(Player player)
     {
         for (Entity vehicle = player.getVehicle(); vehicle != null; vehicle = vehicle.getVehicle())

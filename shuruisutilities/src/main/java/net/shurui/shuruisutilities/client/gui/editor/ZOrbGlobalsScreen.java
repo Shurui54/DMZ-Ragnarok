@@ -117,6 +117,7 @@ public class ZOrbGlobalsScreen extends FieldEditScreen
         tf(tr("gui.dmz_ragnarok.core.zorb.g.lifetime"), intStr(g.trailLifetimeSec), v -> g.trailLifetimeSec = parseI(v, g.trailLifetimeSec));
         tf(tr("gui.dmz_ragnarok.core.zorb.g.tombstone"), intStr(g.tombstoneGraceSec), v -> g.tombstoneGraceSec = parseI(v, g.tombstoneGraceSec));
         tf(tr("gui.dmz_ragnarok.core.zorb.g.separation"), dbl(g.trailMinSeparation), v -> g.trailMinSeparation = parseD(v, g.trailMinSeparation));
+        tf(tr("gui.dmz_ragnarok.core.zorb.g.gap"), dbl(g.trailMinGap), v -> g.trailMinGap = parseD(v, g.trailMinGap));
         tf(tr("gui.dmz_ragnarok.core.zorb.g.seed_ring"), intStr(g.seedRingMin), v -> g.seedRingMin = parseI(v, g.seedRingMin));
         tf(tr("gui.dmz_ragnarok.core.zorb.g.maint_ticks"), intStr(g.maintCycleTicks), v -> g.maintCycleTicks = parseI(v, g.maintCycleTicks));
         tf(tr("gui.dmz_ragnarok.core.zorb.g.maint_per_cycle"), intStr(g.maintPlacementsPerCycle), v -> g.maintPlacementsPerCycle = parseI(v, g.maintPlacementsPerCycle));

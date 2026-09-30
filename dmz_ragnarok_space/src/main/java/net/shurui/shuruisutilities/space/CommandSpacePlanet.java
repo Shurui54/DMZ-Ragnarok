@@ -154,6 +154,15 @@ public class CommandSpacePlanet extends ShuruisUtilitiesCommandBuilder
                 // ANY player (no permission gate), because it exists for the player who has managed to get stuck on a
                 // surface, staff or not. Runs through the standing-on-a-surface guard below like claim/unclaim/info.
                 .then(Commands.literal("unstuck").executes(ctx -> execute(ctx, "unstuck")))
+                // PUBLIC conquest trigger: spawn the theme defender boss for the unowned planet you are standing on once
+                // its wild defenders are cleared, then beat it to claim the planet personally (no guild). Available to any
+                // player, keyless, singleplayer or dedicated. Runs through the standing-on-a-surface guard below.
+                .then(Commands.literal("conquer").executes(ctx -> execute(ctx, "conquer")))
+                // admin/self-test: force-spawn the conquest boss for the planet you are standing on, ignoring the wild
+                // defenders, so the boss + stat-scaling + claim path can be exercised on demand.
+                .then(Commands.literal("conquestboss")
+                        .requires(s -> hasPermission(s, ModuleSpacePlanetClaims.PERM_ADMIN, "spaceplanet.conquestboss"))
+                        .executes(ctx -> execute(ctx, "conquestboss")))
                 // admin subcommands, OP-gated per-node exactly like the guild admin subcommands. These take an explicit
                 // planet id and do NOT require the caller to be standing on the planet, so a planet can be destroyed
                 // from anywhere. The single server-side entry point PlanetDestruction does the work; the ki blast in
@@ -244,7 +253,11 @@ public class CommandSpacePlanet extends ShuruisUtilitiesCommandBuilder
             case "claim":
                 return doClaim(src, player, server, claims, planetId, planetName);
             case "unclaim":
-                return doUnclaim(src, player, claims, planetId, planetName);
+                return doUnclaim(src, player, server, claims, planetId, planetName);
+            case "conquer":
+                return doConquer(src, player, server, claims, planetId, planetName);
+            case "conquestboss":
+                return doDebugConquestBoss(src, player, server, claims, planetId, planetName);
             case "unstuck":
                 return doUnstuck(player, planetId);
             case "info":
@@ -279,6 +292,14 @@ public class CommandSpacePlanet extends ShuruisUtilitiesCommandBuilder
         if (!guild.hasPermission(player.getUUID(), GuildPermission.CLAIM))
         {
             ChatOutputHandler.chatError(src, "Your guild rank lacks permission: claim");
+            return Command.SINGLE_SUCCESS;
+        }
+        // already personally conquered by a player? the two claim paths never share a planet, so a guild cannot take one
+        // a player already owns. Refused with the same translated key the info line uses.
+        if (claims.isPersonallyClaimed(planetId))
+        {
+            player.sendSystemMessage(net.minecraft.network.chat.Component.translatable(
+                    "message.dmz_ragnarok.core.planet_conquest_owned_personal"));
             return Command.SINGLE_SUCCESS;
         }
         // already owned?
@@ -326,6 +347,9 @@ public class CommandSpacePlanet extends ShuruisUtilitiesCommandBuilder
         // the defenders are dead by definition here; clear the garrison bookkeeping so it does not linger on an owned
         // world.
         PlanetGarrison.onPlanetClaimed(server, planetId);
+        // if a public conquest boss was mid-fight on this planet, the guild just took it: despawn the boss and drop the
+        // pending record so the two paths never both resolve the same planet.
+        PlanetConquest.onPlanetClaimed(server, planetId);
         // the owner changed: re-sync the layout so the client's generated-planet nameplate shows the new owner without a
         // relog (bodies are drawn client-side from the synced owner map, not from an entity label any more).
         SpaceLayoutSync.syncAll();
@@ -333,9 +357,23 @@ public class CommandSpacePlanet extends ShuruisUtilitiesCommandBuilder
         return Command.SINGLE_SUCCESS;
     }
 
-    private int doUnclaim(CommandSourceStack src, ServerPlayer player, GeneratedPlanetClaims claims,
-                          String planetId, String planetName)
+    private int doUnclaim(CommandSourceStack src, ServerPlayer player, MinecraftServer server,
+                          GeneratedPlanetClaims claims, String planetId, String planetName)
     {
+        // PUBLIC personal claim: the conquering owner (and only them) may release their own planet, with no guild involved.
+        String personalOwner = claims.personalOwner(planetId);
+        if (personalOwner != null)
+        {
+            if (!personalOwner.equals(player.getUUID().toString()))
+            {
+                ChatOutputHandler.chatError(src, "You do not own this planet.");
+                return Command.SINGLE_SUCCESS;
+            }
+            claims.unclaimPersonal(planetId);
+            SpaceLayoutSync.syncAll();
+            ChatOutputHandler.chatConfirmation(src, "Released your claim on planet %s.", planetName);
+            return Command.SINGLE_SUCCESS;
+        }
         Guild guild = GuildManager.guildOf(player.getUUID());
         if (guild == null)
         {
@@ -360,6 +398,93 @@ public class CommandSpacePlanet extends ShuruisUtilitiesCommandBuilder
         return Command.SINGLE_SUCCESS;
     }
 
+    // PUBLIC conquest trigger. Spawns the theme defender boss for the unowned planet the caller stands on, once its wild
+    // defenders are cleared, and beating that boss claims the planet personally (handled in PlanetConquest on the boss's
+    // death). Handles every state with its own translated line: feature off, already owned, defenders still alive, a boss
+    // already fighting, or spawn success. This is what lets a keyless player conquer a planet whose garrison was disabled
+    // or already cleared before this feature existed, on top of the automatic spawn when the last defender falls.
+    private int doConquer(CommandSourceStack src, ServerPlayer player, MinecraftServer server,
+                          GeneratedPlanetClaims claims, String planetId, String planetName)
+    {
+        if (!PlanetConquest.isEnabled())
+        {
+            ChatOutputHandler.chatError(src, "Planet conquest is disabled on this server.");
+            return Command.SINGLE_SUCCESS;
+        }
+        if (claims.isPersonallyClaimed(planetId))
+        {
+            ChatOutputHandler.chatConfirmation(src, "Planet %s is owned by %s.", planetName,
+                    ownerName(server, claims.personalOwner(planetId)));
+            return Command.SINGLE_SUCCESS;
+        }
+        if (claims.owner(planetId) != null)
+        {
+            ChatOutputHandler.chatError(src, "This planet is already claimed by a guild.");
+            return Command.SINGLE_SUCCESS;
+        }
+        // wild defenders must be cleared first: the boss is the FINAL stage, not the first.
+        if (PlanetGarrison.claimBlocked(server, planetId))
+        {
+            player.sendSystemMessage(net.minecraft.network.chat.Component.translatable(
+                    "message.dmz_ragnarok.core.planet_claim_defended"));
+            return Command.SINGLE_SUCCESS;
+        }
+        ServerLevel surface = (ServerLevel) player.level();
+        if (PlanetConquest.spawnBoss(server, surface, planetId, player, false))
+        {
+            return Command.SINGLE_SUCCESS; // the spawn announces itself; beating the boss claims the planet.
+        }
+        // spawnBoss refused: the most common reason once cleared and unowned is that a boss is already fighting.
+        player.sendSystemMessage(net.minecraft.network.chat.Component.translatable(
+                "message.dmz_ragnarok.core.planet_conquest_boss_present"));
+        return Command.SINGLE_SUCCESS;
+    }
+
+    // admin/self-test: force-spawn the conquest boss for the planet the caller stands on, bypassing the wild-defender gate,
+    // so the boss art, stat scaling and personal-claim-on-defeat can be exercised on demand. OP-gated by the node above.
+    private int doDebugConquestBoss(CommandSourceStack src, ServerPlayer player, MinecraftServer server,
+                                    GeneratedPlanetClaims claims, String planetId, String planetName)
+    {
+        if (claims.isOwned(planetId))
+        {
+            ChatOutputHandler.chatError(src, "That planet is already owned; unclaim it first to test a conquest boss.");
+            return Command.SINGLE_SUCCESS;
+        }
+        ServerLevel surface = (ServerLevel) player.level();
+        if (PlanetConquest.spawnBoss(server, surface, planetId, player, true))
+        {
+            ChatOutputHandler.chatConfirmation(src, "Spawned a conquest boss on planet %s.", planetName);
+        }
+        else
+        {
+            ChatOutputHandler.chatError(src, "Could not spawn a conquest boss (feature off, a boss is already present, or no boss id resolved).");
+        }
+        return Command.SINGLE_SUCCESS;
+    }
+
+    // resolve an owner uuid string to a display name via the server profile cache, falling back to the raw uuid.
+    private static String ownerName(MinecraftServer server, String uuid)
+    {
+        if (server != null && uuid != null)
+        {
+            try
+            {
+                java.util.Optional<com.mojang.authlib.GameProfile> profile =
+                        server.getProfileCache() == null ? java.util.Optional.empty()
+                                : server.getProfileCache().get(java.util.UUID.fromString(uuid));
+                if (profile.isPresent() && profile.get().getName() != null)
+                {
+                    return profile.get().getName();
+                }
+            }
+            catch (Throwable ignored)
+            {
+                // malformed uuid or cache miss: fall through to the raw uuid.
+            }
+        }
+        return uuid;
+    }
+
     // manual escape hatch for a player stuck against the rim boundary: teleport them to their planet's cell centre,
     // ground-snapped, reusing the exact snap SpaceTravelModule's fall-catch uses (SurfaceSnap on the centre column,
     // which is pinned solid). Kills their momentum so ki flight does not fling them straight back into the wall and
@@ -382,8 +507,14 @@ public class CommandSpacePlanet extends ShuruisUtilitiesCommandBuilder
     private int doInfo(CommandSourceStack src, MinecraftServer server, GeneratedPlanetClaims claims,
                        String planetId, String planetName)
     {
+        String personalOwner = claims.personalOwner(planetId);
         String owner = claims.owner(planetId);
-        if (owner == null)
+        if (personalOwner != null)
+        {
+            ChatOutputHandler.chatConfirmation(src, "Planet %s is owned by %s.", planetName,
+                    ownerName(server, personalOwner));
+        }
+        else if (owner == null)
         {
             ChatOutputHandler.chatConfirmation(src, "Planet %s is unclaimed.", planetName);
         }

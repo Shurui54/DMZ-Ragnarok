@@ -80,6 +80,17 @@ public final class RaceFileManager {
      * unreadable, so a caller can distinguish "no data, do nothing" from "this class is genuinely gone" and never
      * mass-migrate players off valid classes on a transient read failure.
      */
+    /** Race folder ids present under DMZ's races config directory (empty on any read failure). */
+    public static Set<String> diskRaceIds() {
+        Set<String> out = new LinkedHashSet<>();
+        try (java.util.stream.Stream<Path> dirs = Files.list(racesDir())) {
+            dirs.filter(Files::isDirectory).forEach(p -> out.add(p.getFileName().toString()));
+        } catch (Exception e) {
+            DmzNpc.LOGGER.debug("[{}] Could not list race folders: {}", DmzNpc.MODID, e.toString());
+        }
+        return out;
+    }
+
     public static Set<String> definedClassIds(String raceId) {
         if (raceId == null || raceId.isBlank()) {
             return Collections.emptySet();

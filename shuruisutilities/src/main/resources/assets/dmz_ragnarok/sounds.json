@@ -330,5 +330,45 @@
     "category": "master",
     "subtitle": "subtitle.dmz_ragnarok.race.impact",
     "sounds": [ "dragonminez:ki_explosion_impact" ]
+  },
+  "pilaf_mech.voice.spawn": {
+    "category": "hostile",
+    "subtitle": "subtitle.dmz_ragnarok.pilaf_mech.voice.spawn",
+    "sounds": []
+  },
+  "pilaf_mech.voice.attack": {
+    "category": "hostile",
+    "subtitle": "subtitle.dmz_ragnarok.pilaf_mech.voice.attack",
+    "sounds": []
+  },
+  "pilaf_mech.voice.hurt": {
+    "category": "hostile",
+    "subtitle": "subtitle.dmz_ragnarok.pilaf_mech.voice.hurt",
+    "sounds": []
+  },
+  "pilaf_mech.voice.enrage": {
+    "category": "hostile",
+    "subtitle": "subtitle.dmz_ragnarok.pilaf_mech.voice.enrage",
+    "sounds": []
+  },
+  "pilaf_mech.voice.phase2": {
+    "category": "hostile",
+    "subtitle": "subtitle.dmz_ragnarok.pilaf_mech.voice.phase2",
+    "sounds": []
+  },
+  "pilaf_mech.voice.low_health": {
+    "category": "hostile",
+    "subtitle": "subtitle.dmz_ragnarok.pilaf_mech.voice.low_health",
+    "sounds": []
+  },
+  "pilaf_mech.voice.death": {
+    "category": "hostile",
+    "subtitle": "subtitle.dmz_ragnarok.pilaf_mech.voice.death",
+    "sounds": []
+  },
+  "pilaf_mech.voice.kill": {
+    "category": "hostile",
+    "subtitle": "subtitle.dmz_ragnarok.pilaf_mech.voice.kill",
+    "sounds": []
   }
 }

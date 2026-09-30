@@ -9,7 +9,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 
-import net.shurui.shuruisutilities.compat.dmz.DragonBallSets;
+import net.shurui.shuruisutilities.dragonballbag.DragonBallConfine;
 
 /**
  * Keeps dragon balls out of Sophisticated Backpacks storage by every route, at the one choke point they all funnel
@@ -41,18 +41,18 @@ import net.shurui.shuruisutilities.compat.dmz.DragonBallSets;
  *       that inserts without re-checking validity.</li>
  * </ul>
  *
- * <p>The dragon ball BAG ({@code DragonBallBagSlot}) is SU's own container and is NOT an {@code InventoryHandler}, so
- * this never touches the one place balls are meant to live. Extraction is never hooked, so a ball already inside a
- * backpack from before this fix can always be taken out (and is auto-ejected on open by
- * {@code compat.sophisticatedbackpacks.BackpackDragonBallEject}).
+ * <p>The dragon ball bag's own storage ({@code DragonBallBagStorage}) is SU's own handler and is NOT an
+ * {@code InventoryHandler}, so this never touches the one place balls are meant to live. Extraction is never hooked, so
+ * a ball or a bag already inside a backpack from before this fix can always be taken out (and is auto-ejected on open by
+ * {@code compat.sophisticatedbackpacks.BackpackDragonBallEject} and the generic container-open backstop).
  *
- * <h2>Ball test and optionality</h2>
+ * <h2>Confined test and optionality</h2>
  *
- * <p>{@link DragonBallSets#isDragonBall(ItemStack)} is the precise, DMZ-derived test used everywhere the suite
- * contains balls (the Slot mixin, the bag). It flags only real ball ITEMS (earth, namek, blackstar, super, cerulean,
- * corrupted) and never the {@code dragonball_bag} item, so a bag can still go in a backpack. It degrades to "not a
- * ball" if DMZ's API shifts, which turns this hook into a no-op exactly as the bag routing and the Slot containment
- * degrade together; that is the same, consistent direction the rest of the ball containment already fails in.
+ * <p>{@code DragonBallConfine.isConfined(ItemStack)} flags both a real dragon ball ITEM (earth, namek, blackstar,
+ * super, cerulean, corrupted) and the {@code dragonball_bag} item, since neither belongs in a backpack (the bag's only
+ * homes are the player inventory and its Curios slot, never other storage). The ball half degrades to "not a ball" if
+ * DMZ's API shifts, turning that half of the hook into a no-op; the bag half is a plain {@code instanceof} on SU's own
+ * item and never depends on DMZ.
  *
  * <p>{@link Pseudo &#64;Pseudo} + {@code targets} string + {@code remap = false}: Sophisticated Core is an optional
  * dependency and is NOT on the compile classpath, so the target is named by string and never classloaded when the mod
@@ -72,7 +72,7 @@ public abstract class MixinSophisticatedInventoryHandler
         at = @At("HEAD"), cancellable = true, remap = false, require = 0)
     private void su$rejectBallValidity(int slot, ItemStack stack, Player player, CallbackInfoReturnable<Boolean> cir)
     {
-        if (DragonBallSets.isDragonBall(stack))
+        if (DragonBallConfine.isConfined(stack))
         {
             cir.setReturnValue(false);
         }
@@ -86,7 +86,7 @@ public abstract class MixinSophisticatedInventoryHandler
     private void su$rejectBallInsertSlot(int slot, ItemStack stack, boolean simulate,
             CallbackInfoReturnable<ItemStack> cir)
     {
-        if (DragonBallSets.isDragonBall(stack))
+        if (DragonBallConfine.isConfined(stack))
         {
             cir.setReturnValue(stack);
         }
@@ -99,7 +99,7 @@ public abstract class MixinSophisticatedInventoryHandler
         at = @At("HEAD"), cancellable = true, remap = false, require = 0)
     private void su$rejectBallInsert(ItemStack stack, boolean simulate, CallbackInfoReturnable<ItemStack> cir)
     {
-        if (DragonBallSets.isDragonBall(stack))
+        if (DragonBallConfine.isConfined(stack))
         {
             cir.setReturnValue(stack);
         }

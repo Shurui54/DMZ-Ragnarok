@@ -21,13 +21,13 @@ import net.shurui.shuruisutilities.clone.MiniCloneEntity;
 @OnlyIn(Dist.CLIENT)
 public class MiniCloneRenderer extends EntityRenderer<MiniCloneEntity>
 {
-    private final MiniClonePlayerRenderer playerRenderer;
+    private final MiniClonePlayerRenderer<MiniCloneEntity> playerRenderer;
     private final MiniCloneGeoRenderer geoRenderer;
 
     public MiniCloneRenderer(EntityRendererProvider.Context context)
     {
         super(context);
-        this.playerRenderer = new MiniClonePlayerRenderer(context);
+        this.playerRenderer = new MiniClonePlayerRenderer<>(context, MiniCloneEntity.CLONE_SCALE);
         this.geoRenderer = new MiniCloneGeoRenderer(context);
         // The dispatcher reads THIS renderer's shadowRadius, not the delegates', so set it here.
         this.shadowRadius = 0.5F * MiniCloneEntity.CLONE_SCALE;

@@ -46,6 +46,17 @@ public class MixinPlayerListVanish
             VanishHooks.announcePresenceToSeers(joining, message);
             return;
         }
+        // DISGUISE: on a single server (network off), this vanilla line is what everyone sees. A disguised player joins
+        // under the disguise name. On a network this whole broadcast body is cancelled and the key announces instead,
+        // so this only bites the non-networked case; keyless the store is empty, so it never fires. Vanish takes
+        // precedence above.
+        if (joining != null)
+        {
+            String shown = net.shurui.shuruisutilities.disguise.DisguiseState.visibleName(joining.getUUID());
+            if (shown != null)
+                message = net.minecraft.network.chat.Component.translatable("multiplayer.player.joined", shown)
+                        .withStyle(net.minecraft.ChatFormatting.YELLOW);
+        }
         list.broadcastSystemMessage(message, overlay);
     }
 

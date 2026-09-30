@@ -262,6 +262,12 @@ public final class AsteroidPositions
         {
             return true;
         }
+        // B2: keep asteroids out of the reserved inner solar system (sun plus approach to the innermost ring). Purely
+        // derived, no saved state, so this is safe.
+        if (PlanetPositions.insideInnerSystem(pos))
+        {
+            return true;
+        }
         for (FixedBody planet : SpaceLayout.fixedBodies(server))
         {
             Vec3 c = planet.position;

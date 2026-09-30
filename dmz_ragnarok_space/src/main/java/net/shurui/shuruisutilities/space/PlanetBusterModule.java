@@ -466,23 +466,43 @@ public class PlanetBusterModule extends ConfigLoaderBase
         double maxRay = SpaceLayout.LABEL_DISTANCE + GeneratedPlanets.maxBodyRadius();
         long gameTime = server.overworld().getGameTime();
         PlanetInfoTarget.Hit hit = PlanetInfoTarget.resolve(server, eye, look, maxRay, gameTime);
-        if (hit == null)
+        Vec3 rayDir = look.lengthSqr() < 1.0E-9 ? null : look.normalize();
+        GeneratedPlanets.Generated target = null;
+        double targetEntry = Double.MAX_VALUE;
+        if (hit != null && rayDir != null)
+        {
+            if (MoonBody.isMoon(hit.id))
+            {
+                target = GeneratedPlanets.forMoon(hit.id, hit.position, hit.radius, hit.surfaceSize);
+            }
+            else
+            {
+                target = GeneratedPlanets.bodyAlongRay(server, eye, look, maxRay);
+            }
+            if (target != null)
+            {
+                targetEntry = GeneratedPlanets.rayCubeEntry(eye, rayDir, target.position, target.radius, maxRay);
+            }
+        }
+        // a SYSTEM SUN on the same ray, nearer than any planet/moon, wins: a sun is bustable too (harder, and it takes
+        // the whole system with it). The star is adapted into the same Generated shape so the entire in-flight / doom /
+        // destroy pipeline treats it uniformly; the destroy step detects the star id and cascades to its planets.
+        if (rayDir != null)
+        {
+            GeneratedPlanets.Generated star = starAlongRay(server, eye, rayDir, maxRay);
+            if (star != null)
+            {
+                double starEntry = GeneratedPlanets.rayCubeEntry(eye, rayDir, star.position, star.radius, maxRay);
+                if (starEntry >= 0.0 && starEntry < targetEntry)
+                {
+                    target = star;
+                }
+            }
+        }
+        if (target == null)
         {
             // shot into empty space (or at a fixed body, which this feature never busts): nothing to do, silently.
             return;
-        }
-        GeneratedPlanets.Generated target;
-        if (MoonBody.isMoon(hit.id))
-        {
-            target = GeneratedPlanets.forMoon(hit.id, hit.position, hit.radius, hit.surfaceSize);
-        }
-        else
-        {
-            target = GeneratedPlanets.bodyAlongRay(server, eye, look, maxRay);
-            if (target == null)
-            {
-                return;   // a generated body was the nearest hit but is no longer derivable this instant: silently drop.
-            }
         }
 
         // gate 4: the exact range rule, the SAME surface-distance form the renderer's label gate uses, so "its name is
@@ -511,8 +531,17 @@ public class PlanetBusterModule extends ConfigLoaderBase
             return;
         }
 
-        // gate 7: the claim policy. Unclaimed proceeds. Claimed proceeds ONLY if the firing player's guild holds an
-        // unspent entitlement for this exact planet; the entitlement is spent at impact, not here.
+        // gate 7a: a PERSONALLY-claimed planet is guarded by its owner's AVATAR, not the raid entitlement. It can be
+        // destroyed only after a challenger beats the avatar, and only during the explodable window (or if the feature is
+        // off / has no snapshot). PlanetOwnerAvatar.explodableNow fails OPEN, so a broken gate never makes it undestroyable.
+        if (claims.isPersonallyClaimed(target.id) && !PlanetOwnerAvatar.explodableNow(server, target.id))
+        {
+            refuse(player, "planet_buster_avatar_guarding");
+            return;
+        }
+
+        // gate 7: the guild claim policy. Unclaimed proceeds. Guild-claimed proceeds ONLY if the firing player's guild
+        // holds an unspent entitlement for this exact planet; the entitlement is spent at impact, not here.
         String owningGuildId = claims.owner(target.id);
         boolean claimed = owningGuildId != null;
         Guild playerGuild = GuildManager.guildOf(player.getUUID());
@@ -566,6 +595,26 @@ public class PlanetBusterModule extends ConfigLoaderBase
     // per-technique setup method runs, so a launched giant ball (and a spirit bomb, which is a GIANT_BALL ki type built at
     // render type 5) reports getKiType() == GIANT_BALL. That is why this NAME match, and the allowlist above, already pick
     // up the spirit bomb without needing to inspect the render type.
+    // the nearest SYSTEM SUN the ray enters, adapted into the Generated shape, or null. Walks the system stars near the
+    // eye (widened by the max star radius so a star whose centre sits just past the reach can still present a near face)
+    // and picks the nearest positive entry, the same slab test bodyAlongRay uses for planets, so a sun and a planet on
+    // the same ray are compared by identical maths. Pure, so it runs server-side here and could run client-side too.
+    private static GeneratedPlanets.Generated starAlongRay(MinecraftServer server, Vec3 eye, Vec3 dir, double maxDistance)
+    {
+        GeneratedPlanets.Generated best = null;
+        double bestEntry = Double.MAX_VALUE;
+        for (StarPositions.Star s : StarPositions.starsNear(server, eye, maxDistance + StarPositions.MAX_RADIUS))
+        {
+            double entry = GeneratedPlanets.rayCubeEntry(eye, dir, s.position, s.radius, maxDistance);
+            if (entry >= 0.0 && entry < bestEntry)
+            {
+                bestEntry = entry;
+                best = GeneratedPlanets.forStar(s.key, s.position, s.radius, s.tint);
+            }
+        }
+        return best;
+    }
+
     private static AbstractKiProjectile recoverProjectile(ServerPlayer player, KiAttackData.KiType firedType)
     {
         ServerLevel level = player.serverLevel();
@@ -1170,6 +1219,13 @@ public class PlanetBusterModule extends ConfigLoaderBase
             refuse(player, "planet_buster_already_destroyed");
             return false;
         }
+        // a PERSONALLY-claimed planet is guarded by its owner's avatar, not the raid entitlement (same rule as the blast
+        // gate). Refuse the beam while the avatar guards it; explodableNow fails open so a broken gate never locks a planet.
+        if (claims.isPersonallyClaimed(target.id) && !PlanetOwnerAvatar.explodableNow(server, target.id))
+        {
+            refuse(player, "planet_buster_avatar_guarding");
+            return false;
+        }
         String owningGuildId = claims.owner(target.id);
         boolean claimed = owningGuildId != null;
         Guild playerGuild = GuildManager.guildOf(player.getUUID());
@@ -1675,6 +1731,17 @@ public class PlanetBusterModule extends ConfigLoaderBase
     public static double clashWildToughness()
     {
         return clashWildToughness;
+    }
+
+    // How much harder a SYSTEM SUN is than a wild planet: its clash toughness (the defender's clash weight, i.e. the ki
+    // damage a blast must out-power to win the struggle) is the wild planet value times this multiplier. Owner rule
+    // (2026-09-29): a system sun is exactly 10x harder than a planet, because destroying it takes out its whole system.
+    // Derived from the wild config rather than a separate knob so it tracks any tuning of the base difficulty.
+    private static final double STAR_TOUGHNESS_MULTIPLIER = 10.0;
+
+    public static double clashStarToughness()
+    {
+        return clashWildToughness * STAR_TOUGHNESS_MULTIPLIER;
     }
 
     public static double clashGuildToughnessBase()

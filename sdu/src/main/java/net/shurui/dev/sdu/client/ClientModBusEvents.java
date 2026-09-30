@@ -33,6 +33,8 @@ public final class ClientModBusEvents {
                 net.shurui.dev.sdu.client.renderer.DukeSnipperjackRenderer::new);
         event.registerEntityRenderer(ModEntities.PUMPKIN_PUPPET.get(),
                 net.shurui.dev.sdu.client.renderer.PumpkinPuppetRenderer::new);
+        event.registerEntityRenderer(ModEntities.PILAF_MECH.get(),
+                net.shurui.dev.sdu.client.renderer.PilafMechRenderer::new);
         // Level Barrier: invisible block model; the BER draws an animated force-field cube (open/closed
         // sprite per viewing player) for everyone.
         event.registerBlockEntityRenderer(

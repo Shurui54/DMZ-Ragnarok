@@ -56,9 +56,10 @@ public final class NamespaceRemap {
     private static final java.util.Set<String> RETIRED_ITEMS = java.util.Set.of(
             // Five decorative placeholder "runes" that did nothing and wore the real armour runes' art.
             "rune_lime", "rune_navy", "rune_orange", "rune_pink", "rune_purple",
-            // The 232 plain placeholder content items removed in the 2.0 debloat (ContentItems held them all;
-            // only ocarina_of_wind and ss_ticket survive). They did nothing in-world, so a save that still
-            // names one loads clean instead of prompting a missing registry entry. All BLOCKS were kept.
+            // The plain placeholder content items removed in the 2.0 debloat (ContentItems held them all). They did
+            // nothing in-world, so a save that still names one loads clean instead of prompting a missing registry
+            // entry. All BLOCKS were kept. Note the nine rupees (r_1 .. r_5000) and the three wallets were restored
+            // in 1.5.1 and are deliberately absent from this list.
             "3507", "5343", "angel_gem", "banshofan", "battlearmorboots02", "battlearmorchest02",
             "battlearmorlegs02", "bdsword", "beanplant", "belt1", "belt2", "belt3", "belt4", "belt5", "belt6",
             "belt7", "big_mushroom", "big_pearl", "bike_voucher", "blackform", "blackpiece", "blackshard",
@@ -83,7 +84,9 @@ public final class NamespaceRemap {
             "mystic_water_vital", "night_crystal", "nugget", "oaks_parcel", "oform", "opiece", "ordon_iron",
             "oshard", "pearl", "pearlblue", "pearlgreen", "pearlred", "pendant_courage", "pendant_power",
             "pendant_wisdom", "pform", "pinkscouter", "pole2", "poletier3", "power_pole", "powerpole", "ppiece",
-            "pshard", "purplescouter", "r_1", "r_10", "r_100", "r_1000", "r_20", "r_5", "r_50", "r_500", "r_5000",
+            "pshard", "purplescouter",
+            // r_1 .. r_5000 and the three wallets were restored in 1.5.1 (real currency items again), so they are
+            // NOT retired: they register in ContentItems and must load, not be ignored.
             "radish_legs", "raditz_boots", "raditz_chest", "record_rg1", "record_rg2", "record_rg3", "record_rg4",
             "record_rg5", "redscouter", "rform", "riceball", "ringbox2", "ringbox3", "rocs_feather",
             "royal_broadsword", "royal_guardsword", "royalguardsword", "rpiece", "rshard", "rusty_broadsword",
@@ -94,8 +97,8 @@ public final class NamespaceRemap {
             "thragg_chestplate", "thraggleggings", "tiny_mushroom", "tonicdivine", "toniclegendary", "tonicmystic",
             "tonicrevive", "tp_body", "tp_boots", "tp_head", "tp_leggings", "travelers_sword", "uubchest",
             "uubleg", "vanity_d_5", "vanity_d_6", "viltrim_leggings", "viltrimboots", "viltrimite_body",
-            "viltrimite_boots", "viltrimite_chest", "viltrimite_head", "viltrimite_leggings", "wallet", "wallet_2",
-            "wallet_upgrade", "weapon_3507", "wolfsburger", "yajirobe_katana_item", "yform", "ypiece", "yshard",
+            "viltrimite_boots", "viltrimite_chest", "viltrimite_head", "viltrimite_leggings",
+            "weapon_3507", "wolfsburger", "yajirobe_katana_item", "yform", "ypiece", "yshard",
             // The five pre-rename music-disc ids, now retired on BOTH sides: record_dbcN was the pre-July-2026
             // name (formerly remapped to record_rgN by RgNpcEntities.Remap) and record_rgN is in the list above,
             // so both families are ignored on load now that the discs are gone.

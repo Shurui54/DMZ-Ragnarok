@@ -59,10 +59,15 @@ import net.shurui.shuruisutilities.core.SUConfig;
 import net.shurui.shuruisutilities.core.ShuruisUtilities;
 import net.shurui.shuruisutilities.space.BlackHolePositions;
 import net.shurui.shuruisutilities.space.GeneratedPlanets;
+import net.shurui.shuruisutilities.space.GeneratedSystems;
 import net.shurui.shuruisutilities.space.FixedBody;
+import net.shurui.shuruisutilities.space.OrbitClock;
+import net.shurui.shuruisutilities.space.Orbits;
 import net.shurui.shuruisutilities.space.MoonBody;
 import net.shurui.shuruisutilities.space.PlanetPositions;
+import net.shurui.shuruisutilities.space.PlanetRings;
 import net.shurui.shuruisutilities.space.SpaceDimension;
+import net.shurui.shuruisutilities.space.SurfaceDimension;
 import net.shurui.shuruisutilities.space.SpaceLayout;
 import net.shurui.shuruisutilities.space.StarPositions;
 import net.shurui.shuruisutilities.space.SuperPlanetPositions;
@@ -203,12 +208,14 @@ public final class SpaceBodyRenderer
     // enough to sit well inside the far plane at any render distance.
     private static final double SHELL = 256.0;
 
-    // FIXED main planets (Earth, Namek, Sacred Kai, ...) sit tens of thousands of blocks apart, far past the general
-    // bodyDrawDistance (default 8000) that bounds the numerous generated planets/stars/black holes. Culling them at that
-    // distance would empty the sky of other main planets, so fixed bodies get their OWN much larger distance: only a
-    // handful, so always considering them is trivial, and shellDrawScale keeps a distant one drawn at true angular size as
-    // a visible landmark. Sized to span any reasonable ring (a default 15000-separation system is ~21850 blocks across).
-    private static final double FIXED_BODY_DRAW_DISTANCE = 64000.0;
+    // FIXED main planets (Earth, Namek, Sacred Kai, ...) and the central SUN sit tens of thousands of blocks apart, far
+    // past the general bodyDrawDistance (default 8000) that bounds the numerous generated planets/stars/black holes.
+    // Culling them at that distance would empty the sky of the other main bodies, so they get their OWN much larger
+    // distance: only a handful, so always considering them is trivial, and shellDrawScale keeps a distant one drawn at
+    // true angular size as a visible landmark. Since B2 the bodies orbit the sun on concentric rings, so the outermost
+    // ring can sit well past 100k blocks (inner floor 6000 + up to a dozen 15000-spaced rings); sized generously to keep
+    // the sun and every ring visible from anywhere in the system.
+    private static final double FIXED_BODY_DRAW_DISTANCE = 400000.0;
 
     // HONEST PERSPECTIVE SIZING. Drawn size is the true radius shrunk by the SAME 1/dist factor as the drawn position
     // (drawBody): past the shell, true DIRECTION kept, pulled onto the shell and scaled by SHELL/dist, so angular size is
@@ -221,6 +228,37 @@ public final class SpaceBodyRenderer
     // beacons. Purely visual: the TRUE radius (overlap footprint, burn-field origin in SpaceHazardModule) is unchanged,
     // and the burn field reaches past even this enlarged draw, so a player still burns before the visible surface.
     private static final float STAR_DRAW_SCALE = 3.0F;
+
+    // DISTANT SYSTEM SUNS ("space seems super empty"). A generated star system is only ONE per ~20000-block sector, so the
+    // near draw distance (~8000) rarely contains one and the sky read empty. Every system's SUN is now drawn as a cheap
+    // far beacon from ANY distance out to this limit (the whole charted universe), so systems are always visible as distant
+    // stars even when none is within the near range. The enumeration is the cached deterministic system grid
+    // (GeneratedSystems.allSystems), so this adds no per-frame cell walking; it is capped and drawn as a couple of additive
+    // discs each. A sun within the NEAR range is already drawn full (drawStar via StarPositions.starsNear) and is skipped
+    // here, so nothing draws twice.
+    private static final double SYSTEM_SUN_DRAW_DISTANCE = GeneratedSystems.UNIVERSE_HALF_EXTENT;
+    // Hard cap on far suns added per refresh, nearest first, so an enormous universe can never make the cached list or the
+    // per-frame draw loop unbounded. The nearest systems win; farther ones are simply off the beacon field.
+    private static final int MAX_FAR_SUNS = 220;
+    // A floor on a far body's DRAWN half-extent (on the ~256-unit shell), so a system tens of thousands of blocks away still
+    // reads as a small point rather than shrinking to nothing. IMPORTANT (the "planets intersecting at distance" fix): the
+    // floor never GROWS the drawn disc past the honest angular size and then reads as a big bright ball covering nearer
+    // bodies. Instead, once a body's honest angular size drops below the floor, the disc is pinned at the floor but its
+    // BRIGHTNESS fades toward FAR_MIN_ALPHA_FRAC (see farFadeAlpha), so a very distant body reads as a dim faint point, not
+    // an inflated disc. That, plus every far body being an additive billboard that never writes depth and being drawn
+    // strictly far-to-near, is what stops a floored far body from ever covering a nearer one.
+    private static final float MIN_FAR_SUN_DRAW = 0.9F;
+    private static final float MIN_FAR_PLANET_DRAW = 0.45F;
+    // the dimmest a fully-floored far body fades to, as a fraction of its base alpha: a faint point that still reads,
+    // never a bright disc.
+    private static final float FAR_MIN_ALPHA_FRAC = 0.28F;
+
+    // DISTANT SYSTEMS AS SUN + PLANETS ("the glowing orbs isn't doing it for me"). Beyond the near range a system is drawn
+    // as its sun beacon PLUS, for the nearest few far systems, its planets as small lit points at their real current
+    // orbital positions, so a distant system reads as a solar system rather than a lone ball. Only the nearest
+    // MAX_FAR_SYSTEMS_WITH_PLANETS get planets (nearest-first), so the far-planet count stays bounded (at most that many
+    // systems times nine planets) however large the universe is; farther systems keep just the sun.
+    private static final int MAX_FAR_SYSTEMS_WITH_PLANETS = 48;
 
     // slow drifts, matching the old renderers.
     private static final float PLANET_DEG_PER_TICK = 0.25F;
@@ -300,14 +338,48 @@ public final class SpaceBodyRenderer
 
     private static final Map<String, Resolved> RESOLVED = new ConcurrentHashMap<>();
 
-    private enum Kind { PLANET, STAR, BLACK_HOLE, SUPER }
+    private enum Kind { PLANET, STAR, BLACK_HOLE, SUPER, FAR_SUN, FAR_PLANET }
 
     // an UNCLAIMED super body reads as stone grey (ball not taken): the dragon ball geometry multiplied by this grey over
     // the plain white star sheet. A CLAIMED body draws the per-star texture untinted (dballblock_super<N>.png), whose
     // painted stars show the count. No orange tint; the claimed texture carries colour.
     private static final int SUPER_GREY = 0x9A9A9A;
 
-    private record Body(Kind kind, Vec3 pos, float radius, int tint, String planetKey)
+    // A body to draw. For an ORBITING body (a fixed main planet, a generated system planet) the {@code orbit} field carries
+    // its orbital CONSTANTS (centre, ring radius, start phase); its drawn position is recomputed EVERY FRAME from the shared
+    // clock via {@link #livePos}, so it advances smoothly instead of snapping to the position captured when the ~1s body
+    // cache was last rebuilt (which read as the body jumping). A non-orbiting body (a sun, a star, a black hole, a legacy
+    // static planet, a super body) leaves {@code orbit} null and draws at its fixed {@code pos}. {@code pos} is still kept
+    // for orbiting bodies too, as the snapshot the cache gathers/culls against.
+    private record Body(Kind kind, Vec3 pos, float radius, int tint, String planetKey, OrbitParams orbit)
+    {
+        Body(Kind kind, Vec3 pos, float radius, int tint, String planetKey)
+        {
+            this(kind, pos, radius, tint, planetKey, null);
+        }
+
+        // the body's position RIGHT NOW: an orbiting body is recomputed from its constants and the clock, everything else is
+        // its fixed pos. The maths matches PlanetPositions.orbitPositionAt / GeneratedSystems.planetPositionAt exactly, so a
+        // rendered body sits where the server lands it.
+        Vec3 livePos(long epoch)
+        {
+            if (orbit == null)
+            {
+                return pos;
+            }
+            // inclined orbit (a generated system planet, tilted plane) or flat (a fixed main planet, inclination 0). The
+            // maths is exactly GeneratedSystems.planetPositionAt / PlanetPositions.orbitPositionAt, so the drawn body sits
+            // where the server lands it.
+            double[] xyz = Orbits.inclinedPosition(orbit.cx(), orbit.cy(), orbit.cz(), orbit.ring(), orbit.phase0(), epoch,
+                    orbit.inclination(), orbit.nodeAngle());
+            return new Vec3(xyz[0], xyz[1], xyz[2]);
+        }
+    }
+
+    // orbital constants for an orbiting body: the centre it orbits (a sun), the ring radius, the start phase, and the
+    // orbital-plane tilt (inclination + line of nodes; both 0 for a flat fixed-planet ring).
+    private record OrbitParams(double cx, double cy, double cz, double ring, double phase0, double inclination,
+                               double nodeAngle)
     {
     }
 
@@ -326,6 +398,14 @@ public final class SpaceBodyRenderer
         {
             // not in space: drop doom state so a sequence never carries into a fresh visit or another dimension.
             PlanetDoomEffects.clear();
+            // B1: on a generated-planet SURFACE, draw the sun and the sibling planets over the per-planet sky
+            // (PlanetSurfaceEffects). This reuses the SAME body drawing (drawStar for the sun, drawPlanet for the
+            // siblings), just placed on the sky by direction rather than at a true camera-relative position. It runs
+            // only once the client has been told which planet it is on (SurfaceSkyState has a space-body anchor).
+            if (mc.level != null && SurfaceDimension.isSurface(mc.level) && SurfaceSkyState.hasBody())
+            {
+                drawSurfaceSkyBodies(event, mc);
+            }
             return;
         }
 
@@ -380,12 +460,15 @@ public final class SpaceBodyRenderer
             // whatever the framerate. double's 53 bits represents this cleanly for longer than any server will run.
             double tickCount = (double) mc.level.getGameTime() + partialTick;
 
+            // the shared orbit clock, read ONCE per frame: every orbiting body's live position is computed from it, so a
+            // frame is internally consistent and orbits advance every frame (not once per ~1s cache rebuild).
+            long epoch = OrbitClock.epochMillis();
             List<Body> ordered = new ArrayList<>(cache);
-            ordered.sort((a, b) -> Double.compare(b.pos.distanceToSqr(cam), a.pos.distanceToSqr(cam)));
+            ordered.sort((a, b) -> Double.compare(b.livePos(epoch).distanceToSqr(cam), a.livePos(epoch).distanceToSqr(cam)));
             logDepthBand(ordered, cam);
             for (Body body : ordered)
             {
-                drawBody(poseStack, buffer, body, cam, tickCount);
+                drawBody(poseStack, buffer, body, cam, tickCount, epoch);
                 // flush AFTER EACH body so the BufferSource cannot reorder a nearer body's shells behind a farther body:
                 // each body (opaque core then translucent shells) is fully drawn, back to front, before the next.
                 buffer.endBatch();
@@ -405,6 +488,485 @@ public final class SpaceBodyRenderer
             RenderSystem.clear(GL11.GL_DEPTH_BUFFER_BIT, Minecraft.ON_OSX);
             RenderSystem.depthMask(true);
         }
+    }
+
+    // ==== B1 per-planet surface sky bodies ====
+    //
+    // On a planet SURFACE the sun and the sibling planets are drawn on the sky by DIRECTION, not at a true
+    // camera-relative position: a body infinitely far away sits at a fixed bearing whatever the player's coordinate. We
+    // reuse the exact same body drawing the space view uses (drawStar for the sun, drawPlanet for a sibling) by placing
+    // the body at (direction * SKY_BODY_SHELL_DIST) with the camera at the origin, so drawBody's shell map draws it at a
+    // controlled angular size with no nameplate. This keeps ONE set of body art and geometry for both views.
+
+    // How far out a sky body is placed. Its screen angular size is (drawn radius / this), and it must exceed
+    // LABEL_DISTANCE + radius so drawBody never shows a nameplate on a sky body.
+    private static final double SKY_BODY_SHELL_DIST = 2000.0;
+
+    // ==== Surface-sky body ANGULAR SIZING (the one tuning block) ====
+    // Owner report (real client test, e55ca28a): "the planets are huge when on the planet." The old model clamped a
+    // sibling's drawn radius/shell ratio to at most 0.09 (an angular RADIUS of ~5.2 degrees, a ~10.4 degree disc) and
+    // fixed the sun at the same ceiling, so every sky body filled a tenth of the view. We now size each body from its
+    // REAL angular size (its true radius over its true distance) lifted by a gain into visibility and clamped to a
+    // believable band, so a near sibling is a small disc, a far one shrinks to a star-like dot and the very distant ones
+    // fade out. Everything a tuner would touch lives here; the drawn radius at the shell is SKY_BODY_SHELL_DIST * tan(
+    // angularRadius), which is why these are angular RADII (half the disc), expressed in degrees for readability.
+    //
+    // The sun (drawn as a STAR, so drawStar multiplies the base radius by STAR_DRAW_SCALE and wraps it in a corona): a
+    // warm disc a few degrees across from every planet, sized directly rather than from the ring distance so the "sun"
+    // reads the same wherever you stand. Its base radius is derived from the target angular size and STAR_DRAW_SCALE so
+    // changing either keeps the disc at the intended size.
+    private static final double SKY_SUN_ANGULAR_DEG = 1.7;   // angular RADIUS: a ~3.4 degree sun disc, plus its corona
+    private static final float SKY_SUN_RADIUS =
+            (float) (SKY_BODY_SHELL_DIST * Math.tan(Math.toRadians(SKY_SUN_ANGULAR_DEG)) / STAR_DRAW_SCALE);
+    private static final int SKY_SUN_TINT = PlanetPositions.SUN_TINT;
+    // The synthetic surface day length, in ticks. MUST match PlanetSurfaceEffects.DAY_LENGTH_TICKS so the sun's elevation
+    // and the dome brightness/star fade stay in phase (the sun is highest exactly when the dome is at full noon).
+    private static final long SKY_DAY_LENGTH_TICKS = 24000L;
+    // The sun's peak elevation above the horizon at noon, radians (~74 degrees). It falls to the negative of this at
+    // midnight, so the sun is genuinely below the horizon at night, matching the dark dome.
+    private static final double SKY_SUN_MAX_ELEVATION = 1.30D;
+    // Below this drawn elevation the sun is not drawn (it has set): its bearing is below the horizon, where the terrain
+    // covers it anyway, so drawing it only risks it peeking through a void gap.
+    private static final double SKY_SUN_MIN_VISIBLE = -0.05D;
+
+    // Sibling angular sizing: a body's apparent angular radius is its TRUE angular size (true radius / true distance)
+    // lifted by SKY_SIBLING_GAIN into visibility, then clamped into a believable band. MIN keeps a far body a bright
+    // dot (near star size, as the owner asked) rather than vanishing at its real sub-arc-minute size; MAX stops the
+    // nearest neighbour from filling the sky (the whole point of the rescale). Angular RADII in degrees.
+    private static final double SKY_SIBLING_GAIN = 5.0;
+    private static final double SKY_SIBLING_MIN_ANGULAR_DEG = 0.15;   // farthest kept sibling: a ~0.3 degree dot
+    private static final double SKY_SIBLING_MAX_ANGULAR_DEG = 1.0;    // nearest sibling: a ~2 degree small disc
+    // Very distant bodies FADE by shrinking their drawn size to nothing across this band (blocks): below FADE_START a
+    // body keeps its clamped size, from FADE_START to FADE_END it scales linearly to zero, past FADE_END it is skipped.
+    // The known solar-system rings reach ~36k (Sacred Kai) and unknown bodies orbit further out, so this dims the far
+    // outer system to faint dots and drops anything beyond the far edge rather than pinning it at the min size forever.
+    private static final double SKY_SIBLING_FADE_START = 50000.0;
+    private static final double SKY_SIBLING_FADE_END = 130000.0;
+    // below this drawn radius (blocks at the shell) a faded body is not worth a draw call: sub-pixel, so skip it.
+    private static final double SKY_SIBLING_MIN_DRAWN_RADIUS = 0.25;
+    // SIBLING SKY ELEVATION. A system's planets (and the main system's fixed planets) all share ONE orbital plane, so from a
+    // planet's surface a sibling's TRUE elevation is ~0: it sits on the horizon and the old ~13 degree horizon cull dropped
+    // every one, which is why the owner "cannot see any other planets". A sibling is instead LIFTED to a stable synthetic
+    // elevation (a per-id value in this band) so it reads as a body scattered across the sky, well clear of the treeline,
+    // while its AZIMUTH stays the true horizontal bearing and drifts as the orbit advances (so it visibly moves). The band
+    // floor keeps every sibling a few degrees clear of the horizon (the "float on the treetops" guard, now a few degrees not
+    // 13), the ceiling keeps them below the zenith so they never stack on the sun.
+    private static final double SKY_SIBLING_ELEV_MIN_DEG = 14.0;
+    private static final double SKY_SIBLING_ELEV_MAX_DEG = 58.0;
+    // How far from the planet to gather GENERATED sibling planets (fixed bodies are always considered, they are few),
+    // and the most to draw, so a busy region never floods the sky. Widened past the old 12k so a neighbouring generated
+    // world on the next ring is still a visible dot; the per-frame cost is bounded by SKY_SIBLING_MAX.
+    private static final double SKY_SIBLING_RANGE = 60000.0;
+    private static final int SKY_SIBLING_MAX = 16;
+
+    // The DIRECTION to the sun for the planet at planetPos, at the given surface game time. Since B2 the sun is a REAL
+    // central body at the layout centre (PlanetPositions.sunPosition()), so the bearing is the true horizontal direction
+    // from this planet toward that body (toward the space origin). The ELEVATION follows the synthetic surface day/night
+    // cycle: it peaks at SKY_SUN_MAX_ELEVATION at noon and drops to its negative at midnight, so the sun is above the
+    // horizon by day and genuinely below it at night, in phase with the dome brightness and star fade (both keyed on the
+    // SAME 24000-tick cycle, see PlanetSurfaceEffects). One method, one source of truth for where the sun is in the sky.
+    private static Vec3 sunDirection(Vec3 planetPos, Vec3 sunCenter, double tickCount)
+    {
+        // horizontal bearing from this planet toward its OWN sun (the central sun for a main-system body, the system's own
+        // star for a generated system planet), so a system planet's sky shows ITS star overhead, not the distant central one.
+        double hx = sunCenter.x - planetPos.x;
+        double hz = sunCenter.z - planetPos.z;
+        double hlen = Math.sqrt(hx * hx + hz * hz);
+        if (hlen < 1.0E-3)
+        {
+            // planet essentially at the layout centre: pick a stable default bearing.
+            hx = 1.0;
+            hz = 0.0;
+            hlen = 1.0;
+        }
+        // day phase 0..1 (0 = midnight, 0.5 = noon), then sun height -1..1 rising to +1 at noon: this is exactly the
+        // cosine PlanetSurfaceEffects.dayFactor uses, so the sun sits highest when the dome is brightest.
+        double phase = (double) Math.floorMod((long) tickCount, SKY_DAY_LENGTH_TICKS) / (double) SKY_DAY_LENGTH_TICKS;
+        double sunHeight = -Math.cos(phase * Math.PI * 2.0);
+        // harness/debug override: pin the sun height to the forced day factor so a scripted daytime shot has the sun up
+        // (0 = midnight, 1 = noon). Matches PlanetSurfaceEffects.dayFactor, which uses the same override.
+        float dayOverride = SurfaceWeatherClient.dayFactorOverride();
+        if (dayOverride >= 0.0F)
+        {
+            sunHeight = 2.0 * Math.min(1.0F, dayOverride) - 1.0;
+        }
+        double elev = SKY_SUN_MAX_ELEVATION * sunHeight;
+        double ce = Math.cos(elev);
+        double se = Math.sin(elev);
+        return new Vec3(hx / hlen * ce, se, hz / hlen * ce);
+    }
+
+    // memoised system lookup for the surface the player is on, so the whole-universe scan (GeneratedSystems.systemForPlanetId)
+    // runs only when the player changes planet, never per frame. Null value = a main-system fixed body or a lone legacy planet.
+    private static String cachedSurfaceKey = null;
+    private static GeneratedSystems.System cachedSurfaceSystem = null;
+
+    private static GeneratedSystems.System surfaceSystemFor(String planetKey)
+    {
+        if (planetKey == null || planetKey.isEmpty() || !planetKey.startsWith(GeneratedPlanets.ID_PREFIX))
+        {
+            cachedSurfaceKey = planetKey;
+            cachedSurfaceSystem = null;
+            return null;
+        }
+        if (planetKey.equals(cachedSurfaceKey))
+        {
+            return cachedSurfaceSystem;
+        }
+        cachedSurfaceKey = planetKey;
+        cachedSurfaceSystem = GeneratedSystems.systemForPlanetId(null, planetKey);
+        return cachedSurfaceSystem;
+    }
+
+    // draw the sun and the sibling planets over the per-planet surface sky. Uses the same depth discipline as the space
+    // pass: bodies write their own depth, then the depth buffer is cleared so the terrain drawn afterwards paints over
+    // them (they are sky, behind everything).
+    private static void drawSurfaceSkyBodies(RenderLevelStageEvent event, Minecraft mc)
+    {
+        Vec3 planetPos = SurfaceSkyState.bodyPos();
+        if (planetPos == null || mc.level == null)
+        {
+            return;
+        }
+        PoseStack poseStack = event.getPoseStack();
+        MultiBufferSource.BufferSource buffer = mc.renderBuffers().bufferSource();
+        double tickCount = (double) mc.level.getGameTime() + event.getPartialTick();
+
+        RenderSystem.depthMask(true);
+        try
+        {
+            String ownKey = SurfaceSkyState.planetKey();
+            // which system is this planet part of? A generated system planet's sky must show ITS OWN sun and ITS OWN
+            // siblings, not the central sun and whatever generated bodies happen to be near in space. Resolved from the
+            // cached system grid and memoised per planet key (surfaceSystemFor), so the scan runs only when the player
+            // changes planet, never per frame. Null means the main system (a fixed body) or a lone legacy planet.
+            GeneratedSystems.System system = surfaceSystemFor(ownKey);
+            long epoch = OrbitClock.epochMillis();
+
+            // the anchor position of the planet we stand on, and the centre its sky revolves around (its sun).
+            Vec3 anchor = planetPos;
+            Vec3 sunCenter = PlanetPositions.sunPosition();
+            if (system != null)
+            {
+                sunCenter = system.starPos;
+                for (GeneratedSystems.SystemPlanet sp : system.planets)
+                {
+                    if (sp.id.equals(ownKey))
+                    {
+                        anchor = system.planetPositionAt(sp, epoch);   // live, so the sun bearing tracks the orbit.
+                        break;
+                    }
+                }
+            }
+
+            Vec3 sunDir = sunDirection(anchor, sunCenter, tickCount);
+
+            // THIS PLANET'S OWN RINGS, arcing across its sky. Drawn FIRST (behind the sun and siblings), lit by the sun
+            // direction with the planet's own shadow cast across the band, from the shared ring parameters (PlanetRings)
+            // so the ring the player saw from space is the same ring overhead. Only a ringed planet has any.
+            if (PlanetRings.isRinged(ownKey))
+            {
+                drawOverheadRings(poseStack, buffer, ownKey, sunDir);
+                buffer.endBatch();
+            }
+
+            // the sun (a star body plus corona), at the real bearing to the planet's own sun and the day-cycle elevation.
+            // Skip it once it has set below the horizon (the terrain covers that part of the sky anyway). A system planet's
+            // sun takes the system star's tint so its own star reads true; a main-system planet keeps the warm central tint.
+            if (sunDir.y > SKY_SUN_MIN_VISIBLE)
+            {
+                int sunTint = system != null ? system.starTint : SKY_SUN_TINT;
+                drawSkyBody(poseStack, buffer, Kind.STAR, sunDir, SKY_SUN_RADIUS, sunTint, null, tickCount);
+            }
+
+            if (system != null)
+            {
+                // SYSTEM SIBLINGS: the other planets of this planet's own system, at their live orbital positions. They share
+                // the orbital plane, so their TRUE elevation from the surface is ~0; drawSkySibling lifts each to a stable
+                // synthetic elevation so they read as bodies scattered across the sky rather than pinned to the horizon.
+                for (GeneratedSystems.SystemPlanet sp : system.planets)
+                {
+                    if (sp.id.equals(ownKey))
+                    {
+                        continue;   // never draw ourselves in our own sky.
+                    }
+                    if (SpaceLayout.isDestroyed(null, sp.id))
+                    {
+                        continue;
+                    }
+                    Vec3 sibPos = system.planetPositionAt(sp, epoch);
+                    drawSkySibling(poseStack, buffer, anchor, sibPos, sp.radius, sp.tint, sp.id, tickCount);
+                }
+            }
+            else
+            {
+                // MAIN-SYSTEM or LEGACY planet: the fixed solar-system landmarks are the siblings (few, always considered),
+                // plus any nearby legacy generated planet. They are coplanar too, so drawSkySibling lifts their elevation.
+                for (FixedBody fb : SpaceLayout.fixedBodies(null))
+                {
+                    if (fb.position.distanceToSqr(anchor) < 1.0)
+                    {
+                        continue; // the planet we are standing on.
+                    }
+                    drawSkySibling(poseStack, buffer, anchor, fb.position, fb.radius, PlanetPositions.tint(fb.key),
+                            fb.key, tickCount);
+                }
+                final Vec3 anchorRef = anchor;
+                List<GeneratedPlanets.Generated> gens =
+                        new ArrayList<>(GeneratedPlanets.generatedNear(null, anchorRef, SKY_SIBLING_RANGE));
+                gens.sort((a, b) -> Double.compare(a.position.distanceToSqr(anchorRef),
+                        b.position.distanceToSqr(anchorRef)));
+                int drawn = 0;
+                for (GeneratedPlanets.Generated g : gens)
+                {
+                    if (g.position.distanceToSqr(anchor) < 1.0)
+                    {
+                        continue; // ourselves.
+                    }
+                    drawSkySibling(poseStack, buffer, anchor, g.position, g.radius, g.tint, g.id, tickCount);
+                    if (++drawn >= SKY_SIBLING_MAX)
+                    {
+                        break;
+                    }
+                }
+            }
+        }
+        finally
+        {
+            // discard the sky bodies' depth so the terrain (drawn after AFTER_SKY) paints over them, exactly as the
+            // space body pass does.
+            RenderSystem.clear(GL11.GL_DEPTH_BUFFER_BIT, Minecraft.ON_OSX);
+            RenderSystem.depthMask(true);
+        }
+    }
+
+    // one sibling planet on the sky: its bearing from the planet we are on, at an angular size that grows with its true
+    // radius and shrinks with distance (clamped), then drawn with the SAME drawPlanet path the space view uses.
+    private static void drawSkySibling(PoseStack poseStack, MultiBufferSource.BufferSource buffer, Vec3 planetPos,
+                                       Vec3 bodyPos, float bodyRadius, int tint, String key, double tickCount)
+    {
+        double dx = bodyPos.x - planetPos.x;
+        double dy = bodyPos.y - planetPos.y;
+        double dz = bodyPos.z - planetPos.z;
+        double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (dist < 1.0E-3 || dist > SKY_SIBLING_FADE_END)
+        {
+            return;   // ourselves (guarded by the caller) or past the far edge of the fade: not drawn at all.
+        }
+        // true angular RADIUS of the body (radius over distance), lifted into visibility and clamped to the believable
+        // band. This is the whole "planets are huge" fix: the drawn size now tracks real geometry instead of pinning to
+        // a near-max disc.
+        double angular = Math.atan(bodyRadius / dist) * SKY_SIBLING_GAIN;
+        angular = Math.max(Math.toRadians(SKY_SIBLING_MIN_ANGULAR_DEG),
+                Math.min(Math.toRadians(SKY_SIBLING_MAX_ANGULAR_DEG), angular));
+        // fade very distant bodies by scaling the drawn size to zero across the fade band, so the far outer system dims
+        // to faint dots rather than hanging at the min size.
+        double fade = dist <= SKY_SIBLING_FADE_START ? 1.0
+                : (SKY_SIBLING_FADE_END - dist) / (SKY_SIBLING_FADE_END - SKY_SIBLING_FADE_START);
+        float radius = (float) (SKY_BODY_SHELL_DIST * Math.tan(angular) * Math.max(0.0, fade));
+        if (radius < SKY_SIBLING_MIN_DRAWN_RADIUS)
+        {
+            return;   // faded to sub-pixel: not worth a draw call.
+        }
+        // AZIMUTH is the true horizontal bearing (so the body points the right way and drifts as it orbits); ELEVATION is a
+        // stable synthetic lift, because siblings share the orbital plane and would otherwise all sit on the horizon and be
+        // culled (the "cannot see any other planets" report). See SKY_SIBLING_ELEV_*.
+        double hlen = Math.sqrt(dx * dx + dz * dz);
+        if (hlen < 1.0E-3)
+        {
+            dx = 1.0;
+            dz = 0.0;
+            hlen = 1.0;   // directly overhead in space: pick a stable bearing.
+        }
+        double elevDeg = SKY_SIBLING_ELEV_MIN_DEG
+                + skyElevFraction(key) * (SKY_SIBLING_ELEV_MAX_DEG - SKY_SIBLING_ELEV_MIN_DEG);
+        double elev = Math.toRadians(elevDeg);
+        double ce = Math.cos(elev);
+        double se = Math.sin(elev);
+        Vec3 dir = new Vec3(dx / hlen * ce, se, dz / hlen * ce);
+        drawSkyBody(poseStack, buffer, Kind.PLANET, dir, radius, tint, key, tickCount);
+    }
+
+    // a stable 0..1 fraction from a sibling's key, used to scatter siblings across the sky's elevation band so they do not
+    // all sit at one height. Deterministic per body, so a sibling keeps its height while its azimuth drifts with its orbit.
+    private static double skyElevFraction(String key)
+    {
+        if (key == null)
+        {
+            return 0.5;
+        }
+        return (Math.abs(key.hashCode()) % 1000) / 1000.0;
+    }
+
+    // place a body at (direction * shell distance) with the camera at the origin and draw it through the shared drawBody,
+    // so it reuses drawStar / drawPlanet for real body art on the sky. Flushed immediately, like each space body.
+    private static void drawSkyBody(PoseStack poseStack, MultiBufferSource.BufferSource buffer, Kind kind, Vec3 dir,
+                                    float radius, int tint, String key, double tickCount)
+    {
+        Vec3 pos = new Vec3(dir.x * SKY_BODY_SHELL_DIST, dir.y * SKY_BODY_SHELL_DIST, dir.z * SKY_BODY_SHELL_DIST);
+        Body body = new Body(kind, pos, radius, tint, key);
+        // a sky body is placed by direction and never orbits (orbit == null), so the epoch is irrelevant here.
+        drawBody(poseStack, buffer, body, Vec3.ZERO, tickCount, 0L);
+        buffer.endBatch();
+    }
+
+    // ==== The planet's OWN rings arcing across its sky (seen from the surface) ====
+    //
+    // A ringed planet's ring system is drawn as a broad banded BAND arcing all the way across the sky, from one horizon up
+    // through near the zenith and down to the opposite horizon, leaned from the vertical by the planet's axial tilt (from
+    // PlanetRings, the shared source of truth). It is built as a wide strip following a great circle centred on the
+    // observer, so it fills the sky like the rings seen from inside a ring system rather than a small distant disc. The
+    // real artist ring sheet is sampled ACROSS the band width, so its concentric ring structure reads as the bands. It is
+    // lit on the sun-facing half and darkened toward the anti-sun half (the planet's shadow crossing the ring), and stays
+    // softly lit at night so it is visible day and night.
+
+    // segments along the great circle: enough for a smooth arc and a smooth lit/shadow gradient, few enough to stay a
+    // small batch.
+    private static final int SKY_RING_ARC_SEGMENTS = 96;
+    // strips ACROSS the band width, so the band carries several soft procedural sub-bands of differing opacity with gaps,
+    // rather than one hard edge.
+    private static final int SKY_RING_ACROSS = 14;
+    // the draw radius of the band on the sky shell. Comfortably inside the projection far plane; the pass clears depth
+    // afterwards so terrain paints over the below-horizon half.
+    private static final float SKY_RING_SHELL = 80.0F;
+    // overall opacity multiplier for the whole ring (the per-sub-band profile is multiplied by this). Kept below 1 so the
+    // ring is semi-transparent and the sky shows through it.
+    private static final float SKY_RING_ALPHA = 0.85F;
+    // a plain white sheet (drawn with entityTranslucentEmissive, which is alpha-blended and full-bright), so the ring's
+    // colour and its soft banding come entirely from the per-vertex colour and alpha, not from a texture. This is what
+    // removes the old hard-edged look and the sky showing through an annulus hole down the band's middle.
+    private static final ResourceLocation SKY_RING_WHITE = STAR_BODY_TEXTURE;
+
+    private static void drawOverheadRings(PoseStack poseStack, MultiBufferSource buffer, String key, Vec3 sunDir)
+    {
+        PlanetRings.Rings rings = PlanetRings.of(key);
+        if (rings == null)
+        {
+            return;
+        }
+        // a stable per-key azimuth for the plane, and the lean of the arc's peak away from the zenith (the axial tilt,
+        // 15..40 degrees). The band widens with the band count so a 3-band ring reads broader across the sky.
+        double nodeAz = Math.toRadians((rings.bandSeed & 0xFFFFL) / 65535.0 * 360.0);
+        double lean = Math.toRadians(rings.tiltDegrees);
+        double halfWidth = 0.17 + 0.05 * rings.bands;   // radians of angular half-width across the band (broad)
+
+        // the great-circle frame, in WORLD axes (the surface-sky pose is world-aligned with the camera at the origin):
+        // hA and hB are two perpendicular horizontal directions set by the node azimuth, and axis is the vertical tipped
+        // toward hB by the lean so the arc's peak leans off the zenith by the axial tilt.
+        double[] hA = { Math.cos(nodeAz), 0.0, Math.sin(nodeAz) };
+        double[] hB = { -Math.sin(nodeAz), 0.0, Math.cos(nodeAz) };
+        double[] axis = { hB[0] * Math.sin(lean), Math.cos(lean), hB[2] * Math.sin(lean) };
+        double an = Math.sqrt(axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]);
+        axis[0] /= an;
+        axis[1] /= an;
+        axis[2] /= an;
+
+        PoseStack.Pose pose = poseStack.last();
+        VertexConsumer vc = buffer.getBuffer(RenderType.entityTranslucentEmissive(SKY_RING_WHITE));
+        for (int i = 0; i < SKY_RING_ARC_SEGMENTS; ++i)
+        {
+            double t0 = (double) i / SKY_RING_ARC_SEGMENTS * Math.PI * 2.0;
+            double t1 = (double) (i + 1) / SKY_RING_ARC_SEGMENTS * Math.PI * 2.0;
+            for (int j = 0; j < SKY_RING_ACROSS; ++j)
+            {
+                double f0 = (double) j / SKY_RING_ACROSS;
+                double f1 = (double) (j + 1) / SKY_RING_ACROSS;
+                emitRingVertex(pose, vc, axis, hA, hB, t0, f0, halfWidth, sunDir);
+                emitRingVertex(pose, vc, axis, hA, hB, t0, f1, halfWidth, sunDir);
+                emitRingVertex(pose, vc, axis, hA, hB, t1, f1, halfWidth, sunDir);
+                emitRingVertex(pose, vc, axis, hA, hB, t1, f0, halfWidth, sunDir);
+            }
+        }
+    }
+
+    // a unit direction on the ring band: along the great circle by angle t (in the axis/hA plane) and offset out of that
+    // plane by w along hB to give the band its width. Normalised so every vertex sits on the sky shell.
+    private static double[] ringDir(double[] axis, double[] hA, double[] hB, double t, double w)
+    {
+        double ct = Math.cos(t);
+        double st = Math.sin(t);
+        double x = axis[0] * ct + hA[0] * st + hB[0] * w;
+        double y = axis[1] * ct + hA[1] * st + hB[1] * w;
+        double z = axis[2] * ct + hA[2] * st + hB[2] * w;
+        double n = Math.sqrt(x * x + y * y + z * z);
+        return new double[] { x / n, y / n, z / n };
+    }
+
+    // emit one ring-band vertex at arc angle t and across-fraction f (0 = inner edge, 1 = outer edge). Colour is a gentle
+    // dust tint that eases across the band, dimmed smoothly toward the anti-sun side (the planet's shadow crossing the
+    // ring); alpha is the soft sub-band profile times a horizon fade so the band fades out toward the horizon.
+    private static void emitRingVertex(PoseStack.Pose pose, VertexConsumer vc, double[] axis, double[] hA, double[] hB,
+                                       double t, double f, double halfWidth, Vec3 sunDir)
+    {
+        double w = (f * 2.0 - 1.0) * halfWidth;
+        double[] d = ringDir(axis, hA, hB, t, w);
+        double sd = d[0] * sunDir.x + d[1] * sunDir.y + d[2] * sunDir.z;
+        // smooth lit/shadow: bright on the sun side, dimmer (never black) on the far side; floor keeps a night ring pale.
+        float bright = 0.55F + 0.45F * smooth01(-0.5F, 0.7F, (float) sd);
+        float[] tint = ringBandTint((float) f);
+        float alpha = ringBandProfile((float) f) * horizonFade((float) d[1]) * SKY_RING_ALPHA;
+        vc.vertex(pose.pose(), (float) (d[0] * SKY_RING_SHELL), (float) (d[1] * SKY_RING_SHELL),
+                        (float) (d[2] * SKY_RING_SHELL))
+                .color(tint[0] * bright, tint[1] * bright, tint[2] * bright, alpha)
+                .uv(0.5F, 0.5F)
+                .overlayCoords(OverlayTexture.NO_OVERLAY)
+                .uv2(FULL_BRIGHT)
+                .normal(pose.normal(), 0.0F, 1.0F, 0.0F)
+                .endVertex();
+    }
+
+    // the across-band opacity profile: several soft sub-bands of differing opacity with transparent gaps between them, so
+    // the ring reads as banded ring dust rather than a solid strip. Pure function of the across-fraction f in 0..1.
+    private static float ringBandProfile(float f)
+    {
+        float a = 0.0F;
+        a = Math.max(a, 0.58F * bump(f, 0.12F, 0.07F));
+        a = Math.max(a, 0.34F * bump(f, 0.30F, 0.05F));
+        a = Math.max(a, 0.62F * bump(f, 0.48F, 0.08F));
+        a = Math.max(a, 0.24F * bump(f, 0.64F, 0.045F));
+        a = Math.max(a, 0.48F * bump(f, 0.82F, 0.07F));
+        return a;
+    }
+
+    // a soft bump (0..1) centred at c with half-width hw, so sub-band edges are smooth (no hard steps).
+    private static float bump(float x, float c, float hw)
+    {
+        float d = (x - c) / hw;
+        float v = 1.0F - d * d;
+        return v <= 0.0F ? 0.0F : v * v;
+    }
+
+    // gentle dust tints that ease across the band: warm tan on the inner side, neutral grey in the middle, cool ice on
+    // the outer side. All pale and below 1 so nothing clips to a hard colour.
+    private static float[] ringBandTint(float f)
+    {
+        float[] tan = { 0.86F, 0.80F, 0.66F };
+        float[] grey = { 0.80F, 0.82F, 0.85F };
+        float[] ice = { 0.80F, 0.88F, 0.96F };
+        if (f < 0.5F)
+        {
+            float u = f / 0.5F;
+            return new float[] { lerp(tan[0], grey[0], u), lerp(tan[1], grey[1], u), lerp(tan[2], grey[2], u) };
+        }
+        float u = (f - 0.5F) / 0.5F;
+        return new float[] { lerp(grey[0], ice[0], u), lerp(grey[1], ice[1], u), lerp(grey[2], ice[2], u) };
+    }
+
+    // fade the band out as it nears the horizon (dir.y toward 0), so it does not end in a hard line at the horizon.
+    private static float horizonFade(float dirY)
+    {
+        return smooth01(0.02F, 0.22F, dirY);
+    }
+
+    private static float smooth01(float edge0, float edge1, float x)
+    {
+        float t = Math.max(0.0F, Math.min(1.0F, (x - edge0) / (edge1 - edge0)));
+        return t * t * (3.0F - 2.0F * t);
+    }
+
+    private static float lerp(float a, float b, float t)
+    {
+        return a + (b - a) * t;
     }
 
     // hand the nearest cached black hole's drawn (shell-mapped) position and radius to the lensing pass. Nearest only:
@@ -692,28 +1254,127 @@ public final class SpaceBodyRenderer
         List<Body> out = new ArrayList<>();
 
         // fixed planets: from the synced snapshot, on their OWN much larger distance (FIXED_BODY_DRAW_DISTANCE) not the
-        // general bodyDrawDistance, so main planets across the wide ring still read as landmarks. Only a handful, so the
+        // general bodyDrawDistance, so main planets across the wide rings still read as landmarks. Only a handful, so the
         // wider scan is free.
+        Vec3 sunPos = PlanetPositions.sunPosition();
         double fixedRangeSq = FIXED_BODY_DRAW_DISTANCE * FIXED_BODY_DRAW_DISTANCE;
         for (FixedBody fb : SpaceLayout.fixedBodies(null))
         {
             if (fb.position.distanceToSqr(cam) <= fixedRangeSq)
             {
-                out.add(new Body(Kind.PLANET, fb.position, fb.radius, PlanetPositions.tint(fb.key), fb.key));
+                // a fixed main planet ORBITS the central sun: carry its orbital constants so it is redrawn smoothly every
+                // frame from the shared clock, not snapped to the ~1s cache snapshot.
+                OrbitParams orbit = new OrbitParams(sunPos.x, sunPos.y, sunPos.z,
+                        PlanetPositions.orbitRadiusOf(fb.key), PlanetPositions.orbitPhase0Of(fb.key), 0.0, 0.0);
+                out.add(new Body(Kind.PLANET, fb.position, fb.radius, PlanetPositions.tint(fb.key), fb.key, orbit));
             }
         }
 
-        // generated planets: the same pure derivation the server runs, keyed by the shared hash and rejecting overlaps
-        // with the synced fixed bodies, so the client draws exactly what the server can land on.
+        // B2: the central SUN, drawn as a large bright star with a corona (Kind.STAR reuses drawStar / its glow). Always
+        // considered on the fixed distance so it reads as a landmark from anywhere in the system, never landable (it is
+        // never a fixed body, so travel/landing cannot target it), and hazardous separately in SpaceHazardModule.
+        Vec3 sun = PlanetPositions.sunPosition();
+        if (sun.distanceToSqr(cam) <= fixedRangeSq)
+        {
+            out.add(new Body(Kind.STAR, sun, PlanetPositions.SUN_RADIUS, PlanetPositions.SUN_TINT, PlanetPositions.SUN_KEY));
+        }
+
+        // generated SYSTEM planets: carry live orbital constants (their sun centre, ring radius, start phase) so they orbit
+        // their own sun smoothly every frame instead of snapping to the ~1s cache snapshot. Gathered straight from the system
+        // grid so the orbit centre is the planet's OWN sun; the ids are collected so the legacy pass below can skip them.
+        long epochNow = OrbitClock.epochMillis();
+        double rangeSq = range * range;
+        java.util.Set<String> systemPlanetIds = new java.util.HashSet<>();
+        for (GeneratedSystems.System sys : GeneratedSystems.systemsNear(null, cam, range))
+        {
+            for (GeneratedSystems.SystemPlanet p : sys.planets)
+            {
+                Vec3 pos = sys.planetPositionAt(p, epochNow);
+                if (pos.distanceToSqr(cam) > rangeSq)
+                {
+                    continue;
+                }
+                systemPlanetIds.add(p.id);
+                OrbitParams orbit = new OrbitParams(sys.starPos.x, sys.starPos.y, sys.starPos.z, p.ringRadius, p.phase0,
+                        sys.inclination, sys.nodeAngle);
+                out.add(new Body(Kind.PLANET, pos, p.radius, p.tint, p.id, orbit));
+            }
+        }
+
+        // LEGACY generated planets (old-scheme, claimed/stamped, UNMOVING): static, so drawn at their fixed position. Skip any
+        // id already added as a live system planet above (generatedNear unions system planets in, which we must not double
+        // draw as static).
         for (GeneratedPlanets.Generated g : GeneratedPlanets.generatedNear(null, cam, range))
         {
+            if (systemPlanetIds.contains(g.id))
+            {
+                continue;
+            }
             out.add(new Body(Kind.PLANET, g.position, g.radius, g.tint, g.id));
         }
 
-        // stars: tint is the hashed stellar-class colour, drawn as the whole solid body.
+        // stars: tint is the hashed stellar-class colour, drawn as the whole solid body. These are the system suns WITHIN
+        // the near range, drawn full (drawStar).
+        double nearSq = range * range;
         for (StarPositions.Star s : StarPositions.starsNear(null, cam, range))
         {
             out.add(new Body(Kind.STAR, s.position, s.radius, s.tint, null));
+        }
+
+        // DISTANT SYSTEM SUNS: every OTHER system's sun, drawn as a cheap far beacon so space is never empty. Enumerate the
+        // cached deterministic system grid (no per-frame cell walking), take suns beyond the near range (the ones above are
+        // already full-drawn) and within the universe limit, skip destroyed ones, then keep the nearest MAX_FAR_SUNS. This
+        // is a client-only visual: it spawns nothing and touches no server state.
+        double farLimitSq = SYSTEM_SUN_DRAW_DISTANCE * SYSTEM_SUN_DRAW_DISTANCE;
+        List<GeneratedSystems.System> farSystems = new ArrayList<>();
+        for (GeneratedSystems.System sys : GeneratedSystems.allSystems(null))
+        {
+            double dSq = sys.starPos.distanceToSqr(cam);
+            if (dSq <= nearSq || dSq > farLimitSq)
+            {
+                continue;   // within near range (already full-drawn) or past the universe limit.
+            }
+            if (SpaceLayout.isDestroyed(null, sys.starKey))
+            {
+                continue;   // a destroyed sun is off the beacon field, exactly as it is off the near draw and the map.
+            }
+            farSystems.add(sys);
+        }
+        // nearest first, so the sun cap and the "which systems get planets" tier both keep the closest, most legible
+        // systems. One sort over the far set (a few hundred at most), not per frame (deriveNear runs on the ~1s refresh).
+        farSystems.sort((a, b) -> Double.compare(a.starPos.distanceToSqr(cam), b.starPos.distanceToSqr(cam)));
+        long epochFar = OrbitClock.epochMillis();
+        int sunCount = 0;
+        for (GeneratedSystems.System sys : farSystems)
+        {
+            if (sunCount >= MAX_FAR_SUNS)
+            {
+                break;
+            }
+            out.add(new Body(Kind.FAR_SUN, sys.starPos, sys.starRadius, sys.starTint, sys.starKey));
+            // the nearest few far systems also draw their PLANETS as small lit points at their live orbital positions, so
+            // a distant system reads as a sun WITH planets, not a lone glowing ball. A destroyed planet is suppressed at
+            // the source (the same synced set the near draw and the map use).
+            if (sunCount < MAX_FAR_SYSTEMS_WITH_PLANETS)
+            {
+                for (GeneratedSystems.SystemPlanet p : sys.planets)
+                {
+                    if (SpaceLayout.isDestroyed(null, p.id))
+                    {
+                        continue;
+                    }
+                    Vec3 pp = sys.planetPositionAt(p, epochFar);
+                    // a far system's sun is beyond the near range, but a planet on its near side can still fall INSIDE it,
+                    // where the near pass above already drew it as a full cube. Skip those, so a planet is never drawn as
+                    // both a near cube and a far dot.
+                    if (pp.distanceToSqr(cam) <= nearSq)
+                    {
+                        continue;
+                    }
+                    out.add(new Body(Kind.FAR_PLANET, pp, p.radius, p.tint, p.id));
+                }
+            }
+            sunCount++;
         }
 
         // black holes: no tint (the disc texture carries its own black/rim).
@@ -761,11 +1422,13 @@ public final class SpaceBodyRenderer
     // draw one body at its camera-relative position, applying the shell depth map so a distant body is never clipped and
     // nearer bodies sit genuinely nearer in the depth buffer. Direction is always the true direction to the body; only the
     // drawn distance and size are scaled (by the same factor), which preserves angular size and screen position.
-    private static void drawBody(PoseStack poseStack, MultiBufferSource buffer, Body body, Vec3 cam, double tickCount)
+    private static void drawBody(PoseStack poseStack, MultiBufferSource buffer, Body body, Vec3 cam, double tickCount,
+                                 long epoch)
     {
-        double dx = body.pos.x - cam.x;
-        double dy = body.pos.y - cam.y;
-        double dz = body.pos.z - cam.z;
+        Vec3 live = body.livePos(epoch);
+        double dx = live.x - cam.x;
+        double dy = live.y - cam.y;
+        double dz = live.z - cam.z;
         double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
         if (dist < 1.0E-4)
         {
@@ -797,6 +1460,8 @@ public final class SpaceBodyRenderer
             case STAR -> drawStar(poseStack, buffer, body, drawRadius, tickCount);
             case BLACK_HOLE -> drawBlackHole(poseStack, buffer, drawRadius, tickCount);
             case SUPER -> drawSuper(poseStack, buffer, body, drawRadius, tickCount, showLabel);
+            case FAR_SUN -> drawFarSun(poseStack, buffer, body, drawRadius);
+            case FAR_PLANET -> drawFarPlanet(poseStack, buffer, body, drawRadius);
         }
         poseStack.popPose();
     }
@@ -2138,33 +2803,24 @@ public final class SpaceBodyRenderer
     // roughly one planet in five ringed. Of the ringed ones the count is spread 1/2/3, weighted toward the single ring
     // (a lone ring is the common Saturn look). Arted bodies never reach here (guarded at the call site), and even so a
     // null key returns 0.
+    /**
+     * Whether a body (by its stable key) wears rings, the single deterministic per-key predicate both this renderer and
+     * any other feature (the surface overhead-ring pass, the star-systems layout) can share so the answer never
+     * disagrees between them. Derived purely from the body key hash through {@link #ringCount}, so it is stable across
+     * restarts and identical on every client and on the server. Roughly one body in five is ringed.
+     */
+    public static boolean isRinged(String bodyKey)
+    {
+        return PlanetRings.isRinged(bodyKey);
+    }
+
+    // The single source of truth for ring geometry is now PlanetRings (a pure, server-safe class both this renderer and
+    // the surface overhead-ring pass share). This delegates so the space view, the surface view and the server never
+    // disagree; PlanetRings.bands reproduces the exact roll this method used to hold, and adds the moon/sun exclusion a
+    // shared helper needs (a moon and the central sun are never ringed).
     private static int ringCount(String planetKey)
     {
-        if (planetKey == null || planetKey.isEmpty())
-        {
-            return 0;
-        }
-        // an independent hash of the key so the ring roll does not correlate with the placeholder-sheet pick (which also
-        // uses the raw hashCode). Multiply and mix so nearby keys scatter.
-        int h = planetKey.hashCode() * 0x9E3779B1;
-        h ^= (h >>> 15);
-        // 0..999 roll. Only the top ~20% (>=800) get rings at all, so about one planet in five is ringed.
-        int roll = Math.floorMod(h, 1000);
-        if (roll < 800)
-        {
-            return 0;
-        }
-        // among ringed planets, split the remaining band 1/2/3, weighted toward one ring.
-        int within = roll - 800;   // 0..199
-        if (within < 120)
-        {
-            return 1;
-        }
-        if (within < 170)
-        {
-            return 2;
-        }
-        return 3;
+        return PlanetRings.bands(planetKey);
     }
 
     // a ring's OWN colour, deliberately NOT the body colour (defect 2.1: the user reported model rings reading the same
@@ -2204,18 +2860,13 @@ public final class SpaceBodyRenderer
     }
 
     // the deterministic per-planet axial tilt for a RINGED planet, so its rings sit at an angle rather than dead flat and
-    // no two ringed planets share one angle. Keyed on the body key with its own salt so it never correlates with the ring
-    // count, sheet or tint rolls and never changes between loads. Range 15..40 degrees: below 15 still reads flat, above
-    // 40 hides the ring band as it approaches edge-on. Applied to the body, the ring AND the rim together (see drawPlanet
-    // / planetBodyTilt) so the axis is coherent from every angle.
-    private static final float RING_TILT_MIN = 15.0F;
-    private static final float RING_TILT_MAX = 40.0F;
-
+    // no two ringed planets share one angle. Now owned by PlanetRings (the shared 15..40 degree band, keyed on the body
+    // key with its own salt), so the body, the ring and the rim (via planetBodyTilt) and the surface overhead-ring pass
+    // all read the one angle.
     private static float ringTilt(String key)
     {
-        int h = packHash(key, "ringtilt");
-        double u = (h & 0x7FFFFFFF) / (double) 0x7FFFFFFF;
-        return (float) (RING_TILT_MIN + u * (RING_TILT_MAX - RING_TILT_MIN));
+        // delegate to the shared source of truth; PlanetRings.tiltDegrees mirrors this exact packHash mix and 15..40 band.
+        return PlanetRings.tiltDegrees(key);
     }
 
     // the axial tilt a generated planet's BODY is drawn at: a ringed planet takes its per-key ringTilt (15..40) so body
@@ -2994,6 +3645,74 @@ public final class SpaceBodyRenderer
         drawColouredDisc(poseStack.last(), halo, drawR * 4.2F, r, g, b, 0.55F, FULL_BRIGHT);
         drawColouredDisc(poseStack.last(), halo, drawR * 3.2F, r, g, b, 0.75F, FULL_BRIGHT);
         drawColouredDisc(poseStack.last(), halo, drawR * 2.4F, r, g, b, 1.0F, FULL_BRIGHT);
+        poseStack.popPose();
+    }
+
+    // The brightness scale a far body draws at, given its HONEST drawn radius (radius * drawScale, before any floor) and
+    // the floor its disc was pinned to. At or above the floor the body is at full brightness (1.0); below it the disc holds
+    // at the floor size but the alpha fades linearly toward FAR_MIN_ALPHA_FRAC as the honest size shrinks to nothing. This
+    // is the "fade to a point instead of growing" rule: a far body never reads as an inflated bright disc that covers a
+    // nearer body, it reads as a faint point that dims with distance ("brightness by distance"). Never returns 0, so even
+    // the most distant charted system stays faintly visible.
+    private static float farFadeAlpha(float honestRadius, float floor)
+    {
+        if (honestRadius >= floor || floor <= 0.0F)
+        {
+            return 1.0F;
+        }
+        float t = honestRadius / floor;   // 0..1
+        return FAR_MIN_ALPHA_FRAC + (1.0F - FAR_MIN_ALPHA_FRAC) * t;
+    }
+
+    // DISTANT SYSTEM SUN (the "space seems empty" / "glowing orb" fix). A far system's sun is drawn CHEAPLY as a
+    // camera-facing beacon: a bright tight CORE disc and a softer glare halo in the sun's own hashed tint, so it reads as a
+    // real star with glare rather than a flat ball, while staying a couple of additive discs so a few hundred cost almost
+    // nothing. Its size is FLOORED to MIN_FAR_SUN_DRAW so a distant sun stays a visible point; past the floor the disc
+    // holds but its brightness FADES (farFadeAlpha), so it never inflates into a disc that covers a nearer body (the
+    // intersection fix). Additive-emissive and never depth-writing, drawn far-to-near, so it can only ever add light behind
+    // nearer bodies.
+    private static void drawFarSun(PoseStack poseStack, MultiBufferSource buffer, Body body, float drawRadius)
+    {
+        float r = ((body.tint >> 16) & 0xFF) / 255.0F;
+        float g = ((body.tint >> 8) & 0xFF) / 255.0F;
+        float b = (body.tint & 0xFF) / 255.0F;
+        // the honest beacon size (the true angular size, kept at the 3x star scale so a near-ish far sun reads as a sun),
+        // then floored so a very distant one never vanishes; the fade compensates for the floor.
+        float honest = drawRadius * STAR_DRAW_SCALE;
+        float drawR = Math.max(honest, MIN_FAR_SUN_DRAW);
+        float fade = farFadeAlpha(honest, MIN_FAR_SUN_DRAW);
+
+        var orientation = Minecraft.getInstance().getEntityRenderDispatcher().cameraOrientation();
+        poseStack.pushPose();
+        poseStack.mulPose(orientation);
+        VertexConsumer halo = buffer.getBuffer(RenderType.entityTranslucentEmissive(STAR_HALO_TEXTURE));
+        // a soft outer glare, a mid glow and a tight bright core: three passes read as a distant star with a corona.
+        drawColouredDisc(poseStack.last(), halo, drawR * 2.8F, r, g, b, 0.35F * fade, FULL_BRIGHT);
+        drawColouredDisc(poseStack.last(), halo, drawR * 1.7F, r, g, b, 0.6F * fade, FULL_BRIGHT);
+        drawColouredDisc(poseStack.last(), halo, drawR * 0.95F, r, g, b, 0.98F * fade, FULL_BRIGHT);
+        poseStack.popPose();
+    }
+
+    // DISTANT SYSTEM PLANET. One of a near-enough far system's planets, drawn as a small lit point at its real orbital
+    // position so the far system reads as a sun WITH planets. A tight core disc plus a faint surrounding glow in the
+    // planet's own tint, floored to MIN_FAR_PLANET_DRAW and faded past the floor exactly like a far sun, so it never
+    // inflates over a nearer body. Additive-emissive, never depth-writing, drawn far-to-near.
+    private static void drawFarPlanet(PoseStack poseStack, MultiBufferSource buffer, Body body, float drawRadius)
+    {
+        float r = ((body.tint >> 16) & 0xFF) / 255.0F;
+        float g = ((body.tint >> 8) & 0xFF) / 255.0F;
+        float b = (body.tint & 0xFF) / 255.0F;
+        float honest = drawRadius;
+        float drawR = Math.max(honest, MIN_FAR_PLANET_DRAW);
+        float fade = farFadeAlpha(honest, MIN_FAR_PLANET_DRAW);
+
+        var orientation = Minecraft.getInstance().getEntityRenderDispatcher().cameraOrientation();
+        poseStack.pushPose();
+        poseStack.mulPose(orientation);
+        VertexConsumer halo = buffer.getBuffer(RenderType.entityTranslucentEmissive(STAR_HALO_TEXTURE));
+        // a faint surrounding glow and a tight lit core: reads as a small planet dot beside its sun.
+        drawColouredDisc(poseStack.last(), halo, drawR * 1.9F, r, g, b, 0.28F * fade, FULL_BRIGHT);
+        drawColouredDisc(poseStack.last(), halo, drawR * 0.9F, r, g, b, 0.92F * fade, FULL_BRIGHT);
         poseStack.popPose();
     }
 

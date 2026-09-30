@@ -72,6 +72,11 @@ website/
 # PublicContent, ...) instead of ClientGate. Wired into every project's `check`, so it is real
 # build infrastructure and must be in history, not scratch.
 !/tools/check-client-key-reads.py
+# space-wrap-selftest is the headless plain-JVM check for the planet-surface edge wrap geometry (sibling to
+# space-orbit-selftest): it mirrors the pure seamWrapTarget / cell-fold maths and proves a SYSTEM (sugen:) planet
+# wraps at its real far-from-origin cell WITHOUT booting the game. Real, versioned tooling, not scratch.
+!/tools/space-wrap-selftest/
+!/tools/space-wrap-selftest/WrapSelfTest.java
 # tools/parity is the 2.0 parity harness (run/diff scripts, guardrail allow-list, committed baselines): real
 # infrastructure that needs history, not scratch. Re-include the directory so its contents are tracked; the
 # per-run _server.log stays ignored via the pattern added near the run-dir rules above.

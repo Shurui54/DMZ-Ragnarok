@@ -63,6 +63,7 @@ public final class NaturalSurfaceOracle
         boolean waterOn;
         boolean vegOn;
         boolean structOn;
+        int generatorVersion;
         if (sp != null)
         {
             deepDepth = sp.deepDepth;
@@ -74,10 +75,14 @@ public final class NaturalSurfaceOracle
             waterOn = sp.waterEnabled;
             vegOn = sp.vegetationEnabled;
             structOn = sp.structuresEnabled;
+            // 0 (a build predating the field) means the legacy generator, so an old planet's salvage reads its original
+            // disc terrain.
+            generatorVersion = sp.generatorVersion <= 0 ? SurfaceStamp.GEN_VERSION_LEGACY : sp.generatorVersion;
         }
         else
         {
-            // no persisted snapshot (stamped by an older build): best-effort recompute from the live config.
+            // no persisted snapshot (stamped by an older build): best-effort recompute from the live config, and the
+            // legacy generator, since only pre-B4 builds stamped without a snapshot.
             deepDepth = PlanetSpawnModule.surfaceColumnDepth();
             seaLevelOffset = SurfaceStamp.seaLevelOffset();
             basinFreq = SurfaceStamp.basinFrequency();
@@ -87,10 +92,11 @@ public final class NaturalSurfaceOracle
             waterOn = SurfaceStamp.waterEnabled();
             vegOn = SurfaceStamp.vegetationEnabled();
             structOn = SurfaceStamp.structuresEnabled();
+            generatorVersion = SurfaceStamp.GEN_VERSION_LEGACY;
         }
 
         this.params = new SurfaceStamp.SurfaceParams(seed, half, baseY, theme, deepDepth, waterOn, seaLevelOffset,
-                basinFreq, vegOn, vegDensity, structOn, villageFreq, hutFreq);
+                basinFreq, vegOn, vegDensity, structOn, villageFreq, hutFreq, generatorVersion);
         this.hadSnapshot = sp != null;
     }
 
@@ -98,6 +104,34 @@ public final class NaturalSurfaceOracle
     public int half()
     {
         return params.half;
+    }
+
+    /**
+     * The half-extent actually stamped, including the v3 wrap margin (equals {@link #half()} on v1/v2). The block-identity
+     * self-test sweeps to this so it checks the margin columns too; the salvage scan bounds to {@link #half()} instead,
+     * because a player can only build inside the real square (the margin is protected).
+     */
+    public int stampExtent()
+    {
+        return params.stampExtent;
+    }
+
+    /** The v3 sea surface Y (only meaningful when {@link #hasSea()}), for the self-test's dry-landing and sea checks. */
+    public int seaY()
+    {
+        return params.seaY;
+    }
+
+    /** Whether this planet floods a v3 sea (v3 generator, a sea-bearing theme, water on). */
+    public boolean hasSea()
+    {
+        return params.hasSea;
+    }
+
+    /** The lowest solid block Y every column bottoms out on (the bedrock floor), so the self-test can bound its scan. */
+    public int bottomY()
+    {
+        return params.bottomY;
     }
 
     /** Whether the exact stamp snapshot was available (false = the live-config fallback was used). */

@@ -6,6 +6,8 @@
 	"minVersion": "0.8",
 	"mixins": [
 		"MixinAe2SpatialTransition",
+		"MixinAe2MeStorageMenu",
+		"MixinFunctionalStorageHandler",
 		"MixinIronFurnacesList",
 		"MixinResourcefulFileUtils",
 		"MixinSophisticatedInventoryHandler",

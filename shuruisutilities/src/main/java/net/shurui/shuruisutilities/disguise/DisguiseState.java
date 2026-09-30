@@ -22,13 +22,15 @@ import net.shurui.shuruisutilities.shard.ShardStateSync;
  * owns the store, the broadcast and the lifecycle so none of it depends on the key mod at that call site (the store
  * simply stays empty on a keyless server, since nothing calls {@link #set}).
  *
- * <h2>Survives shard hops (owner rule), cleared only by /disguise off or a real network leave.</h2>
- * A disguise MUST survive a shard hop, or a hop would unmask staff. It is held in a PER-PLAYER MERGE store (mirroring
+ * <h2>Fully persistent (owner rule): survives shard hops AND logout/login, cleared only by /disguise clear.</h2>
+ * A disguise MUST survive a shard hop, or a hop would unmask staff, and the owner further requires it to survive a
+ * genuine logout/login so staff stay disguised across sessions. It is held in a PER-PLAYER MERGE store (mirroring
  * {@code VanishStorage}): each entry carries its own DB-clock stamp, the merge keeps the later stamp per player, and a
- * removal is a stamped tombstone so an "un-disguise" carries across shards. That is why the store never uses a
- * whole-map last-writer key. It is NOT dropped on logout (a hop is a logout): the deferred, hop-aware clear lives in
- * {@code DisguiseServerEvents}, which removes a disguise only when the player has genuinely left the network (not a
- * hop), and {@code /disguise off} removes it explicitly. Both removals are audit-logged by the key.
+ * removal is a stamped tombstone so a clear or a toggle carries across shards. That is why the store never uses a
+ * whole-map last-writer key. It is NOT dropped on logout of any kind (a hop and a quit both persist); only an explicit
+ * {@code /disguise clear} removes it. {@code /disguise off} does not remove it: it flips {@link DisguiseView#enabled}
+ * to false (kept, synced, rendered as the real identity) so {@code /disguise on} restores the same view. Clears and
+ * toggles are audit-logged by the key.
  */
 public final class DisguiseState
 {
@@ -58,27 +60,50 @@ public final class DisguiseState
         store = null;
     }
 
+    /** Whether this player is ACTIVELY disguised: a disguise is configured AND it is toggled on. */
     public static boolean isDisguised(UUID id)
     {
-        return store != null && id != null && store.active.containsKey(id);
+        DisguiseView v = raw(id);
+        return v != null && v.enabled;
     }
 
-    /** A copy of every disguised player's real UUID (server thread; safe to hand to a background task). */
+    /** Whether a disguise is configured for this player, whether or not it is currently toggled on. */
+    public static boolean hasConfigured(UUID id)
+    {
+        return raw(id) != null;
+    }
+
+    /** Whether the configured disguise is currently toggled on. False when none is configured. */
+    public static boolean isEnabled(UUID id)
+    {
+        DisguiseView v = raw(id);
+        return v != null && v.enabled;
+    }
+
+    /** A copy of every configured (enabled OR disabled) disguise's real UUID; safe to hand to a background task. */
     public static java.util.Set<UUID> disguisedIds()
     {
         return store == null ? new java.util.HashSet<>() : new java.util.HashSet<>(store.active.keySet());
     }
 
-    public static DisguiseView get(UUID id)
+    /** The stored view regardless of the on/off flag (for the toggle path); null when none is configured. */
+    private static DisguiseView raw(UUID id)
     {
         return store == null || id == null ? null : store.active.get(id);
     }
 
-    /** A snapshot for chat / command use: the visible name for a disguised sender, else null. */
+    /** The ACTIVE disguise for this player (null when none is configured or it is toggled off). */
+    public static DisguiseView get(UUID id)
+    {
+        DisguiseView v = raw(id);
+        return v != null && v.enabled ? v : null;
+    }
+
+    /** A snapshot for chat / command / join-leave use: the visible name for an actively disguised player, else null. */
     public static String visibleName(UUID id)
     {
         DisguiseView v = get(id);
-        return v == null ? null : v.targetName;
+        return v == null ? null : v.displayName();
     }
 
     /** A snapshot for chat: the rank id a disguised sender should show ("" = none), else null when not disguised. */
@@ -131,12 +156,47 @@ public final class DisguiseState
         return true;
     }
 
-    /** Send the full current snapshot to one player, with the see-through flag resolved for THAT viewer. */
+    /**
+     * Toggle a configured disguise on or off WITHOUT losing it. Disabling keeps the stored view (so it persists and
+     * shard-syncs) and pushes a CLEAR to clients so they render the real identity; enabling pushes the stored view
+     * back. Returns -1 when no disguise is configured, 0 when it was already in that state, 1 when it changed.
+     */
+    public static int setEnabled(MinecraftServer server, UUID realId, boolean enable)
+    {
+        if (server == null || store == null || realId == null)
+            return -1;
+        DisguiseView v = store.active.get(realId);
+        if (v == null)
+            return -1;
+        if (v.enabled == enable)
+            return 0;
+        store.setEnabled(realId, enable);
+        broadcast(server, enable ? PacketDisguiseSync.single(v) : PacketDisguiseSync.clear(realId));
+        return 1;
+    }
+
+    /**
+     * Push this player's ACTIVE disguise (if any) to every online client. Called when a disguised player joins, so
+     * everyone already online is shown the disguise at once rather than after their next full snapshot, and no client
+     * flashes the real name. A no-op when the player is not actively disguised.
+     */
+    public static void rebroadcast(MinecraftServer server, UUID realId)
+    {
+        DisguiseView v = get(realId);
+        if (server == null || v == null)
+            return;
+        broadcast(server, PacketDisguiseSync.single(v));
+    }
+
+    /** Send the full snapshot of ACTIVE disguises to one player, with the see-through flag resolved for THAT viewer. */
     public static void syncTo(ServerPlayer viewer)
     {
         if (viewer == null || store == null)
             return;
-        List<DisguiseView> all = new ArrayList<>(store.active.values());
+        List<DisguiseView> all = new ArrayList<>();
+        for (DisguiseView v : store.active.values())
+            if (v.enabled)
+                all.add(v);
         NetworkUtils.sendTo(PacketDisguiseSync.snapshot(all, canSeeThrough(viewer)), viewer);
     }
 
@@ -212,6 +272,17 @@ public final class DisguiseState
             return had;
         }
 
+        /** Flip the on/off flag on a stored view and re-stamp it, so the toggle carries across shards like any edit. */
+        void setEnabled(UUID id, boolean enabled)
+        {
+            DisguiseView v = active.get(id);
+            if (v == null)
+                return;
+            v.enabled = enabled;
+            stampedAt.put(id, dbNow());
+            setDirty();
+        }
+
         static Store load(CompoundTag tag)
         {
             Store s = new Store();
@@ -281,7 +352,9 @@ public final class DisguiseState
                     active.put(id, incomingView);
                 if (server != null)
                 {
-                    PacketDisguiseSync p = incomingView == null
+                    // A view that arrived toggled OFF is pushed to clients as a CLEAR, exactly like a removal, so the
+                    // client only ever holds ACTIVE disguises; the disabled view still lives in the store above.
+                    PacketDisguiseSync p = incomingView == null || !incomingView.enabled
                             ? PacketDisguiseSync.clear(id) : PacketDisguiseSync.single(incomingView);
                     for (ServerPlayer sp : server.getPlayerList().getPlayers())
                         NetworkUtils.sendTo(p, sp);

@@ -56,7 +56,7 @@ import net.shurui.shuruisutilities.util.output.logger.LoggingHandler;
  * It deliberately does NOT call {@code setPersistenceRequired}, so vanilla despawn stays as a safety net against an
  * orphan that somehow loses its owner.
  */
-public class MiniCloneEntity extends TamableAnimal
+public class MiniCloneEntity extends TamableAnimal implements CloneAppearance
 {
     /** The three ways a clone can be drawn. The renderer keys off {@link #getVariant()}. */
     public enum Variant
@@ -498,9 +498,17 @@ public class MiniCloneEntity extends TamableAnimal
     }
 
     /** The render scale of a clone: 60% of the caster. */
+    @Override
     public float getCloneScale()
     {
         return CLONE_SCALE;
+    }
+
+    /** A mini clone is a player copy only in its PLAYER_COPY variant (BUU / CELL_JR draw as themed geckolib models). */
+    @Override
+    public boolean isPlayerCopyLook()
+    {
+        return getVariant() == Variant.PLAYER_COPY;
     }
 
     @Override

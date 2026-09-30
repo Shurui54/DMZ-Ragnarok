@@ -42,6 +42,9 @@ public class RgNpcFighterModel extends GeoModel<RgNpcFighterEntity>
     private static final String TEX_PREFIX = "textures/entity/ragnarok/";
     private static final String TEX_SUFFIX = ".png";
 
+    /** A geo name that is deliberately never bundled: a removed/unknown id resolves here so the saiyan draws. */
+    private static final String ABSENT_GEO = "rgnpc_absent";
+
     /** Bad raw values already reported; these methods run per entity per frame. */
     private static final Set<String> WARNED = Collections.synchronizedSet(new HashSet<>());
 
@@ -68,9 +71,17 @@ public class RgNpcFighterModel extends GeoModel<RgNpcFighterEntity>
     private static ResourceLocation wantedGeo(RgNpcFighterEntity animatable)
     {
         String id = animatable.getModelId();
-        if (!RgNpcModels.isValidId(id))
-            id = RgNpcModels.DEFAULT_ID;
-        return build(GEO_PREFIX, RgNpcModels.geoId(id), GEO_SUFFIX);
+        String canon = RgNpcModels.resolveId(RgNpcModels.sanitize(id));
+        if (canon == null)
+        {
+            // Blank / unset -> default model; a non-blank id that resolves to nothing was a character removed when
+            // the streamed set was replaced by the bundled saga models, so draw the generated saiyan.
+            if (id == null || id.isBlank())
+                canon = RgNpcModels.DEFAULT_ID;
+            else
+                return build(GEO_PREFIX, ABSENT_GEO, GEO_SUFFIX);
+        }
+        return build(GEO_PREFIX, RgNpcModels.geoId(canon), GEO_SUFFIX);
     }
 
     /**

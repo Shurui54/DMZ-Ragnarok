@@ -197,7 +197,9 @@ public final class PlanetGarrison
         }
 
         GeneratedPlanetClaims claims = GeneratedPlanetClaims.get(server);
-        if (claims.isClaimed(planetId) || claims.isDestroyed(planetId))
+        // isOwned, not isClaimed: a planet held by a PERSONAL conquest claim is just as owned as a guild-claimed one and
+        // must grow no wild garrison either.
+        if (claims.isOwned(planetId) || claims.isDestroyed(planetId))
         {
             // an owned or destroyed world gets no wild garrison; mark it populated-empty so we do not keep re-checking.
             data.markPopulated(planetId, "", new HashSet<>(), flatToughness(), 0.0);
@@ -965,23 +967,31 @@ public final class PlanetGarrison
      * Route a defender's death to its planet's record. Called from the LivingDeathEvent handler. Reads the garrison
      * marker off the dying entity, so it is unambiguous which planet the defender belonged to even after chunk reloads.
      * A non-defender death is a cheap no-op. Never throws.
+     *
+     * @return the planet id if THIS death cleared the last living garrison defender of that planet (so the caller can
+     *         start the public conquest boss stage), or null otherwise. A death that leaves defenders standing, or a
+     *         non-defender death, returns null.
      */
-    public static void onDefenderDeath(MinecraftServer server, LivingEntity entity)
+    public static String onDefenderDeath(MinecraftServer server, LivingEntity entity)
     {
         if (server == null || entity == null)
         {
-            return;
+            return null;
         }
         if (!entity.getPersistentData().getBoolean(DEFENDER_FLAG))
         {
-            return;
+            return null;
         }
         String planetId = entity.getPersistentData().getString(DEFENDER_PLANET);
         if (planetId.isEmpty())
         {
-            return;
+            return null;
         }
-        PlanetGarrisonData.get(server).markDefeated(planetId, entity.getUUID());
+        PlanetGarrisonData data = PlanetGarrisonData.get(server);
+        data.markDefeated(planetId, entity.getUUID());
+        // the transition to zero is the "all hostiles cleared" signal the conquest boss stage waits for. remaining is
+        // computed over the persisted roster minus the defeated set, so this is authoritative even across a chunk reload.
+        return data.remaining(planetId) <= 0 ? planetId : null;
     }
 
     /**
