@@ -23,6 +23,8 @@ config = "sdu.mixins.json"
 [[mixins]]
 config = "sdu.cnpc.mixins.json"
 [[mixins]]
+config = "sdu.hud.mixins.json"
+[[mixins]]
 config = "mixins.shuruisutilities.json"
 [[mixins]]
 config = "mixins.shuruisutilities.compat.json"
@@ -46,7 +48,7 @@ side = "BOTH"
 [[dependencies."${mod_id}"]]
 modId = "dragonminez"
 mandatory = true
-versionRange = "[2.1.1b,)"
+versionRange = "[2.2,)"
 ordering = "AFTER"
 side = "BOTH"
 

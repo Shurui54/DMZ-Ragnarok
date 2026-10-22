@@ -7,6 +7,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.SectionPos;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -14,6 +15,8 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
+import net.minecraft.util.Mth;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.world.ForgeChunkManager;
 
@@ -196,6 +199,28 @@ public final class SpaceRouteChunks
     {
         ChunkPos cp = new ChunkPos(BlockPos.containing(x, 0.0, z));
         return level.getChunkSource().hasChunk(cp.x, cp.z);
+    }
+
+    // true when every chunk the box overlaps is already loaded full. Entity.move collides against every block in its
+    // swept box, and a collision lookup in a chunk that is not loaded is a BLOCKING load (generation included) on the
+    // server thread. On SMP that froze the tick for 60 s and the watchdog killed the server (1.5.1, 2026-10-01).
+    public static boolean boxReady(ServerLevel level, AABB box)
+    {
+        int minX = SectionPos.blockToSectionCoord(Mth.floor(box.minX));
+        int maxX = SectionPos.blockToSectionCoord(Mth.floor(box.maxX));
+        int minZ = SectionPos.blockToSectionCoord(Mth.floor(box.minZ));
+        int maxZ = SectionPos.blockToSectionCoord(Mth.floor(box.maxZ));
+        for (int cx = minX; cx <= maxX; cx++)
+        {
+            for (int cz = minZ; cz <= maxZ; cz++)
+            {
+                if (!level.getChunkSource().hasChunk(cx, cz))
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     // true while this player has any chunk forced by the route loader. Used by the per-tick safety sweep to release a

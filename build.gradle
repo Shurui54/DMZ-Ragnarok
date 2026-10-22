@@ -63,7 +63,7 @@ java {
 // Space's mixin config (dmz_ragnarok_space.mixins.json) is NO LONGER a core mixin: its mixin classes moved to
 // the :dmz_ragnarok_space module, so it is loaded only for modSets that include Space (space / all / fat).
 def modSet = (findProperty('modSet') ?: 'fat').toString()
-def coreMixins = ['sdu.mixins.json', 'sdu.cnpc.mixins.json',
+def coreMixins = ['sdu.mixins.json', 'sdu.cnpc.mixins.json', 'sdu.hud.mixins.json',
                   'mixins.shuruisutilities.json', 'mixins.shuruisutilities.compat.json']
 def dungeonsMixins = ['shuruis_dmz_dungeons.mixins.json']
 def raidsMixins = ['shuruis_raid_bosses.mixins.json']
@@ -166,7 +166,7 @@ minecraft {
 
         client {
             // Real Microsoft login via DevAuth (account "main" from ~/.config/devauth).
-            property 'devauth.enabled', 'true'
+            property 'devauth.enabled', (findProperty('devauth') ?: 'true').toString()
             property 'devauth.account', 'main'
 
             // DEV-ONLY visual test harness hook. Passing -Pvisualtest=<scenario list> (or -Pvisualtest=all) arms the

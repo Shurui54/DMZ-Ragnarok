@@ -28,6 +28,8 @@ public class PacketNpcRegionSync implements ISUPacket
         public boolean showTitle = true, showHud = true;
         /** Map overlay fill colour as {@code #RRGGBB}; blank = default. */
         public String color = "";
+        /** Freeform selection outline, interleaved x, z (see {@code PolygonXZ}); null for a cuboid selection. */
+        public int[] outline;
 
         public Row() {}
 
@@ -88,6 +90,12 @@ public class PacketNpcRegionSync implements ISUPacket
             buf.writeBoolean(r.showTitle);
             buf.writeBoolean(r.showHud);
             buf.writeUtf(r.color);
+            // appended: vertex count (0 = a cuboid) then the interleaved coordinates
+            int n = r.outline == null ? 0 : Math.min(r.outline.length / 2,
+                    net.shurui.shuruisutilities.util.PolygonXZ.MAX_VERTICES);
+            buf.writeVarInt(n);
+            for (int k = 0; k < 2 * n; k++)
+                buf.writeVarInt(r.outline[k]);
         }
     }
 
@@ -108,6 +116,15 @@ public class PacketNpcRegionSync implements ISUPacket
             r.showTitle = buf.readBoolean();
             r.showHud = buf.readBoolean();
             r.color = buf.readUtf();
+            int pts = buf.readVarInt();
+            if (pts < 0 || pts > net.shurui.shuruisutilities.util.PolygonXZ.MAX_VERTICES)
+                throw new IllegalArgumentException("NPC region outline with " + pts + " points");
+            if (pts > 0)
+            {
+                r.outline = new int[2 * pts];
+                for (int k = 0; k < 2 * pts; k++)
+                    r.outline[k] = buf.readVarInt();
+            }
             p.rows.add(r);
         }
         return p;
@@ -132,6 +149,7 @@ public class PacketNpcRegionSync implements ISUPacket
                         r.tpMin, r.tpMax, r.balMin, r.balMax,
                         r.minY, r.maxY, r.title, r.description, r.difficulty, r.showTitle, r.showHud);
                 e.setColor(r.color);
+                e.outline = r.outline;
                 entries.add(e);
             }
             net.shurui.shuruisutilities.compat.client.NpcRegionCacheClient.replaceAll(entries, canManage);

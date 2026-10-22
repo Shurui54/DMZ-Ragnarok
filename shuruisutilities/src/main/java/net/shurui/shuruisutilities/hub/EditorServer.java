@@ -24,6 +24,7 @@ public final class EditorServer
         switch (editor)
         {
             case "hoverbikes" -> send(player, "hoverbikes", hoverbikeMeta(), new ArrayList<>());
+            case "rituals" -> send(player, "rituals", ritualMeta(player), new ArrayList<>());
             // The player-facing event hub. Delegated to the private event engine (Ragnarok Key) through its inert
             // core hook, so core carries no event logic; keyless the hook is a no-op and nothing opens.
             case "eventhub" -> net.shurui.shuruisutilities.api.key.EventWorldHooks.get().openHub(player);
@@ -40,6 +41,7 @@ public final class EditorServer
         switch (editor)
         {
             case "hoverbikes" -> handleHoverbikes(action, args);
+            case "rituals" -> handleRituals(player, action, args);
             case "cosmetics" -> { handleCosmetics(player, action, args); return; } // player tool; drives the Patreon link flow
             // The event hub (claim a quest, buy a shop offer). The key handler self-refreshes the screen.
             case "eventhub" -> { net.shurui.shuruisutilities.api.key.EventWorldHooks.get()
@@ -173,6 +175,46 @@ public final class EditorServer
                 Double.toString(net.shurui.shuruisutilities.hoverbike.ConfigHoverbikes.speed[4]),
                 Double.toString(net.shurui.shuruisutilities.hoverbike.ConfigHoverbikes.sprintMultiplier),
                 Boolean.toString(net.shurui.shuruisutilities.hoverbike.ConfigHoverbikes.soundEnabled));
+    }
+
+    // rituals. meta = [stored SSG chargers (0 = the config value), the config value, what is in effect now, stored DMZ god
+    // ritual choice (0 config, 1 on, 2 off), its config value, whether it is on now]
+    private static List<String> ritualMeta(ServerPlayer player)
+    {
+        net.minecraft.server.MinecraftServer server = player.getServer();
+        int stored = server == null ? 0
+                : net.shurui.shuruisutilities.ritual.RitualSettings.get(server).storedSsgRequiredChargers();
+        int god = server == null ? 0
+                : net.shurui.shuruisutilities.ritual.RitualSettings.get(server).storedDmzGodRitual();
+        return List.of(Integer.toString(stored),
+                Integer.toString(Math.max(1, net.shurui.shuruisutilities.core.SUConfig.ssgRitualRequiredChargers)),
+                Integer.toString(net.shurui.shuruisutilities.ritual.RitualSettings.ssgRequiredChargers(server)),
+                Integer.toString(god),
+                Boolean.toString(net.shurui.shuruisutilities.core.SUConfig.dmzGodRitualEnabled),
+                Boolean.toString(net.shurui.shuruisutilities.ritual.RitualSettings.dmzGodRitualEnabled(server)));
+    }
+
+    // save [ssgChargers, dmzGodRitual (optional: 1 on, 2 off)]: chargers is a whole number of at least 1, or 0 / blank to go back to the config value. Saved with the
+    // overworld and carried to every shard by the state sync (su:ritual_settings).
+    private static void handleRituals(ServerPlayer player, String action, List<String> args)
+    {
+        if (!"save".equals(action) || args.isEmpty() || player.getServer() == null)
+            return;
+        String raw = args.get(0) == null ? "" : args.get(0).trim();
+        int value = raw.isEmpty() ? 0 : Math.max(0, HubRows.parseI(raw));
+        net.shurui.shuruisutilities.ritual.RitualSettings settings =
+                net.shurui.shuruisutilities.ritual.RitualSettings.get(player.getServer());
+        settings.setSsgRequiredChargers(value);
+        if (args.size() > 1 && args.get(1) != null && !args.get(1).isBlank())
+        {
+            settings.setDmzGodRitual(HubRows.parseI(args.get(1).trim()));
+            net.shurui.shuruisutilities.util.output.logger.LoggingHandler.sulog.info(
+                    "[ritual] {} set DragonMineZ's own god ritual to {}.", player.getGameProfile().getName(),
+                    net.shurui.shuruisutilities.ritual.RitualSettings.dmzGodRitualEnabled(player.getServer()) ? "on" : "off");
+        }
+        net.shurui.shuruisutilities.util.output.logger.LoggingHandler.sulog.info(
+                "[ritual] {} set the Super Saiyan God ritual chargers to {}.", player.getGameProfile().getName(),
+                value <= 0 ? "the config value" : String.valueOf(value));
     }
 
     // save speed1..4 sprintMultiplier soundEnabled; clamps + persists + re-bakes live

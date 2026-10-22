@@ -20,14 +20,12 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Party rule: a saga quest line is run at the LOWEST step any online, same-server party member is still on, until
- * everyone has caught up. DMZ's own party model routes every quest through the party LEADER as the sole controller
- * (PartyManager.resolveQuestController, QuestService.startQuest), so a mixed-progress party could not spawn saga
- * NPCs at all: if the leader was ahead of a member, starting the leader's step returned "already active" for the
- * behind member (the state is the leader's), and starting the behind step through the leader was refused the same
- * way, so QuestService.acceptQuest + spawnKillObjectives never ran. This makes the party do the behind member's
- * (lowest) step together instead: the behind member becomes the effective controller for that one start (see
- * {@code PartyControllerOverrideMixin}), so DMZ's own start path accepts and spawns it normally, and DMZ's
- * per-member kill credit (QuestEvents.creditQuestKill) handles the rest.
+ * everyone has caught up. DragonMineZ 2.2 starts a quest for the requester and every nearby member who can take that
+ * same step, and skips the rest, so an ahead member picking their own step leaves a behind member out of the fight.
+ * This makes the party do the behind member's (lowest) step together instead: the start is re-issued with the behind
+ * member as the requester ({@code QuestService.startQuest(behind, step)}), so DMZ's own start path accepts and
+ * spawns it normally for everyone on that step, and DMZ's per-member kill credit handles the rest. (2.1 needed a
+ * controller override mixin for this; 2.2 has no quest controller.)
  *
  * <p><b>Rewards / ahead players:</b> DMZ credits each member on their OWN PlayerQuestData and skips a member who has
  * already completed the quest (QuestEvents.processAcceptedQuests filters {@code isQuestCompleted}). So a player who
@@ -51,7 +49,7 @@ public final class PartyLowestSaga {
     public static final String CAUGHT_UP_KEY = "message.dmz_ragnarok.party.saga_caught_up";
 
     /**
-     * The effective controller for the single re-invoked start, read by {@code PartyControllerOverrideMixin}. Set only
+     * The behind member the single re-invoked start runs for; its presence marks our own re-invocation. Set only
      * for the duration of one synchronous {@link QuestService#startQuest(ServerPlayer, String)} on the server thread,
      * so there is no interleaving; a ThreadLocal keeps it strictly to that thread regardless.
      */
@@ -68,10 +66,6 @@ public final class PartyLowestSaga {
         return CONTROLLER_OVERRIDE.get() != null;
     }
 
-    /** The controller override for the in-flight start, or null. Read by {@code PartyControllerOverrideMixin}. */
-    public static ServerPlayer controllerOverride() {
-        return CONTROLLER_OVERRIDE.get();
-    }
 
     private static void begin(ServerPlayer controller) {
         CONTROLLER_OVERRIDE.set(controller);
@@ -108,8 +102,8 @@ public final class PartyLowestSaga {
                 }
                 return false;
             }
-            // Steer the party onto its lowest incomplete step and let DMZ start THAT with the behind member as
-            // controller, so acceptQuest + spawnKillObjectives run and the enemies spawn for the party.
+            // Steer the party onto its lowest incomplete step and let DMZ start THAT with the behind member as the
+            // requester, so the quest is accepted and its enemies spawn for the party.
             CATCHING_UP.put(plan.partyId(), Boolean.TRUE);
             if (plan.announceAhead()) {
                 broadcast(plan.members(), Component.translatable(CATCHUP_KEY, questTitle(plan.targetQuest()),
@@ -230,10 +224,9 @@ public final class PartyLowestSaga {
      * a quest every member already finished, so we leave DMZ to give its normal "already active" reply.
      */
     static boolean takeoverNeeded(int requestedIndex, int targetIndex, int leaderIndex) {
-        if (requestedIndex < targetIndex) {
-            return false;
-        }
-        return requestedIndex > targetIndex || leaderIndex > targetIndex;
+        // DragonMineZ 2.2 starts a quest per member (each joins on their own progress), so a leader ahead of the
+        // lowest step no longer blocks it: only a request AHEAD of the party's lowest step needs steering.
+        return requestedIndex > targetIndex;
     }
 
     /** The quest's display title as a component, or a readable fallback when the title key is missing. */
@@ -272,8 +265,9 @@ public final class PartyLowestSaga {
             ok &= !takeoverNeeded(2, 2, 2);
             // A member behind (target 2), an ahead member requests step 4: steer to 2.
             ok &= takeoverNeeded(4, 2, 4);
-            // Request is exactly the lowest step but the leader is ahead of it: DMZ would say "already active", steer.
-            ok &= takeoverNeeded(2, 2, 5);
+            // Request is exactly the lowest step and the leader is ahead of it: DMZ 2.2 starts it for every member
+            // still on it, so no steering.
+            ok &= !takeoverNeeded(2, 2, 5);
             // Request below the party's lowest step (a quest everyone finished): leave DMZ to answer.
             ok &= !takeoverNeeded(1, 2, 2);
             if (ok) {

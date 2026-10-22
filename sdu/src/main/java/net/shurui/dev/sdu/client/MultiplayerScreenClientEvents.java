@@ -38,10 +38,10 @@ import net.minecraftforge.fml.common.Mod;
  *       no {@code net.shurui} widget on the screen and no widget carrying the label text, so the widget sweep finds
  *       nothing of ours to strip. Keeping it a draw also lets the label keep its wording.</li>
  *   <li><b>The server entry is re-pinned last.</b> Our pin runs at {@link EventPriority#LOWEST} on init, after the
- *       cleaner's default-priority handler, so anything it removed we put back at index 0. Our current address is a
- *       raw ip (no {@code modpack.gg}), so the cleaner does not target it today, but a cheap once-per-second guard
- *       while the screen is open re-adds the entry in memory if it ever goes missing. That guard never writes
- *       servers.dat.</li>
+ *       cleaner's default-priority handler, so anything it removed we put back at index 0. Our current address is
+ *       a {@code modpack.gg} host, which the cleaner DOES target, so this re-pin and the cheap once-per-second guard
+ *       while the screen is open (which re-adds the entry in memory if it goes missing) are what keep it listed.
+ *       That guard never writes servers.dat.</li>
  * </ol>
  */
 @Mod.EventBusSubscriber(modid = "dmz_ragnarok", value = Dist.CLIENT, bus = Mod.EventBusSubscriber.Bus.FORGE)
@@ -53,14 +53,17 @@ public final class MultiplayerScreenClientEvents {
     private static final String LABEL = "Join the official Shurui's DMZ Addon Server!";
     private static final ResourceLocation ICON = new ResourceLocation("dmz_ragnarok", "textures/gui/discord.png");
 
-    /** Where the server currently lives. A raw ip, deliberately not a {@code modpack.gg} host. */
-    private static final String IP = "172.240.47.191:25593";
+    /**
+     * Where the server currently lives: the SMP, reached directly (the Velocity proxy is retired). The host has
+     * only an SRV record ({@code _minecraft._tcp}, port 25569), which vanilla resolves, so no port is written.
+     */
+    private static final String IP = "dmzragnarok.modpack.gg";
 
     // Addresses this pin used to use. A player who ever ran an older build has one saved, and nothing removed it,
-    // so it would sit in the list beside the new entry for ever, still pointing at a backend that is now behind
-    // the proxy and refuses direct connections. Purged rather than merely left unpinned, or "the old ip is still
-    // showing" never ends.
-    private static final String[] LEGACY = { "dmz-ragnarok.modpack.gg" };
+    // so it would sit in the list beside the new entry for ever, still pointing at an address that no longer
+    // serves the network. Purged rather than merely left unpinned, or "the old ip is still showing" never ends.
+    // 172.240.47.191:25593 was the Velocity proxy, retired on 2026-10-04.
+    private static final String[] LEGACY = { "dmz-ragnarok.modpack.gg", "172.240.47.191:25593" };
 
     // Promo overlay geometry, in logical (gui-scaled) pixels: pixel-art logo top-left, label text to its right.
     private static final int OX = 8;

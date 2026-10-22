@@ -217,6 +217,12 @@ public class ConfigBase
     // LoggingHandler.sulog.debug("Finished registering configuration files AUTO");
     // }
 
+    /** Every loader whose spec is built, for the in-game options editor. A snapshot: safe to iterate. */
+    public synchronized java.util.List<ConfigLoader> builtLoadersView()
+    {
+        return new java.util.ArrayList<>(builtLoaders);
+    }
+
     public String getMainConfigName()
     {
         return "main";

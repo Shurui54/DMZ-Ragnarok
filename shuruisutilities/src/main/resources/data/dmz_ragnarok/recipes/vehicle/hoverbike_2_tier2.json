@@ -1,0 +1,31 @@
+{
+  "_comment": "Tier 2 straight from the workbench: exactly twice every part of the tier 1 blueprint.",
+  "type": "dmz_ragnarok:vehicle_crafting",
+  "order": 13,
+  "parts": [
+    {
+      "item": "dragonminez:vehicle_engine",
+      "count": 2
+    },
+    {
+      "item": "dragonminez:vehicle_plating",
+      "count": 8
+    },
+    {
+      "item": "dragonminez:vehicle_propeller",
+      "count": 4
+    },
+    {
+      "item": "dragonminez:vehicle_seat",
+      "count": 2
+    },
+    {
+      "item": "minecraft:gold_ingot",
+      "count": 8
+    }
+  ],
+  "result": {
+    "item": "dmz_ragnarok:hoverbike_2"
+  },
+  "tier": 2
+}

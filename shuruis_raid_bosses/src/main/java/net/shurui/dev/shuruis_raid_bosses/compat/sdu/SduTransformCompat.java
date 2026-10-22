@@ -13,7 +13,7 @@ import java.util.function.Consumer;
  *
  * <p>This outer class names NO sdu types and is safe to classload when sdu is absent: it only checks
  * {@link ModList#isLoaded(String)} and delegates to the inner {@link Impl} holder, the only class touching
- * {@code net.shurui.dev.sdu.*}, never classloaded unless sdu is present (the optional-dependency pattern).
+ * {@code net.shurui.dev.sdu.*}, never classloaded unless sdu is present ({@code docs/compat-pattern.md}).
  * Client-side only.
  */
 public final class SduTransformCompat {

@@ -82,6 +82,12 @@ public class SUConfig extends ConfigLoaderBase
     // loads, so an operator on a live server sees the key appear and edits it there.
     public static int ssgRitualRequiredChargers;
 
+    // Whether DragonMineZ 2.2's own Super Saiyan God ritual (five donors sharing ki around a Super Saiyan, the
+    // temporary "godritual" form) may start on this server. On by default (owner): DMZ's ritual works as normal unless
+    // an admin turns it off. The suite's own SSG charge ritual is not affected either way. The in-game Rituals row
+    // (RitualSettings) overrides it per server.
+    public static boolean dmzGodRitualEnabled;
+
     // Zeni charged, server-side, to awaken one dormant rune at the rune bench. Read by RuneBenchMenu.doAwaken; the
     // charge is taken before the dormant rune is consumed, so a player who cannot afford it loses neither the rune
     // nor any Zeni. Zero means no charge, which is the old free awakening. Default 5000. A brand-new value is added
@@ -112,6 +118,8 @@ public class SUConfig extends ConfigLoaderBase
     // flinging some out into the ordinary generated terrain beyond it, where they are effectively lost. Exposed as
     // config because the operator may resize the imported map later.
     public static int overworldDragonBallScatterRange;
+    // dimension DMZ's Namek ball set scatters in; blank or dragonminez:namek keeps DMZ's own Namek
+    public static String namekDragonBallDimension = "dragonminez:namek";
 
     // Minimum spacing, in blocks, between two hand-placed Super dragon balls. The Super model is about 2.9 blocks
     // across, so a placement within this many blocks of another Super ball is refused to keep the oversized spheres
@@ -289,6 +297,7 @@ public class SUConfig extends ConfigLoaderBase
     static ForgeConfigSpec.ConfigValue<String> SUstoreUrl;
     static ForgeConfigSpec.DoubleValue SUnpcRegionAutoAggroBpFraction;
     static ForgeConfigSpec.IntValue SUoverworldDragonBallScatterRange;
+    static ForgeConfigSpec.ConfigValue<String> SUnamekDragonBallDimension;
     static ForgeConfigSpec.IntValue SUsuperDragonBallMinPlacementDistance;
     static ForgeConfigSpec.BooleanValue SUitemClearEnabled;
     static ForgeConfigSpec.IntValue SUitemClearIntervalSeconds;
@@ -329,6 +338,7 @@ public class SUConfig extends ConfigLoaderBase
     static ForgeConfigSpec.IntValue SUcorruptedDragonLifetimeTicks;
     static ForgeConfigSpec.IntValue SUssgWishMinLevel;
     static ForgeConfigSpec.IntValue SUssgRitualRequiredChargers;
+    static ForgeConfigSpec.BooleanValue SUdmzGodRitualEnabled;
     static ForgeConfigSpec.IntValue SUruneAwakenZeniCost;
     static ForgeConfigSpec.BooleanValue SUholdOverworldFluids;
     static ForgeConfigSpec.BooleanValue SUholdOverworldFallingBlocks;
@@ -691,6 +701,12 @@ public class SUConfig extends ConfigLoaderBase
                         "two-saiyan ritual (the centre and a single charger). On an existing server this key is written",
                         "into the config file with the default the first time this build loads, so change it there.")
                 .defineInRange("SsgRitualRequiredChargers", 5, 1, 100);
+        SUdmzGodRitualEnabled = BUILDER
+                .comment("Whether DragonMineZ's own Super Saiyan God ritual (five saiyan donors sharing their ki around a",
+                        "Super Saiyan, giving the temporary god ritual form) may start. On by default. Set to false to stop",
+                        "new rituals; a form already active runs out normally, and our Super Saiyan God charge ritual is",
+                        "unaffected either way. The admin hub Rituals row overrides this per server.")
+                .define("DmzGodRitualEnabled", true);
         SUruneAwakenZeniCost = BUILDER
                 .comment("Zeni charged to awaken one dormant rune at the rune bench. Charged server-side, before the",
                         "dormant rune is consumed, so a player who cannot pay loses neither the rune nor any Zeni. Zero",
@@ -729,6 +745,12 @@ public class SUConfig extends ConfigLoaderBase
                         "raise it if the map is enlarged. Applies to DMZ's Earth set (clamped: a larger DMZ spawn",
                         "range is capped to this, a smaller one is left alone) and to our overworld sets (used as-is).")
                 .defineInRange("OverworldDragonBallScatterRange", 3000, 64, 64000);
+        SUnamekDragonBallDimension = BUILDER
+                .comment("Dimension DMZ's Namek dragon ball set scatters in. The default, dragonminez:namek (or blank),",
+                        "keeps the set on DragonMineZ's own Namek. Another dimension (for example dmz_ragnarok:namekow)",
+                        "moves the set there, scattered anywhere inside that dimension's world border; that is only",
+                        "honoured with the Ragnarok Key and when the dimension exists.")
+                .define("NamekDragonBallDimension", "dragonminez:namek");
         SUsuperDragonBallMinPlacementDistance = BUILDER
                 .comment("Minimum spacing, in blocks, between two Super Dragon Balls placed by hand. A Super ball's",
                         "model is about 2.9 blocks across, so placing one within this many blocks of another is",
@@ -890,6 +912,7 @@ public class SUConfig extends ConfigLoaderBase
         corruptedDragonLifetimeTicks = SUcorruptedDragonLifetimeTicks.get();
         ssgWishMinLevel = SUssgWishMinLevel.get();
         ssgRitualRequiredChargers = SUssgRitualRequiredChargers.get();
+        dmzGodRitualEnabled = SUdmzGodRitualEnabled.get();
         runeAwakenZeniCost = SUruneAwakenZeniCost.get();
         holdOverworldFluids = SUholdOverworldFluids.get();
         holdOverworldFallingBlocks = SUholdOverworldFallingBlocks.get();
@@ -898,6 +921,7 @@ public class SUConfig extends ConfigLoaderBase
         // call never existed, so nothing could turn the freeze off. Baking it here is what makes them real.
         net.shurui.shuruisutilities.world.WorldPhysicsModule.bake(holdOverworldFallingBlocks, holdOverworldFluids);
         overworldDragonBallScatterRange = SUoverworldDragonBallScatterRange.get();
+        namekDragonBallDimension = SUnamekDragonBallDimension.get();
         superDragonBallMinPlacementDistance = SUsuperDragonBallMinPlacementDistance.get();
         itemClearEnabled = SUitemClearEnabled.get();
         itemClearIntervalSeconds = SUitemClearIntervalSeconds.get();

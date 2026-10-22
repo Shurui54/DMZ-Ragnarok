@@ -86,6 +86,12 @@ public abstract class MixinDmzRadarRender
             {
                 return true;
             }
+            // The open Namek world is where the Namek set scatters now (NamekBallHome), so a Namek or fused radar there
+            // must read the Namek list exactly as on DMZ's Namek.
+            if (su$isNamek(level))
+            {
+                return true;
+            }
         }
         catch (Throwable ignored)
         {
@@ -191,10 +197,17 @@ public abstract class MixinDmzRadarRender
         return true;
     }
 
-    // True when this level is DMZ's Namek dimension. Compared on the dimension id rather than DMZ's NamekDimension
-    // constant so this client mixin does not classload a DMZ server-world class.
+    // True when this level is DMZ's Namek dimension or the open Namek world (dmz_ragnarok:namekow), where the Namek
+    // ball set scatters by default. Compared on the dimension id rather than DMZ's NamekDimension constant so this
+    // client mixin does not classload a DMZ server-world class.
     private static boolean su$isNamek(Level level)
     {
-        return level != null && level.dimension().location().equals(new ResourceLocation("dragonminez", "namek"));
+        if (level == null)
+        {
+            return false;
+        }
+        ResourceLocation id = level.dimension().location();
+        return id.equals(new ResourceLocation("dragonminez", "namek"))
+                || id.equals(new ResourceLocation("dmz_ragnarok", "namekow"));
     }
 }

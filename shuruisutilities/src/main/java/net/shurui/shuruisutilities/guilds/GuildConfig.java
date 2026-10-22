@@ -138,4 +138,21 @@ public class GuildConfig
      * was offline when the raid started never entered and so earns nothing, exactly as they hold no stash to return.
      */
     public int raidWinTicketReward = 3;
+
+    /**
+     * Owner rule (the key's {@code TotemClaimGrief}): a dragon ball totem walled in on a claim, where nobody else can
+     * reach it, opens that whole claim to everyone (build, break, containers, interact) until the totem is gone or its
+     * balls are taken. Master switch, default on.
+     */
+    public boolean ballTotemGriefEnabled = true;
+    /**
+     * Most blocks the enclosure flood fill visits from a ball totem before it calls the space reachable. Default 4096
+     * (the fill also stops 32 blocks from the totem on any axis). Clamped to 64..65536.
+     */
+    public int ballTotemGriefFloodCap = 4096;
+    /**
+     * Whether guild claims fall under the rule, default yes. Guild claims are the only player claims today (a solo
+     * player claims through a one-person guild); serverclaims, spawn and admin regions never do.
+     */
+    public boolean ballTotemGriefGuildClaims = true;
 }

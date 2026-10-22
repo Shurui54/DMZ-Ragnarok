@@ -5,18 +5,78 @@ import java.util.List;
 
 import net.minecraft.world.phys.AABB;
 
-// named spawn zone of one or more cuboid Boxes in a single dimension, periodically spawns customizable
-// NPCs (each an NpcSpawnConfig). selections drawn by right-dragging on Xaero's World Map, can be added
+// named spawn zone of one or more Boxes (cuboids, or freeform outlines clicked point by point) in a single
+// dimension, periodically spawns customizable NPCs (each an NpcSpawnConfig). selections drawn on Xaero's World Map
+// (right-drag for a box, draw mode for an outline), can be added
 // to an existing region or start a new one so shapes are composite. no protection flags (that's Region),
 // purely a spawn zone. persisted as JSON by NpcRegionManager (plain fields for Gson).
 public class NpcRegion
 {
-    // one cuboid selection. plain fields for Gson.
+    // one selection. plain fields for Gson. a plain cuboid, or (with outline set) a freeform shape drawn point by
+    // point on the map: then min/max X/Z are the outline's bounding box (so every coarse reader still gets a safe
+    // superset) and only containsColumn/contains are exact.
     public static class Box
     {
         public int minX, minY, minZ, maxX, maxY, maxZ;
 
+        /**
+         * Optional freeform outline, interleaved {@code [x0, z0, x1, z1, ...]} block columns in drawing order (see
+         * {@link net.shurui.shuruisutilities.util.PolygonXZ}). NULL on every cuboid selection, and Gson omits a null
+         * field, so a save without freeform shapes stays byte-identical and an older build reading a newer save simply
+         * sees the bounding box. Y stays {@code minY..maxY} as for a cuboid.
+         */
+        public int[] outline;
+
         public Box() {}
+
+        /** A freeform selection from a validated outline, spanning {@code minY..maxY}. */
+        public static Box outline(int[] pts, int minY, int maxY)
+        {
+            int[] b = net.shurui.shuruisutilities.util.PolygonXZ.bounds(pts);
+            Box box = new Box(b[0], minY, b[1], b[2], maxY, b[3]);
+            box.outline = pts.clone();
+            return box;
+        }
+
+        public boolean isOutline()
+        {
+            return outline != null && net.shurui.shuruisutilities.util.PolygonXZ.count(outline) >= 3;
+        }
+
+        /** Whether the block column belongs to this selection (bounding box first, then the outline). */
+        public boolean containsColumn(int x, int z)
+        {
+            if (x < minX || x > maxX || z < minZ || z > maxZ)
+                return false;
+            return !isOutline() || net.shurui.shuruisutilities.util.PolygonXZ.containsColumn(outline, x, z);
+        }
+
+        /**
+         * A random block column inside this selection: uniform over the bounding box, then (for an outline)
+         * rejection sampled with a retry cap. Null only when an outline rejects every try, which needs a sliver of a
+         * shape; callers treat it like any other failed attempt.
+         */
+        public int[] randomColumn(net.minecraft.util.RandomSource random)
+        {
+            for (int i = 0; i < 24; i++)
+            {
+                int x = minX + random.nextInt(Math.max(1, maxX - minX + 1));
+                int z = minZ + random.nextInt(Math.max(1, maxZ - minZ + 1));
+                if (!isOutline() || net.shurui.shuruisutilities.util.PolygonXZ.containsColumn(outline, x, z))
+                    return new int[] {x, z};
+                if (!isOutline())
+                    break;
+            }
+            return null;
+        }
+
+        /** A fixed point inside the selection (its middle for a cuboid), for teleports and last-resort spots. */
+        public double[] interiorPoint()
+        {
+            if (isOutline())
+                return net.shurui.shuruisutilities.util.PolygonXZ.interiorPoint(outline);
+            return new double[] {(minX + maxX) / 2.0 + 0.5, (minZ + maxZ) / 2.0 + 0.5};
+        }
 
         public Box(int x1, int y1, int z1, int x2, int y2, int z2)
         {
@@ -30,7 +90,9 @@ public class NpcRegion
 
         public boolean contains(double x, double y, double z)
         {
-            return x >= minX && x <= maxX + 1 && y >= minY && y <= maxY + 1 && z >= minZ && z <= maxZ + 1;
+            if (!(x >= minX && x <= maxX + 1 && y >= minY && y <= maxY + 1 && z >= minZ && z <= maxZ + 1))
+                return false;
+            return !isOutline() || net.shurui.shuruisutilities.util.PolygonXZ.contains(outline, x, z);
         }
 
         // world-space AABB, inclusive of the max block
@@ -41,11 +103,14 @@ public class NpcRegion
 
         public long volume()
         {
-            return (long) (maxX - minX + 1) * (maxY - minY + 1) * (maxZ - minZ + 1);
+            return areaXZ() * (maxY - minY + 1);
         }
 
+        // footprint in blocks: the bounding box for a cuboid, the enclosed area for an outline
         public long areaXZ()
         {
+            if (isOutline())
+                return net.shurui.shuruisutilities.util.PolygonXZ.area(outline);
             return (long) (maxX - minX + 1) * (maxZ - minZ + 1);
         }
     }
@@ -212,6 +277,26 @@ public class NpcRegion
             boxes = new ArrayList<>();
         if (boxes.isEmpty())
             boxes.add(new Box(minX, minY, minZ, maxX, maxY, maxZ)); // pre-multi-selection save
+        boxes.removeIf(b -> b == null);
+        for (Box b : boxes)
+        {
+            if (b.outline == null)
+                continue;
+            // a hand-edited outline too short to enclose anything falls back to its box; otherwise the box is
+            // re-derived from the outline so the coarse readers and the exact test always agree
+            if (net.shurui.shuruisutilities.util.PolygonXZ.count(b.outline) < 3)
+            {
+                b.outline = null;
+                continue;
+            }
+            int[] bb = net.shurui.shuruisutilities.util.PolygonXZ.bounds(b.outline);
+            b.minX = bb[0];
+            b.minZ = bb[1];
+            b.maxX = bb[2];
+            b.maxZ = bb[3];
+        }
+        if (boxes.isEmpty())
+            boxes.add(new Box(minX, minY, minZ, maxX, maxY, maxZ));
         if (npcs == null)
             npcs = new ArrayList<>();
         if (config != null)

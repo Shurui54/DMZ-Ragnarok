@@ -169,6 +169,26 @@ public final class EventDef
         public String endLocal = "";
         public boolean annual;
 
+        /**
+         * The yearly day range (months 1..12, days 1..31, February up to 29), or all 0 for a def authored the older
+         * way (a free-text local start and end). A day-range event is always annual: every year it runs from 00:00 on
+         * the start day to 00:00 after the end day in {@link #zone}, so both days are included in full (see
+         * {@code EventSchedule.dayRangeWindow}). These are optional NBT keys, written only when set, so a def saved
+         * before they existed serialises to exactly the same bytes as before (no shard republish, no loop with an
+         * older jar). The epochs and locals above are still kept in step as the current occurrence, so anything that
+         * reads only them (an older jar, the DB projection) sees the right window.
+         */
+        public int startMonth;
+        public int startDay;
+        public int endMonth;
+        public int endDay;
+
+        /** True when this def uses the yearly day range rather than the older free-text window. */
+        public boolean isDayRange()
+        {
+            return startMonth >= 1 && startMonth <= 12;
+        }
+
         CompoundTag toNbt()
         {
             CompoundTag t = new CompoundTag();
@@ -178,6 +198,13 @@ public final class EventDef
             t.putString("startLocal", startLocal);
             t.putString("endLocal", endLocal);
             t.putBoolean("annual", annual);
+            if (isDayRange())
+            {
+                t.putInt("startMonth", startMonth);
+                t.putInt("startDay", startDay);
+                t.putInt("endMonth", endMonth);
+                t.putInt("endDay", endDay);
+            }
             return t;
         }
 
@@ -189,6 +216,10 @@ public final class EventDef
             startLocal = t.getString("startLocal");
             endLocal = t.getString("endLocal");
             annual = t.getBoolean("annual");
+            startMonth = t.getInt("startMonth");
+            startDay = t.getInt("startDay");
+            endMonth = t.getInt("endMonth");
+            endDay = t.getInt("endDay");
         }
     }
 

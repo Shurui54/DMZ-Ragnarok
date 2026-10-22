@@ -18,7 +18,7 @@ import com.dragonminez.common.config.ConfigManager;
 /**
  * The only SU class that touches DMZ's config internals for the planet gravity seed. Reached solely through
  * {@link PlanetGravityCompat}, which confirms DMZ is present first, so the DMZ imports here are never classloaded on a
- * server without DragonMineZ. Follows the optional-dependency pattern.
+ * server without DragonMineZ. Follows docs/compat-pattern.md.
  *
  * <p>DMZ owns a per-dimension gravity system: {@code GeneralServerConfig.GravityConfig.gravityPerWorld} maps a
  * dimension id to a multiplier, and {@code GravityLogic} reads it every tick for every player, so leaving the dimension

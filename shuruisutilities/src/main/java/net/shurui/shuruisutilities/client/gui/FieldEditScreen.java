@@ -30,6 +30,7 @@ public abstract class FieldEditScreen extends SagaBaseScreen {
     private final List<TextEntry> textEntries = new ArrayList<>();
     private final List<ColorRow> colorRows = new ArrayList<>();
     private final Map<DmzDropdown, Runnable> dropdownSync = new HashMap<>();
+    private final java.util.Set<DmzDropdown> rebuildOnPick = new java.util.HashSet<>();
     private DmzColorPicker openPicker;
     private Consumer<String> pickerSetter;
     protected int rowY;
@@ -43,6 +44,7 @@ public abstract class FieldEditScreen extends SagaBaseScreen {
         textEntries.clear();
         colorRows.clear();
         dropdownSync.clear();
+        rebuildOnPick.clear();
     }
 
     // standard editor header for a GENERIC (unnamed) tabbed screen: gray centred subtitle + tab bar. onSelect
@@ -189,6 +191,23 @@ public abstract class FieldEditScreen extends SagaBaseScreen {
         dropdownSync.put(d, () -> setter.accept(values.get(Math.max(0, Math.min(d.getIndex(), values.size() - 1)))));
     }
 
+    // plain positioned selector (no "(none)" row, no search): labels.get(i) is shown, the setter gets the picked
+    // index. Picking a row applies the fields and rebuilds the screen, so a choice that changes another list (a day
+    // list following its month) or a preview line shows at once. For short fixed lists such as months and days.
+    // no rowY advance.
+    protected DmzDropdown choiceAt(int x, int y, int w, List<String> labels, int index,
+            java.util.function.IntConsumer setter) {
+        List<Component> opts = new ArrayList<>();
+        for (String s : labels) {
+            opts.add(Component.literal(s));
+        }
+        int idx = Math.max(0, Math.min(index, Math.max(0, opts.size() - 1)));
+        DmzDropdown d = dropdown(x, y, w, opts, idx);
+        dropdownSync.put(d, () -> setter.accept(Math.max(0, Math.min(d.getIndex(), labels.size() - 1))));
+        rebuildOnPick.add(d);
+        return d;
+    }
+
     // multi-select searchable dropdown writing checked options into a list
     protected void dfMulti(String labelText, List<String> options, List<String> current, Consumer<List<String>> setter) {
         label(labelText, 14, rowY + 5);
@@ -291,6 +310,10 @@ public abstract class FieldEditScreen extends SagaBaseScreen {
         Runnable sync = dropdownSync.get(dropdown);
         if (sync != null) {
             sync.run();
+            if (rebuildOnPick.contains(dropdown)) {
+                applyFields();
+                rebuildWidgets();
+            }
         } else {
             onExtraDropdown(dropdown, row);
         }

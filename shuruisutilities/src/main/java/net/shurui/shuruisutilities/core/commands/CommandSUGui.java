@@ -76,6 +76,8 @@ public class CommandSUGui extends ShuruisUtilitiesCommandBuilder
         APIRegistry.perms.registerPermission("su.gui.shrines", DefaultPermissionLevel.OP, "Open the shrine editor");
         APIRegistry.perms.registerPermission("su.gui.tasks", DefaultPermissionLevel.OP, "Open the task pool editor");
         APIRegistry.perms.registerPermission("su.gui.cosmetics", DefaultPermissionLevel.OP, "Open the cosmetic catalogue editor");
+        APIRegistry.perms.registerPermission(net.shurui.shuruisutilities.core.config.ConfigEditorSources.PERM_OPTIONS,
+                DefaultPermissionLevel.OP, "Use the SDU options editor (change server config in game)");
         APIRegistry.perms.registerPermission(HubServer.GUI_SHADOWDRAGONS, DefaultPermissionLevel.OP, "Open the boss arena editor");
         // No node for the bounty board: it is gated on su.bounty (ModuleBounty.PERM), the same node the /bounty
         // commands use. A second, board-only node was one more thing to grant, and anywhere it was missed the

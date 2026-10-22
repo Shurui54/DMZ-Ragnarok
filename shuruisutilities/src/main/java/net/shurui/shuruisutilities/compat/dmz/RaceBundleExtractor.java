@@ -22,7 +22,7 @@ import net.minecraftforge.fml.loading.FMLPaths;
 import net.shurui.shuruisutilities.util.output.logger.LoggingHandler;
 
 /**
- * Copies SU's bundled shadow dragon race definitions out of the jar into DMZ's config tree, then reloads DMZ so the
+ * Copies SU's bundled race definitions (the shadow dragons, half_saiyan, tapion) out of the jar into DMZ's config tree, then reloads DMZ so the
  * races are scanned. Only reached through {@link RaceBundleCompat}'s {@code isLoaded("dragonminez")} guard, so DMZ types
  * ({@link ConfigManager}) are safe to reference here.
  *
@@ -84,7 +84,8 @@ public final class RaceBundleExtractor
      * forms/oozaru.json} is gone entirely (oozaru, golden oozaru and the SSJ4 rung that hangs off it), SSJ4 is out
      * of {@code forms/supersaiyan.json}, and the superforms price list is truncated to six rungs so the ladder ends
      * at Super Saiyan 3. Neither SSJ5 rung is seeded for them any more (see {@code RitualRaceMergeImpl}). In their
-     * place the legendary ladder is the ordinary three rungs, and {@code godforms.json} gives them the god ritual.
+     * place the legendary ladder is the ordinary three rungs, and {@code godritual.json} (DMZ's own god form, v9) gives
+     * them the god ritual.
      *
      * <p>The ladder briefly carried a fourth rung, {@code beast}, seeded only for this race. It was removed at
      * v8 because it was not wanted, and removing it from the bundle is only half the job: the extractor SKIPS an
@@ -92,7 +93,7 @@ public final class RaceBundleExtractor
      * that form off a server which already has it. The live copies had to be edited too. Do not re-add it here
      * expecting a bundle bump to distribute the change on its own.
      */
-    static final int BUNDLE_VERSION = 8;
+    static final int BUNDLE_VERSION = 9;
 
     /**
      * The model slot the ORIGINAL hand-dropped shadow dragon bundle used, before any of this versioning existed. SU has
@@ -137,14 +138,23 @@ public final class RaceBundleExtractor
     // Its FORMS are deliberately not a saiyan's, and the file list is what enforces that. There is no oozaru.json:
     // a half saiyan has no tail (hasSaiyanTail is false), so oozaru, golden oozaru and the SSJ4 rung that hangs off
     // that ladder are all gone, and with them SSJ5, which RitualRaceMergeImpl no longer seeds for this race.
-    // supersaiyan.json stops at SSJ3 and the superforms price list is six rungs long to match. godforms.json gives
-    // them the god ritual. The legendary ladder is the ordinary three rungs: the fourth, beast, was removed at v8.
+    // supersaiyan.json stops at SSJ3 and the superforms price list is six rungs long to match. godritual.json is
+    // DragonMineZ's own god form (DMZ generates it only for saiyans), so the god ritual grants them the same form.
+    // It replaced SU's former godforms.json at v9; leaving that file out of this list is what removes it. The legendary ladder is the ordinary three rungs: the fourth, beast, was removed at v8.
     // Dropping oozaru.json from this array is load-bearing: removeUnshippedForms deletes any forms/*.json
     // not listed here, which is what takes the group off servers that already have the race.
     private static final String HALF_SAIYAN = "half_saiyan";
     private static final String[] HALF_SAIYAN_FILES = {
             "character.json", "stats.json",
-            "forms/godforms.json", "forms/legendaryforms.json", "forms/ssgrades.json", "forms/supersaiyan.json" };
+            "forms/godritual.json", "forms/legendaryforms.json", "forms/ssgrades.json", "forms/supersaiyan.json" };
+
+    // The Konatsian race (Tapion's people). The id is "tapion", not "konatsian", because DMZ finds a custom-model race's
+    // body and face textures under textures/entity/races/<race id>/, and the Konatsian model and textures the suite
+    // already ships live under races/tapion/ (tapion_male/female geo, faces/tapion_*). Its lang name is Konatsian.
+    // Added at bundle v9 without a bump: a new folder is simply absent everywhere, so it is written fresh, and a bump
+    // would only re-stamp (and back up) every other bundled race for no change of theirs.
+    private static final String TAPION = "tapion";
+    private static final String[] TAPION_FILES = { "character.json", "stats.json", "forms/superforms.json" };
 
     // Every bundled race and its file list, in the order they should be processed. One source of truth for both the
     // startup pass and the /rgrace refresh command.
@@ -155,6 +165,7 @@ public final class RaceBundleExtractor
         for (String subRace : SHADOW_DRAGON_SUBRACES)
             BUNDLED_RACES.put(subRace, SHADOW_DRAGON_SUBRACE_FILES);
         BUNDLED_RACES.put(HALF_SAIYAN, HALF_SAIYAN_FILES);
+        BUNDLED_RACES.put(TAPION, TAPION_FILES);
     }
 
     /** Keep at most this many upgrade backups per race so they do not grow without bound. Oldest are pruned. */
@@ -214,6 +225,9 @@ public final class RaceBundleExtractor
             }
 
             if (repairShadowDragonLayering())
+                changed = true;
+
+            if (seedSwordsmanClass())
                 changed = true;
 
             if (changed)
@@ -589,6 +603,67 @@ public final class RaceBundleExtractor
         catch (Throwable t)
         {
             LoggingHandler.sulog.warn("[RaceBundle] Could not purge generated-lang overrides for '{}'.", raceId, t);
+        }
+    }
+
+    /** Dotfile in races/tapion recording that the swordsman class was offered once; DMZ ignores dotfiles. */
+    private static final String SWORDSMAN_SEED_MARKER = ".su_swordsman";
+
+    /**
+     * Give a tapion race folder that SU did not write (or that an admin rewrote) the swordsman class, once.
+     *
+     * <p>Live servers ran a hand-made "tapion" race before it was bundled. Such a folder has no marker, so the
+     * startup pass leaves it alone (correctly: it may be edited), and without this its players would never see the
+     * class the owner asked for. Only the one class block is added; every other class, the look and the forms stay
+     * the admin's. The seed marker makes it once only, so an admin who later deletes the class keeps it deleted.
+     * When the folder carries SU's bundle marker, the marker's hash is re-recorded so this addition does not read as
+     * an admin edit at the next bundle bump. Never throws.
+     */
+    private static boolean seedSwordsmanClass()
+    {
+        try
+        {
+            Path folder = racesDir().resolve(TAPION);
+            Path stats = folder.resolve("stats.json");
+            Path seeded = folder.resolve(SWORDSMAN_SEED_MARKER);
+            if (!Files.isRegularFile(stats) || Files.exists(seeded))
+                return false;
+            com.google.gson.JsonObject root = com.google.gson.JsonParser
+                    .parseString(Files.readString(stats, StandardCharsets.UTF_8)).getAsJsonObject();
+            com.google.gson.JsonObject classes = root.has("classes") && root.get("classes").isJsonObject()
+                    ? root.getAsJsonObject("classes") : null;
+            if (classes == null)
+                return false;
+            if (classes.has("swordsman"))
+            {
+                Files.writeString(seeded, "present\n", StandardCharsets.UTF_8);
+                return false;
+            }
+            com.google.gson.JsonObject ours;
+            try (InputStream in = RaceBundleExtractor.class.getResourceAsStream("/races/" + TAPION + "/stats.json"))
+            {
+                if (in == null)
+                    return false;
+                ours = com.google.gson.JsonParser.parseString(new String(in.readAllBytes(), StandardCharsets.UTF_8))
+                        .getAsJsonObject().getAsJsonObject("classes").getAsJsonObject("swordsman");
+            }
+            classes.add("swordsman", ours);
+            Files.writeString(stats, new com.google.gson.GsonBuilder().setPrettyPrinting().disableHtmlEscaping()
+                    .create().toJson(root), StandardCharsets.UTF_8);
+            Files.writeString(seeded, "seeded\n", StandardCharsets.UTF_8);
+            Marker marker = readMarker(folder);
+            if (marker != null)
+            {
+                String[] hashed = marker.hashedFiles.isEmpty() ? TAPION_FILES : marker.hashedFiles.toArray(new String[0]);
+                writeMarker(folder, marker.version, hashWrittenFiles(folder, hashed), hashed);
+            }
+            LoggingHandler.sulog.info("[RaceBundle] Added the swordsman class to the existing '{}' race.", TAPION);
+            return true;
+        }
+        catch (Throwable t)
+        {
+            LoggingHandler.sulog.warn("[RaceBundle] Could not add the swordsman class to '{}': {}", TAPION, t.toString());
+            return false;
         }
     }
 

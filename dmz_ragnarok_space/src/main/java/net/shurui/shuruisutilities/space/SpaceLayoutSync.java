@@ -34,6 +34,8 @@ public class SpaceLayoutSync
         if (event.getEntity() instanceof ServerPlayer player)
         {
             NetworkUtils.sendTo(PacketSpaceLayoutSync.current(player.getServer()), player);
+            // the course survives a relog (persistent tag), so the client pip needs its key again.
+            PacketSpaceCourseSync.send(player);
         }
     }
 

@@ -63,7 +63,10 @@
       "minecraft:patch_dead_bush_2",
       "minecraft:patch_waterlily",
       "shuruisutilities:vegeta_short_grass",
-      "shuruisutilities:vegeta_fern"
+      "shuruisutilities:vegeta_fern",
+      "dmz_ragnarok:vegeta_flowers",
+      "dmz_ragnarok:vegeta_wild_carrots",
+      "dmz_ragnarok:vegeta_wild_potatoes"
     ]
   ],
   "has_precipitation": false,
@@ -71,7 +74,14 @@
   "spawners": {
     "ambient": [],
     "axolotls": [],
-    "creature": [],
+    "creature": [
+      {
+        "type": "minecraft:pig",
+        "weight": 10,
+        "minCount": 2,
+        "maxCount": 4
+      }
+    ],
     "misc": [],
     "monster": [],
     "underground_water_creature": [],

@@ -61,6 +61,8 @@ public class DmzNpc {
         // Client-only HUD toggles. The spec touches no client-only MC types, so registering on both
         // dists is safe: a dedicated server just loads the CLIENT file and never reads the values.
         ModLoadingContext.get().registerConfig(ModConfig.Type.CLIENT, net.shurui.dev.sdu.client.ClientConfig.SPEC, "sdu-client.toml");
+        // The in-game options editor's sdu files (lazy: nothing is read until the editor opens).
+        net.shurui.dev.sdu.config.editor.SduConfigSources.register();
     }
 
     private void commonSetup(final FMLCommonSetupEvent event) {

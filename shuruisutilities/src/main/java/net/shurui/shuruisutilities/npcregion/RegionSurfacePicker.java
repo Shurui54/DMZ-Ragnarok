@@ -171,8 +171,13 @@ public final class RegionSurfacePicker {
     public static BlockPos findSpot(ServerLevel level, NpcRegion region, boolean allowWater, Tally tally,
                                     boolean forceLoad) {
         NpcRegion.Box b = pickBox(level, region);
-        int x = b.minX + level.random.nextInt(Math.max(1, b.maxX - b.minX + 1));
-        int z = b.minZ + level.random.nextInt(Math.max(1, b.maxZ - b.minZ + 1));
+        // uniform over the box; a freeform outline rejection samples inside its shape (null: a spent attempt)
+        int[] col = b.randomColumn(level.random);
+        if (col == null) {
+            return null;
+        }
+        int x = col[0];
+        int z = col[1];
         if (!level.isLoaded(new BlockPos(x, level.getMinBuildHeight(), z))) {
             if (!forceLoad) {
                 tally.unloadedChunk++;
@@ -252,8 +257,14 @@ public final class RegionSurfacePicker {
      */
     public static BlockPos fallbackSpot(ServerLevel level, NpcRegion region) {
         NpcRegion.Box b = region.primary();
+        // the middle of a cuboid, or a point inside a freeform outline (its box middle can be outside the shape)
         int x = (b.minX + b.maxX) / 2;
         int z = (b.minZ + b.maxZ) / 2;
+        if (b.isOutline()) {
+            double[] mid = b.interiorPoint();
+            x = (int) Math.floor(mid[0]);
+            z = (int) Math.floor(mid[1]);
+        }
         if (!level.isLoaded(new BlockPos(x, level.getMinBuildHeight(), z))) {
             level.getChunk(SectionPos.blockToSectionCoord(x), SectionPos.blockToSectionCoord(z));
         }

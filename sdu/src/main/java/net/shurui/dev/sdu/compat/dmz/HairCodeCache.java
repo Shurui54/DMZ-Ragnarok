@@ -1,7 +1,8 @@
 package net.shurui.dev.sdu.compat.dmz;
 
 import com.dragonminez.common.hair.CustomHair;
-import com.dragonminez.common.hair.HairManager;
+import com.dragonminez.common.hair.HairCodec;
+import com.dragonminez.common.hair.HairStyleSlot;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -21,7 +22,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>Plain (non-mixin) helper: a mixin must never be classloaded by regular code, so the cache/decode logic
  * lives here and {@code DMZHairLayerForcedCodeMixin} only delegates. Free of client-only Minecraft imports
- * (touches only DMZ's {@link HairManager}/{@link CustomHair}), matching {@link DmzModelCache}.
+ * (touches only DMZ's {@link HairCodec}/{@link CustomHair}), matching {@link DmzModelCache}.
  */
 public final class HairCodeCache {
 
@@ -42,6 +43,24 @@ public final class HairCodeCache {
         CACHE.clear();
     }
 
+    /**
+     * DragonMineZ 2.2 decodes a full set to a slot map (and accepts the 2.1 DMZF1 codes); callers here index the old
+     * [base, ssj, ssj2, ssj3] array, so the map is flattened in that order. Null when any of the four is missing.
+     */
+    public static CustomHair[] fullSet(java.util.EnumMap<HairStyleSlot, CustomHair> set) {
+        if (set == null) {
+            return null;
+        }
+        CustomHair[] out = { set.get(HairStyleSlot.BASE), set.get(HairStyleSlot.SSJ), set.get(HairStyleSlot.SSJ2),
+                set.get(HairStyleSlot.SSJ3) };
+        for (CustomHair h : out) {
+            if (h == null) {
+                return null;
+            }
+        }
+        return out;
+    }
+
     /** Decode a forced code once and memoize. Full-set codes -> 4 slots; single -> 1 slot; failures -> empty sentinel. */
     public static CustomHair[] decode(String code) {
         if (code == null || code.isBlank()) {
@@ -53,14 +72,14 @@ public final class HairCodeCache {
         }
         CustomHair[] decoded = EMPTY;
         try {
-            if (HairManager.isFullSetCode(code)) {
+            if (HairCodec.isFullSetCode(code)) {
                 // Reference: sdu FormPreview.applyHairCode, a full set decodes to [base, ssj, ssj2, ssj3].
-                CustomHair[] set = HairManager.fromFullSetCode(code);
-                if (set != null && set.length >= 4) {
+                CustomHair[] set = fullSet(HairCodec.fromFullSetCode(code));
+                if (set != null) {
                     decoded = set;
                 }
             } else {
-                CustomHair single = HairManager.fromCode(code);
+                CustomHair single = HairCodec.fromCode(code);
                 if (single != null && !single.isEmpty()) {
                     decoded = new CustomHair[] { single };
                 }

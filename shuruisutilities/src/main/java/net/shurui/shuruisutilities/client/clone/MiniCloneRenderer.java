@@ -14,7 +14,8 @@ import net.shurui.shuruisutilities.clone.MiniCloneEntity;
 /**
  * The single {@link EntityRenderer} registered for {@code dmz_ragnarok:mini_clone}. One entity type gets one renderer,
  * but a clone can be drawn three ways, so this dispatches per {@link MiniCloneEntity#getVariant()}: PLAYER_COPY goes to
- * a {@link MiniClonePlayerRenderer} (vanilla player model with the owner's skin and armour), while BUU and CELL_JR go
+ * {@link MiniCloneDmzLook} (the caster's DMZ character through DMZ's own renderer), falling back to a
+ * {@link MiniClonePlayerRenderer} (vanilla player model with the owner's skin and armour), while BUU and CELL_JR go
  * to a {@link MiniCloneGeoRenderer} (GeckoLib, two-layer tint). Both delegates are stock renderers that draw into the
  * bufferSource they are handed, so the vanilla green glowing-outline pass (server-applied) survives unchanged.
  */
@@ -42,6 +43,13 @@ public class MiniCloneRenderer extends EntityRenderer<MiniCloneEntity>
     public void render(MiniCloneEntity entity, float entityYaw, float partialTick, PoseStack poseStack,
                        MultiBufferSource bufferSource, int packedLight)
     {
+        // A player copy is drawn as the caster's real DMZ character when the clone carries a look snapshot; the vanilla
+        // model below is only the fallback (an old clone, or DMZ's renderer not ready).
+        if (entity.getVariant() == MiniCloneEntity.Variant.PLAYER_COPY
+                && MiniCloneDmzLook.render(entity, entityYaw, partialTick, poseStack, bufferSource, packedLight))
+        {
+            return;
+        }
         pick(entity).render(entity, entityYaw, partialTick, poseStack, bufferSource, packedLight);
     }
 

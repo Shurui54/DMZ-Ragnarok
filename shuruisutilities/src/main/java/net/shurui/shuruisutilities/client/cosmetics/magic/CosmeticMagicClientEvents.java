@@ -89,7 +89,7 @@ public final class CosmeticMagicClientEvents
     /**
      * A pet entity class, if the tree has one yet. Probed by name rather than imported so this compiles and runs
      * whether or not the pet work has landed: when it has, wire {@link #petAnchor} to it. Guarding on the class,
-     * not assuming it, is the rule for anything not built yet.
+     * not assuming it, is the rule for anything still being built.
      */
     private static final Class<?> PET_ENTITY_CLASS = probePetClass();
 

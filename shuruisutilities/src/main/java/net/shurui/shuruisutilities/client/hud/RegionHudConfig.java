@@ -15,8 +15,8 @@ import net.minecraftforge.fml.loading.FMLPaths;
 public final class RegionHudConfig
 {
     // default: upper-left, clear of the hotbar, boss bars and DMZ's own HUD
-    private static final double DEFAULT_X_PCT = 0.0573;
-    private static final double DEFAULT_Y_PCT = 0.1789;
+    static final double DEFAULT_X_PCT = 0.0573;
+    static final double DEFAULT_Y_PCT = 0.1789;
 
     public double xPct = DEFAULT_X_PCT; // panel center, fraction of width
     public double yPct = DEFAULT_Y_PCT; // panel top, fraction of height

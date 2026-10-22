@@ -9,7 +9,7 @@ import net.shurui.shuruisutilities.util.output.logger.LoggingHandler;
 /**
  * Guard entry point for registering the shadow dragon techniques and the summoned weapons' combat poses into DMZ.
  * Holds no DMZ imports itself: it only checks DMZ is present before touching the classes that name DMZ types
- * (the optional-dependency pattern).
+ * (docs/compat-pattern.md).
  *
  * <p>Registers on {@code ServerAboutToStartEvent} rather than during mod setup, because DMZ populates its predefined
  * technique registry and rebuilds its weapon registry from its own data during load, and the ordering between two

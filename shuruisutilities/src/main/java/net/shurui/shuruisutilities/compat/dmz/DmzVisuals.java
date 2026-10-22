@@ -7,7 +7,7 @@ import net.minecraftforge.fml.ModList;
 
 /**
  * Guard entry point for spawning DMZ's own ki visual entities. Holds no DMZ imports; {@link DmzVisualsImpl} is the
- * sole class naming them (the optional-dependency pattern).
+ * sole class naming them (docs/compat-pattern.md).
  *
  * <p>Prefer these over vanilla particles for anything a move draws. DMZ's ki visuals are modelled and animated as a
  * matched set, so an attack built out of them reads as a DMZ attack; one built out of {@code CLOUD} and

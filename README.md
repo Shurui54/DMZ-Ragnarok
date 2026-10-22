@@ -27,7 +27,7 @@ One build produces both install shapes: the core plus any module jars, or the si
 Requirements: Java 17 and a network connection for the first Gradle run.
 
 1. Put these jars in `libs/` (they are not committed; download them from their own pages):
-   - `dragonminez-2.1.3.jar` ([DragonMine Z](https://www.curseforge.com/minecraft/mc-mods/dragonminez))
+   - `dragonminez-2.2.jar` ([DragonMine Z](https://www.curseforge.com/minecraft/mc-mods/dragonminez))
    - `worldedit-mod-7.2.15.jar` ([WorldEdit](https://www.curseforge.com/minecraft/mc-mods/worldedit))
    - `TConstruct-1.20.1-3.11.2.166.jar` and `Mantle-1.20.1-1.11.104.jar` ([Tinkers' Construct](https://www.curseforge.com/minecraft/mc-mods/tinkers-construct), [Mantle](https://www.curseforge.com/minecraft/mc-mods/mantle))
    - `resourcefullib-forge-1.20.1-2.1.29.jar` ([Resourceful Lib](https://www.curseforge.com/minecraft/mc-mods/resourceful-lib))

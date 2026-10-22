@@ -187,8 +187,12 @@ public class PacketHoverbikeToggle implements ISUPacket
         if (slotStack.getItem() instanceof HoverbikeItem hoverChip)
         {
             int variant = Mth.clamp(hoverChip.getVariant(), 1, 4);
+            // a replacing mount inherits the bike's tiered speed, the same way it inherits its config speed
+            double tierSpeed = net.shurui.shuruisutilities.vehicleworkbench.VehicleTiers.speedMult(
+                    net.shurui.shuruisutilities.vehicleworkbench.VehicleTiers.tier(slotStack));
             if (net.shurui.shuruisutilities.cosmetics.wardrobe.mount.CosmeticMountManager.summonAsReplacement(
-                    player, false, (float) ConfigHoverbikes.speed[variant], (float) ConfigHoverbikes.sprintMultiplier))
+                    player, false, (float) (ConfigHoverbikes.speed[variant] * tierSpeed),
+                    (float) ConfigHoverbikes.sprintMultiplier))
                 return;
         }
         else if (slotStack.getItem() instanceof net.shurui.shuruisutilities.nimbus.NimbusChipItem)
@@ -247,6 +251,8 @@ public class PacketHoverbikeToggle implements ISUPacket
         }
 
         bike.setOwnerUUID(player.getUUID());
+        // the chip stays in the slot, so its tier is read fresh on every deploy
+        bike.setTier(net.shurui.shuruisutilities.vehicleworkbench.VehicleTiers.tier(slotStack));
         level.addFreshEntity(bike);
         level.gameEvent(player, GameEvent.ENTITY_PLACE, bike.position());
 

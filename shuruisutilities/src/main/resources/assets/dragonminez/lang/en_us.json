@@ -1,9 +1,21 @@
 {
   "gui.dragonminez.config.dragonBallRenderStyle": "Cube Dragon Balls",
-  "gui.dragonminez.config.customStatHud": "Custom Stat HUD",
+  "gui.dragonminez.config.customStatHud": "Ragnarok HUD Style",
   "gui.dragonminez.config.auraTrails": "Aura Trails",
   "gui.dragonminez.config.flightAura": "Flight Aura",
   "gui.dragonminez.config.suiteAnnouncements": "Suite Announcements",
-  "gui.dragonminez.config.customStatHudScale": "Stat HUD Scale",
-  "gui.dragonminez.spacepod.title": "Destination"
+  "gui.dragonminez.config.customStatHudScale": "Ragnarok HUD Scale",
+  "gui.dragonminez.spacepod.title": "Destination",
+  "gui.dragonminez.hud_editor.style.ragnarok": "Ragnarok",
+  "gui.dragonminez.hud_editor.element.rg_stats": "Ragnarok Stats",
+  "gui.dragonminez.hud_editor.element.rg_currency": "Zeni & Shards",
+  "gui.dragonminez.hud_editor.element.rg_compass": "Compass",
+  "gui.dragonminez.hud_editor.element.rg_quest_tracker": "Quest Tracker",
+  "gui.dragonminez.hud_editor.element.rg_region": "Region Info",
+  "gui.dragonminez.hud_editor.element.rg_staff_task": "Staff Task",
+  "gui.dragonminez.hud_editor.element.rg_raid_bar": "Raid Progress",
+  "gui.dragonminez.hud_editor.element.rg_planet_info": "Planet Info",
+  "gui.dragonminez.hud_editor.element.rg_clash": "Melee Clash",
+  "gui.dragonminez.hud_editor.element.rg_race_standings": "Race Standings",
+  "gui.dragonminez.hud_editor.element.rg_race_item": "Race Item"
 }

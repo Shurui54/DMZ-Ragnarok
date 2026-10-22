@@ -48,7 +48,8 @@ public abstract class MixinDmzMutantStats
 
     @Inject(method = "applyMutantFormPowerModifier", at = @At("HEAD"), cancellable = true, require = 0,
             remap = false)
-    private void su$noMutantFormPower(String groupName, double multiplier, CallbackInfoReturnable<Double> cir)
+    private void su$noMutantFormPower(String groupName, com.dragonminez.common.config.FormConfig.FormData formData,
+            double multiplier, CallbackInfoReturnable<Double> cir)
     {
         if (su$nerfOn())
             cir.setReturnValue(multiplier);

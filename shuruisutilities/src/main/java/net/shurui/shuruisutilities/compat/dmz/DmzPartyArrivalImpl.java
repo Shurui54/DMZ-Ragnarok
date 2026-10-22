@@ -6,7 +6,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import com.dragonminez.common.quest.PartyManager;
 import com.dragonminez.common.quest.PlayerQuestData;
 import com.dragonminez.common.stats.StatsCapability;
 import com.dragonminez.common.stats.StatsData;
@@ -36,7 +35,7 @@ import net.shurui.shuruisutilities.util.output.logger.LoggingHandler;
  * {@code StatsData} the shard vault carries, see {@code ShardPayload}) already records their {@code activePartyId},
  * {@code partyLeaderId}, member list and party PvP flag, so a hopping player ARRIVES asserting a party. What is
  * server-local and does NOT travel is the authoritative roster, {@code PartySavedData} ({@code parties} +
- * {@code playerPartyMap}). DMZ's own {@code PartyManager.onPlayerLogin} reads {@code getPartyOf(uuid)}, finds null on
+ * {@code playerPartyMap}). DMZ's own login reconcile reads {@code getPartyOf(uuid)}, finds null on
  * the destination, and sets up no scoreboard team, so shared quest control, reward claims, party PvP and leadership
  * all break while the client still shows a ghost party whose members do not resolve.
  *
@@ -50,9 +49,11 @@ import net.shurui.shuruisutilities.util.output.logger.LoggingHandler;
  *
  * <h2>Ordering</h2>
  *
- * <p>This listens at {@link EventPriority#LOWEST} so it runs after the vault restore ({@code ShardSync.onLogin} at
- * HIGHEST, which puts the carried {@code StatsData} on the player) and after DMZ's own NORMAL-priority login handler.
- * By that point the carried party fields are present and we set up the roster and team ourselves, idempotently.
+ * <p>This listens at {@link EventPriority#LOW}: after the vault restore ({@code ShardSync.onLogin} at HIGHEST, which
+ * puts the carried {@code StatsData} on the player), and BEFORE DragonMineZ 2.2's own login reconcile
+ * ({@code QuestEvents.onPlayerLogin} at LOWEST, {@code PartyManager.reconcile}). That order matters in 2.2: DMZ's
+ * reconcile CLEARS a player's carried party state when the local roster has no party for them, so the roster must be
+ * rebuilt first. DMZ's reconcile then sets up the team, friendly fire, leadership and the member sync itself.
  */
 public final class DmzPartyArrivalImpl
 {
@@ -98,7 +99,7 @@ public final class DmzPartyArrivalImpl
         return PARTIES_FIELD != null && PLAYER_MAP_FIELD != null;
     }
 
-    @SubscribeEvent(priority = EventPriority.LOWEST)
+    @SubscribeEvent(priority = EventPriority.LOW)
     public void onLogin(PlayerEvent.PlayerLoggedInEvent event)
     {
         // Scope to the shard network: off the network DMZ's own state is authoritative and there is nothing to
@@ -138,8 +139,6 @@ public final class DmzPartyArrivalImpl
 
         UUID self = player.getUUID();
         PartySavedData data = PartySavedData.get(server);
-        Map<UUID, PartyInstance> parties = parties(data);
-        Map<UUID, UUID> playerMap = playerMap(data);
 
         // A carried pending invite is a resurrection risk: it was captured on another server, its inviter context is
         // local and it is short lived. Drop it on arrival rather than let it come back to life here.
@@ -149,237 +148,71 @@ public final class DmzPartyArrivalImpl
         }
 
         UUID desiredParty = quest.getActivePartyId();
-        boolean changed = false;
 
-        // If this server already has the player mapped to a DIFFERENT party than they now carry, detach them from it
-        // first. This both fixes the pointer/roster disagreement and cleans a stale team row from an earlier visit.
-        UUID mapped = playerMap.get(self);
-        if (mapped != null && !mapped.equals(desiredParty))
+        // If this server already has the player in a DIFFERENT party than they now carry, detach them from it first.
+        // DMZ's removePlayer drops an emptied party and hands ownership and leadership to a survivor.
+        PartyInstance mapped = data.getPartyOf(self);
+        if (mapped != null && !mapped.getPartyId().equals(desiredParty))
         {
-            detach(server, player, parties, playerMap, mapped);
-            mapped = null;
-            changed = true;
+            UUID stale = mapped.getPartyId();
+            data.removePlayer(self);
+            try
+            {
+                removeFromPartyTeam(server, player, stale);
+            }
+            catch (Throwable t)
+            {
+                LoggingHandler.sulog.warn("[shard] Detached {} from a stale party but could not clear its scoreboard"
+                        + " team: {}", player.getGameProfile().getName(), t.toString());
+            }
         }
 
         if (desiredParty == null)
         {
-            // The player carries no party. Make sure nothing local claims them and strip any DMZ team membership.
-            if (mapped != null)
-            {
-                detach(server, player, parties, playerMap, mapped);
-                changed = true;
-            }
-            else
-            {
-                removeFromPartyTeam(server, player, null);
-            }
-            if (changed)
-            {
-                data.setDirty();
-            }
+            // The player carries no party. DMZ's own login reconcile strips any party team they still sit in.
             return;
         }
 
-        List<UUID> carriedMembers = new ArrayList<>(quest.getPartyMemberIds());
-        UUID carriedLeader = quest.getPartyLeaderId();
-        boolean carriedPvp = quest.isPartyPvpEnabled();
-
-        PartyInstance party = parties.get(desiredParty);
+        PartyInstance party = data.getParty(desiredParty);
         if (party == null)
         {
             // No member has built this party on this server yet: create it with the exact carried id, so its derived
             // scoreboard team name matches for every member of it that lands here. PvP is taken from the carried flag
             // only at creation; a later arriver never flips a pre-existing party's flag (the leader re-toggles it).
-            UUID leader = carriedLeader != null ? carriedLeader : self;
-            party = new PartyInstance(desiredParty, leader, new ArrayList<>(), carriedPvp);
-            parties.put(desiredParty, party);
-            changed = true;
+            // DMZ's public createParty always mints a new id, so the instance goes into its maps directly.
+            List<UUID> members = new ArrayList<>();
+            members.add(self);
+            UUID owner = quest.getPartyOwnerId() != null ? quest.getPartyOwnerId() : quest.getPartyLeaderId();
+            if (owner == null)
+            {
+                owner = self;
+            }
+            UUID leader = quest.getPartyLeaderId() != null ? quest.getPartyLeaderId() : owner;
+            party = new PartyInstance(desiredParty, owner, leader, members, quest.isPartyPvpEnabled());
+            parties(data).put(desiredParty, party);
+            playerMap(data).put(self, desiredParty);
         }
-
-        // Place the player authoritatively: their own pointer decides their own membership.
-        if (!party.getMembers().contains(self))
+        else
         {
-            party.getMembers().add(self);
-            changed = true;
-        }
-        if (!desiredParty.equals(playerMap.get(self)))
-        {
-            playerMap.put(self, desiredParty);
-            changed = true;
+            // Place the player authoritatively: their own pointer decides their own membership.
+            data.addPlayerToParty(desiredParty, self);
         }
 
         // Opportunistically flesh out the roster from the carried snapshot, but NEVER steal a member another party on
         // this server already claims: that member's own arrival is authoritative for them and will correct any drift.
-        for (UUID member : carriedMembers)
+        for (UUID member : quest.getPartyMemberIds())
         {
-            if (member.equals(self))
+            if (member != null && !member.equals(self) && data.getPartyOf(member) == null)
             {
-                continue;
-            }
-            UUID owner = playerMap.get(member);
-            if (owner == null)
-            {
-                if (!party.getMembers().contains(member))
-                {
-                    party.getMembers().add(member);
-                }
-                playerMap.put(member, desiredParty);
-                changed = true;
-            }
-            else if (owner.equals(desiredParty) && !party.getMembers().contains(member))
-            {
-                party.getMembers().add(member);
-                changed = true;
+                data.addPlayerToParty(desiredParty, member);
             }
         }
+        data.setDirty();
 
-        // Keep the leader valid: if the recorded leader is not a member of the resolved roster, prefer the carried
-        // leader when it is now present, otherwise fall back to this player.
-        UUID leaderId = party.getLeaderId();
-        if (leaderId == null || !party.getMembers().contains(leaderId))
-        {
-            UUID newLeader = (carriedLeader != null && party.getMembers().contains(carriedLeader))
-                    ? carriedLeader
-                    : self;
-            if (!newLeader.equals(party.getLeaderId()))
-            {
-                party.setLeaderId(newLeader);
-                changed = true;
-            }
-        }
-
-        // Put the player into the party's scoreboard team, matching DMZ's own team setup: friendly fire tracks the
-        // party PvP flag, invisibles are seen, and the team is created if this is the first member here.
-        //
-        // Guarded, because the ROSTER is the part that matters and it is already correct by this point. Letting a
-        // scoreboard problem escape from here would skip the setDirty below and throw away everything above it,
-        // which is how one bad removePlayerFromTeam call turned into players arriving with no party at all. The
-        // team only drives friendly fire and seeing invisible team mates; losing it is a far smaller thing than
-        // losing the party.
-        try
-        {
-            addToPartyTeam(server, player, desiredParty, party.isPvpEnabled());
-        }
-        catch (Throwable t)
-        {
-            LoggingHandler.sulog.warn("[shard] Rebuilt {}'s party but could not set up its scoreboard team: {}",
-                    player.getGameProfile().getName(), t.toString());
-        }
-
-        if (changed)
-        {
-            data.setDirty();
-        }
-        // Best-effort nudge so an online quest controller resyncs shared progress; harmless if there is none.
-        //
-        // DMZ's merge (PlayerQuestData.mergeQuestStateFrom) also copies the LEADER's difficulty onto every member, so
-        // this nudge used to switch a member's difficulty on a plain shard hop. A player agrees to the party's
-        // difficulty when they JOIN (acceptInvite's confirm step), not every time somebody changes server, and a
-        // flipped difficulty relocks rewards on quests they completed. So each online member's own difficulty is
-        // snapshotted first and put back afterwards, and anyone whose difficulty had to be restored is resynced.
-        Map<UUID, com.dragonminez.common.quest.Difficulty> ownDifficulty = new java.util.HashMap<>();
-        try
-        {
-            ServerPlayer controller = PartyManager.resolveQuestController(player);
-            if (controller != null)
-            {
-                for (ServerPlayer member : PartyManager.getAllPartyMembers(controller))
-                {
-                    PlayerQuestData qd = questData(member);
-                    if (qd != null && qd.getDifficulty() != null)
-                        ownDifficulty.put(member.getUUID(), qd.getDifficulty());
-                }
-            }
-            PartyManager.syncPartyQuestState(player);
-        }
-        catch (Throwable ignored)
-        {
-            // A sync failure must not undo the roster and team we just made consistent.
-        }
-        for (Map.Entry<UUID, com.dragonminez.common.quest.Difficulty> e : ownDifficulty.entrySet())
-        {
-            try
-            {
-                ServerPlayer member = server.getPlayerList().getPlayer(e.getKey());
-                PlayerQuestData qd = member == null ? null : questData(member);
-                if (qd == null || qd.getDifficulty() == e.getValue())
-                    continue;
-                qd.setDifficulty(e.getValue());
-                com.dragonminez.common.network.NetworkHandler.sendToPlayer(
-                        new com.dragonminez.common.network.S2C.ProgressionSyncS2C(member), member);
-            }
-            catch (Throwable ignored)
-            {
-                // Restoring one member must never stop the rest being restored.
-            }
-        }
-    }
-
-    private static PlayerQuestData questData(ServerPlayer player)
-    {
-        StatsData stats = StatsProvider.get(StatsCapability.INSTANCE, player).resolve().orElse(null);
-        return stats == null ? null : stats.getPlayerQuestData();
-    }
-
-    /** Remove the player from a local party and its scoreboard team, dropping an emptied party and team outright. */
-    private void detach(MinecraftServer server, ServerPlayer player, Map<UUID, PartyInstance> parties,
-            Map<UUID, UUID> playerMap, UUID partyId)
-    {
-        UUID self = player.getUUID();
-        playerMap.remove(self);
-        PartyInstance party = parties.get(partyId);
-        if (party != null)
-        {
-            party.getMembers().remove(self);
-            if (party.getMembers().isEmpty())
-            {
-                parties.remove(partyId);
-            }
-            else if (self.equals(party.getLeaderId()))
-            {
-                // Keep a valid leader for the survivors rather than leaving a dangling leader id.
-                party.setLeaderId(party.getMembers().get(0));
-            }
-        }
-        // Guarded for the same reason as the add: detaching happens EARLY in reconcile, so anything escaping here
-        // abandons the rebuild before it has started and the arrival ends up in no party.
-        try
-        {
-            removeFromPartyTeam(server, player, partyId);
-        }
-        catch (Throwable t)
-        {
-            LoggingHandler.sulog.warn("[shard] Detached {} from a stale party but could not clear its scoreboard"
-                    + " team: {}", player.getGameProfile().getName(), t.toString());
-        }
-    }
-
-    /** Add the player to the given party's team, creating it with DMZ's flags if needed and setting friendly fire. */
-    private void addToPartyTeam(MinecraftServer server, ServerPlayer player, UUID partyId, boolean pvpEnabled)
-    {
-        Scoreboard scoreboard = server.getScoreboard();
-        String scoreName = player.getScoreboardName();
-        String desired = teamName(partyId);
-
-        // Take the player out of any OTHER party team first, so they cannot sit in two.
-        PlayerTeam current = scoreboard.getPlayersTeam(scoreName);
-        if (current != null && current.getName().startsWith(TEAM_PREFIX) && !current.getName().equals(desired))
-        {
-            scoreboard.removePlayerFromTeam(scoreName, current);
-            if (current.getPlayers().isEmpty())
-            {
-                scoreboard.removePlayerTeam(current);
-            }
-        }
-
-        PlayerTeam team = scoreboard.getPlayerTeam(desired);
-        if (team == null)
-        {
-            team = scoreboard.addPlayerTeam(desired);
-            team.setSeeFriendlyInvisibles(true);
-        }
-        team.setAllowFriendlyFire(pvpEnabled);
-        scoreboard.addPlayerToTeam(scoreName, team);
+        // The scoreboard team, friendly fire, leadership (owner first, else an online member) and the party sync to
+        // every online member are DMZ 2.2's own login reconcile (PartyManager.reconcile), which runs after this at
+        // LOWEST and now finds the roster in place. 2.1 needed us to do all of that here, and to protect each member's
+        // difficulty from a leader-to-member quest merge that 2.2 no longer has.
     }
 
     /**

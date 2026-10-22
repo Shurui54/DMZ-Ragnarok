@@ -8,7 +8,8 @@ import net.minecraft.world.level.Level;
 
 import xaero.map.gui.GuiMap;
 
-// read-only access to the block coord Xaero's World Map tracks under the cursor (private mouseBlockPosX/Z/Dim),
+// read-only access to the block coord Xaero's World Map tracks under the cursor (private mouseBlockPosX/Z/Dim)
+// and its camera (cameraX/Z, scale),
 // so the NPC-region right-drag (via ScreenEvents, not an inject) can turn a drag into world coords. only touches
 // Xaero fields so remap=false is correct. in the non-required compat config, silently skipped without Xaero.
 @Mixin(value = GuiMap.class, remap = false)
@@ -22,4 +23,15 @@ public interface AccessorXaeroWorldMap
 
     @Accessor("mouseBlockDim")
     ResourceKey<Level> su$mouseBlockDim();
+
+    // the map camera (world X/Z at the screen centre) and the world-to-window-pixel scale, so the NPC region draw
+    // mode can project its vertices and the saved outlines back onto the screen as the map pans and zooms
+    @Accessor("cameraX")
+    double su$cameraX();
+
+    @Accessor("cameraZ")
+    double su$cameraZ();
+
+    @Accessor("scale")
+    double su$scale();
 }

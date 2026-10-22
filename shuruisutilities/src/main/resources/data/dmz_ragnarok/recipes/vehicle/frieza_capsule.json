@@ -1,0 +1,34 @@
+{
+  "_comment": "DragonMineZ only grants this from a Porunga wish, and that wish stays; this is the late game crafted route.",
+  "type": "dmz_ragnarok:vehicle_crafting",
+  "order": 26,
+  "parts": [
+    {
+      "item": "dragonminez:vehicle_engine",
+      "count": 2
+    },
+    {
+      "item": "dragonminez:vehicle_plating",
+      "count": 6
+    },
+    {
+      "item": "dragonminez:vehicle_propeller",
+      "count": 2
+    },
+    {
+      "item": "dragonminez:vehicle_seat",
+      "count": 1
+    },
+    {
+      "item": "dragonminez:gete_ingot",
+      "count": 2
+    },
+    {
+      "item": "minecraft:purple_dye",
+      "count": 2
+    }
+  ],
+  "result": {
+    "item": "dragonminez:frieza_capsule"
+  }
+}

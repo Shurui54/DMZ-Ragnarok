@@ -18,7 +18,7 @@ import net.shurui.shuruisutilities.world.space.SurfaceSnap;
 import net.shurui.shuruisutilities.worldborder.BorderClamp;
 
 /**
- * The shadow dragon boss defaults for servers WITHOUT the Ragnarok Key.
+ * The shadow dragon boss defaults for servers WITHOUT the Ragnarok Key (owner decision 2026-09-29, batch S20b).
  *
  * <p>Keyless servers cannot edit the seven slot definitions (the editor is key-only since S20), so an unedited slot
  * has no arena and "0 = keep the entity default" stats: before S20b such a server fired the corrupted event and got

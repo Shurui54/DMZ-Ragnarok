@@ -52,8 +52,11 @@ import net.shurui.shuruisutilities.ritual.WishRitualManager;
 public abstract class MixinDmzGrantWish
 {
     @Shadow @Final private List<Integer> selectedWishIndices;
+    @Shadow @Final private int dragonEntityId;
 
-    @Inject(method = "lambda$handle$1", at = @At("HEAD"), cancellable = true, require = 0, remap = false)
+    // DragonMineZ 2.2: the grant runnable is lambda$handle$0 (2.1: lambda$handle$1) and the packet names its dragon by
+    // entity id, so we resolve exactly the entity DMZ will.
+    @Inject(method = "lambda$handle$0", at = @At("HEAD"), cancellable = true, require = 0, remap = false)
     private void su$countWish(Supplier<NetworkEvent.Context> ctxSupplier, CallbackInfo ci)
     {
         try
@@ -62,13 +65,10 @@ public abstract class MixinDmzGrantWish
             if (player == null)
                 return;
             ServerLevel level = player.serverLevel();
-            // The same dragon DMZ resolves against: nearest within 50 blocks that this player owns and has not spent.
+            // The same dragon DMZ resolves against: the one the packet names, owned by this player and not yet spent.
             String ownerName = player.getName().getString();
-            DragonWishEntity dragon = level
-                    .getEntitiesOfClass(DragonWishEntity.class, player.getBoundingBox().inflate(50.0D),
-                            e -> !e.hasGrantedWish() && ownerName.equals(e.getOwnerName()))
-                    .stream().findFirst().orElse(null);
-            if (dragon == null)
+            if (!(level.getEntity(dragonEntityId) instanceof DragonWishEntity dragon) || dragon.isRemoved()
+                    || dragon.hasGrantedWish() || !ownerName.equals(dragon.getOwnerName()))
                 return;
             DragonDefinition def = dragon.getDragonDefinition();
             if (def == null)

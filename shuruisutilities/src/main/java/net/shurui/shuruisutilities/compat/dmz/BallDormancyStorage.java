@@ -46,8 +46,18 @@ public final class BallDormancyStorage extends SavedData
         GAME, WALL
     }
 
-    /** One dormant set's record: the clock its deadline is read on, and the deadline value on that clock. */
-    public record Dormant(Clock clock, long deadline) {}
+    /**
+     * One dormant set's record: the clock its deadline is read on, the deadline value on that clock, and whether it
+     * came from ANOTHER shard (a wish made there, carried by {@link BallDormancyNetwork}; such a record wakes silently,
+     * the shard that saw the wish announces it). {@code foreign} is saved only when true.
+     */
+    public record Dormant(Clock clock, long deadline, boolean foreign)
+    {
+        public Dormant(Clock clock, long deadline)
+        {
+            this(clock, deadline, false);
+        }
+    }
 
     // setId -> its dormancy record. LinkedHashMap for stable iteration order in logs and the radar strip.
     private final Map<String, Dormant> dormant = new LinkedHashMap<>();
@@ -70,7 +80,7 @@ public final class BallDormancyStorage extends SavedData
                 continue;
             // A pre-existing or corrupt clock name reads as GAME, the common case, rather than throwing.
             Clock clock = "WALL".equals(e.getString("clock")) ? Clock.WALL : Clock.GAME;
-            s.dormant.put(set, new Dormant(clock, e.getLong("deadline")));
+            s.dormant.put(set, new Dormant(clock, e.getLong("deadline"), e.getBoolean("foreign")));
         }
         return s;
     }
@@ -85,6 +95,8 @@ public final class BallDormancyStorage extends SavedData
             t.putString("set", e.getKey());
             t.putString("clock", e.getValue().clock().name());
             t.putLong("deadline", e.getValue().deadline());
+            if (e.getValue().foreign())
+                t.putBoolean("foreign", true);
             list.add(t);
         }
         tag.put("dormant", list);
@@ -114,6 +126,15 @@ public final class BallDormancyStorage extends SavedData
         if (setId == null || setId.isEmpty())
             return;
         dormant.put(setId, new Dormant(clock, deadline));
+        setDirty();
+    }
+
+    /** Record a dormancy another shard announced: a wall clock deadline (this server's clock), marked foreign. */
+    public void putForeign(String setId, long wallDeadline)
+    {
+        if (setId == null || setId.isEmpty())
+            return;
+        dormant.put(setId, new Dormant(Clock.WALL, wallDeadline, true));
         setDirty();
     }
 

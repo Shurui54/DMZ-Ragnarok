@@ -210,10 +210,8 @@ public final class TournamentCharacter {
     private static void clearHair(StatsData sd) {
         try {
             var character = sd.getCharacter();
-            quietly(() -> character.getHairBase().clear());
-            quietly(() -> character.getHairSSJ().clear());
-            quietly(() -> character.getHairSSJ2().clear());
-            quietly(() -> character.getHairSSJ3().clear());
+            // DragonMineZ 2.2 keeps one style per slot (base, ssj, ssj2, ssj3, ssj4) and resets them all here.
+            quietly(character::clearHairStyles);
         } catch (Throwable t) {
             LOG.warn("[TournamentCharacter] Could not clear the previous character's hair: {}", t.toString());
         }

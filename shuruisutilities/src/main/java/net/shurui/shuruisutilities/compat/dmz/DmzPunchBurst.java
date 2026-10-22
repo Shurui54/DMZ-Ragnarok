@@ -6,7 +6,7 @@ import net.minecraftforge.fml.ModList;
 
 /**
  * Guard entry point for DragonMineZ's own punch particle. The sole class naming a DMZ type is
- * {@link DmzPunchBurstImpl} (the optional-dependency pattern).
+ * {@link DmzPunchBurstImpl} (docs/compat-pattern.md).
  */
 public final class DmzPunchBurst
 {

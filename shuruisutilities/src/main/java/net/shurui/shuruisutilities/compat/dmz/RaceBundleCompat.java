@@ -7,7 +7,7 @@ import net.minecraftforge.fml.ModList;
 
 /**
  * Guard entry point for extracting SU's bundled races into DMZ's config tree. This class holds no DMZ imports: it only
- * checks that DMZ is present before touching {@link RaceBundleExtractor}, which does. Follows the optional-dependency pattern.
+ * checks that DMZ is present before touching {@link RaceBundleExtractor}, which does. Follows docs/compat-pattern.md.
  *
  * <p>SU ships several race folders (base shadow_dragon, its six star sub-races, half_saiyan) inside the jar and copies
  * them into {@code config/dragonminez/races/} at startup. Extraction is version-aware: an absent folder is written, a

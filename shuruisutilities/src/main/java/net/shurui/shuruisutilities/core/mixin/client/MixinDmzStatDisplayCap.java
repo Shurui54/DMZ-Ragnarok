@@ -28,7 +28,9 @@ import net.shurui.shuruisutilities.prestige.client.SuCapClient;
 public abstract class MixinDmzStatDisplayCap
 {
     @Redirect(
-            method = {"initStatButtons", "renderStatsInfo", "renderStatisticsInfoHexagon"},
+            // DragonMineZ 2.2 reads the widened StatsData.getConfiguredMaxValue in initStatButtons and renderStatsInfo,
+            // so only the hexagon still reads the raw config cap.
+            method = {"renderStatisticsInfoHexagon"},
             at = @At(value = "INVOKE",
                     target = "Lcom/dragonminez/common/config/GeneralServerConfig$GameplayConfig;getMaxValue()Ljava/lang/Integer;"),
             require = 0)

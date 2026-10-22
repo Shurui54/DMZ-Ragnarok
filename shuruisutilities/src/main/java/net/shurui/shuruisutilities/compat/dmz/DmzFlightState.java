@@ -7,7 +7,7 @@ import net.minecraftforge.fml.ModList;
  * Guard entry point for what a player's DMZ FLIGHT is doing right now, as opposed to whether they own the skill at
  * all ({@link DmzFlight}).
  *
- * <p>Holds no DMZ imports; {@link DmzFlightStateImpl} is the sole class naming them (the optional-dependency pattern). Both
+ * <p>Holds no DMZ imports; {@link DmzFlightStateImpl} is the sole class naming them (docs/compat-pattern.md). Both
  * questions answer "no" without DMZ, so an ability gated on flight is simply uncastable rather than free.
  */
 public final class DmzFlightState

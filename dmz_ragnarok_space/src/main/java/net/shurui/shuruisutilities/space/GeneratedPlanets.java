@@ -23,7 +23,7 @@ import net.minecraft.world.phys.Vec3;
  * spawn in PlanetSpawnModule relies on.
  *
  * <h3>Never overlapping anything</h3>
- * A candidate is rejected if its body would overlap any FIXED body (Earth, Namek, ...), a SUPER body's start, or the
+ * A candidate is rejected if its body would overlap any FIXED body (Earth, Namek, ...), a SUPER body, or the
  * origin/arrival column. The fixed centres/half-extents come from the same {@link PlanetRegistry}/{@link
  * PlanetPositions} the bodies are drawn from, so the check uses the geometry the player sees. Two generated planets
  * never overlap either: at most one per cell, and two bodies in ADJACENT cells that would meet across the shared face
@@ -49,8 +49,10 @@ public final class GeneratedPlanets
     // offset/size/tint windows stay independent.
     static volatile double density = 0.5;
 
-    // Vertical band a generated body's position may occupy, config-baked. Kept inside the space play band (min_y -64,
-    // height 2048) and spanning the fixed planet altitude (900) so bodies read alongside the fixed ring.
+    // Vertical band an OLD-SCHEME cell planet's position may occupy. Deliberately left at the band of the old -64..1984
+    // column even though space is now -2032..2032: the old cell field only survives for planets a player claimed or
+    // stamped, all of which were placed inside this band, and widening it would only resurrect never-visited cells the
+    // legacy gate drops anyway. Keeping it pins every surviving legacy planet exactly where it was.
     static volatile double minY = 200.0;
     static volatile double maxY = 1600.0;
 
@@ -78,8 +80,8 @@ public final class GeneratedPlanets
 
     // Visual half-extent range of the SPACE BODY (the rotating cube), in blocks. Scaled from the same size roll (via
     // bodyRadiusForSurfaceSize) so a bigger surface reads as a bigger body. Smallest (32) sits just above the smallest
-    // fixed body (24); largest (96) is ~1.75x the largest fixed body (55). 96 stays well inside the space Y band (bodies
-    // at Y 200..1600) and keeps the planet-buster clash trigger max(50, radius*2) at a sane 192 at the top.
+    // fixed body (24); largest (96) is ~1.75x the largest fixed body (55). 96 is the maxBodyRadius the system Y-band
+    // maths reserves (GeneratedSystems) and keeps the planet-buster clash trigger max(50, radius*2) at a sane 192 at the top.
     private static final float MIN_BODY_RADIUS = 32.0F;
     private static final float MAX_BODY_RADIUS = 96.0F;
 
@@ -478,9 +480,9 @@ public final class GeneratedPlanets
         {
             return false;
         }
-        // never overlap one of the seven fixed super-ball bodies. Their positions are pure (no server, see
-        // SuperPlanetPositions), so the client rejects identically and both sides derive the same field around one.
-        if (SuperPlanetPositions.overlaps(pos, radius))
+        // never overlap one of the seven super-ball bodies at its LIVE orbital position, like the fixed bodies below. Both
+        // sides derive it from the same synced orbit elements, so the client rejects identically.
+        if (SuperPlanetPositions.overlapsLive(server, pos, radius))
         {
             return true;
         }

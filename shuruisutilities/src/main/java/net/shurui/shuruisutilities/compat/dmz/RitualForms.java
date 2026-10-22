@@ -28,7 +28,8 @@ import net.shurui.shuruisutilities.util.output.logger.LoggingHandler;
  *
  * <p>Forms are granted the way DMZ marks a form learned: a form is available iff the form-group skill level reaches the
  * form's {@code unlockOnSkillLevel}. SSJ5 and Primal Namekian are new forms in the shared {@code superforms} group at the
- * next rung above the race's top form (saiyan 9, namekian 4); Super Saiyan God is a form in the {@code godforms} group.
+ * next rung above the race's top form (saiyan 9, namekian 4). The god ritual grants DragonMineZ's own god form
+ * ({@code godritual}), see {@link #beginTempSsg}.
  * The ritual JSON that defines those rungs is seeded by {@link RitualRaceMergeImpl}.
  */
 final class RitualForms
@@ -195,18 +196,20 @@ final class RitualForms
     }
 
     /**
-     * Temporarily make Super Saiyan God available and active on a saiyan by raising the godforms skill to 1 and setting
-     * the active form. Returns true when the temporary form was applied.
+     * Put the ritual centre into DragonMineZ's OWN base god form, exactly as DMZ's god ritual does when it completes.
      *
-     * <p>A ritual grant and a PURCHASE are the same state in DMZ. Buying the form ({@code UpdateSkillC2S.PURCHASE},
-     * 150000 TP on the live configs) does exactly what this method does, it sets the {@code godforms} skill to 1, and
-     * DMZ records nothing about which of the two happened. So the only thing that can tell them apart later is a
-     * marker written HERE, and only when the ritual is what raised the skill from 0:
-     * {@link WishRitualStore#SSG_TEMP_GRANT}. A player who already holds the skill keeps it untouched and gets no
-     * marker, which is what stops {@link #endTempSsg} from taking a real purchase away.
+     * <p>The form is DMZ's {@code godritual} group ({@code supersaiyangodritual} by default; both names are read from
+     * DMZ's god ritual config, so an admin rename is followed). The steps mirror DMZ's {@code GodRitualService.complete}:
+     * record the form as used, keep the ki / stamina ratios across the switch, set the active form, start DMZ's god
+     * ritual timer and add the Transformed effect. From then on DMZ itself owns the form: its player tick counts the
+     * timer down, ends the form, and applies the ritual cooldown. Nothing is learned and no skill changes, so there is
+     * nothing for SU to take back later.
      *
-     * <p>The right to buy (the durable entitlement the ritual also earns) is separate again and lives in SU perms
-     * ({@link WishRitualStore#SSG_PURCHASE}), so nothing here can remove what the player earned.
+     * <p>Replaces SU's former Super Saiyan God ({@code godforms / supersaiyangod}), which raised the {@code godforms}
+     * skill as a temporary loan. That form is retired; {@link #endTempSsg} still unwinds a loan left by an older build.
+     *
+     * <p>A race qualifies when it is on the god line AND DMZ has the god ritual group for it (saiyans from DMZ, half
+     * saiyans from SU's race bundle). Without the group the form could not resolve, so the grant refuses instead.
      */
     static boolean beginTempSsg(ServerPlayer player)
     {
@@ -216,35 +219,45 @@ final class RitualForms
         try
         {
             Character c = stats.getCharacter();
-            // SSG temporary form on the ritual centre: half saiyans share the god line (godforms is seeded and
-            // priced for half_saiyan), so they may centre the ring and turn Super Saiyan God.
             if (c == null || !isSsgRaceName(c.getRaceName()))
                 return false;
-            Skills skills = stats.getSkills();
-            if (!skills.hasSkill(SKILL_GODFORMS))
+            com.dragonminez.common.config.GeneralServerConfig.GodRitualConfig cfg =
+                    com.dragonminez.common.util.GodRitualHelper.config();
+            if (cfg == null)
                 return false;
-            if (skills.getSkillLevel(SKILL_GODFORMS) < 1)
+            String group = cfg.getGroupName();
+            FormConfig groupCfg = ConfigManager.getFormGroup(c.getRaceName(), group);
+            FormConfig.FormData form = groupCfg == null ? null : groupCfg.getForm(cfg.getFormName());
+            if (form == null)
             {
-                // The ritual is what is putting the skill there, so it is ours to take back later. Marked BEFORE the
-                // skill goes up so a crash between the two lines leaves a marker with no grant (harmless, reconciled
-                // at login) rather than a grant with no marker (a free permanent form).
-                WishRitualStore.markSsgTempGrant(player);
-                skills.setSkillLevel(SKILL_GODFORMS, 1);
+                LoggingHandler.sulog.warn("[ritual] DMZ god form {}.{} is missing for race '{}'; the ritual cannot "
+                        + "grant it.", group, cfg.getFormName(), c.getRaceName());
+                return false;
             }
-            // Never assume the group is called "godforms": live shards have drifted (a renamed godforms_copy), and
-            // pointing the character at a group that does not exist strands it in an unresolvable form.
-            c.setActiveForm(resolveSsgGroup(c.getRaceName()), FORM_SSG);
+            if (!c.getFormsUsedBefore().getFormGroup(group).contains(form.getName()))
+                c.getFormsUsedBefore().putForm(group, form.getName());
+            float[] ratios = stats.snapshotMultiplierResources();
+            c.clearPreviousFormRecord();
+            c.setActiveForm(group, form.getName());
+            stats.restoreMultiplierGains(player, ratios);
+            stats.getStatus().setGodRitualTicks(cfg.getDurationTicks());
+            stats.getResources().setActionCharge(0);
+            net.minecraft.world.effect.MobEffect transformed =
+                    com.dragonminez.common.init.MainEffects.TRANSFORMED.get();
+            if (!player.hasEffect(transformed))
+                player.addEffect(new net.minecraft.world.effect.MobEffectInstance(transformed, -1, 0, false, false, true));
+            player.refreshDimensions();
             resync(player);
             return true;
         }
         catch (Throwable t)
         {
-            LoggingHandler.sulog.debug("[ritual] could not begin temp SSG: {}", t.toString());
+            LoggingHandler.sulog.debug("[ritual] could not grant DMZ's god form: {}", t.toString());
             return false;
         }
     }
 
-    /** True while the player is currently transformed into Super Saiyan God (used to detect detransform). */
+    /** True while the player is in the ritual's god form (used to detect detransform). */
     static boolean isInSsg(ServerPlayer player)
     {
         StatsData stats = DmzBridge.stats(player);
@@ -253,7 +266,12 @@ final class RitualForms
         try
         {
             Character c = stats.getCharacter();
-            return c != null && FORM_SSG.equalsIgnoreCase(c.getActiveForm());
+            if (c == null)
+                return false;
+            // DMZ's god form (any race whose active group is a god ritual group), or SU's retired one from an older
+            // build that is still on a character.
+            return TransformationsHelper.isGodRitualGroup(c.getRaceName(), c.getActiveFormGroup())
+                    || FORM_SSG.equalsIgnoreCase(c.getActiveForm());
         }
         catch (Throwable t)
         {
@@ -567,6 +585,10 @@ final class RitualForms
         try
         {
             Stats s = stats.getStats();
+            int cap = stats.getConfiguredMaxValue();
+            int[] before = new int[STAT_KEYS_LOWER.length];
+            for (int i = 0; i < before.length; i++)
+                before[i] = baseStat(s, STAT_KEYS_LOWER[i]);
             int startLevel = stats.getLevel();
             int target = Math.max(1, startLevel - levelsToRemove);
             RandomSource rnd = player.getRandom();
@@ -580,6 +602,7 @@ final class RitualForms
                     break; // every stat is already at zero: cannot remove more without going negative
                 s.removeStat(STAT_KEYS_LOWER[idx], 1);
             }
+            recordZSoulGrace(player, s, cap, before);
             resync(player);
             return startLevel - stats.getLevel();
         }
@@ -589,6 +612,51 @@ final class RitualForms
                     player.getGameProfile().getName(), t.toString());
             return 0;
         }
+    }
+
+    /**
+     * The ritual cost must cost exactly the stat points it takes. A Z-Soul bonus only projects while its base stat is at
+     * the cap (so a respec cannot carry it to level 1), and the cost can take a capped stat below the cap, which would
+     * also switch off that stat's whole Z-Soul bonus. So every stat the cost took below the cap is recorded with the
+     * value it was left at ({@link RitualFormsCompat#ZSOUL_GRACE_KEY}); the Z-Soul keeps projecting while the stat stays
+     * at or above that value, and the record goes once the stat is back at the cap or drops below it (a respec, a reset,
+     * a prestige).
+     */
+    private static void recordZSoulGrace(ServerPlayer player, Stats s, int cap, int[] before)
+    {
+        try
+        {
+            if (cap <= 0)
+                return;
+            net.minecraft.nbt.CompoundTag persisted = net.shurui.shuruisutilities.util.PlayerUtil.getPersistedTag(player, true);
+            net.minecraft.nbt.CompoundTag grace = persisted.getCompound(RitualFormsCompat.ZSOUL_GRACE_KEY);
+            for (int i = 0; i < STAT_KEYS_LOWER.length; i++)
+            {
+                int now = baseStat(s, STAT_KEYS_LOWER[i]);
+                if (before[i] >= cap && now < cap)
+                    grace.putInt(STAT_KEYS_LOWER[i], now);
+            }
+            if (!grace.isEmpty())
+                persisted.put(RitualFormsCompat.ZSOUL_GRACE_KEY, grace);
+        }
+        catch (Throwable t)
+        {
+            LoggingHandler.sulog.debug("[ritual] could not record the Z-Soul grace: {}", t.toString());
+        }
+    }
+
+    private static int baseStat(Stats s, String key)
+    {
+        return switch (key)
+        {
+            case "str" -> s.getStrength();
+            case "skp" -> s.getStrikePower();
+            case "res" -> s.getResistance();
+            case "vit" -> s.getVitality();
+            case "pwr" -> s.getKiPower();
+            case "ene" -> s.getEnergy();
+            default -> 0;
+        };
     }
 
     // Choose a uniformly random stat index whose base allocated value is > 0, or -1 when all six are zero. Reads the

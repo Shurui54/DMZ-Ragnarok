@@ -47,6 +47,7 @@ public class Shuruis_dmz_tournaments {
                 net.shurui.dev.shuruis_dmz_tournaments.api.key.TournamentKeyHooks::available);
         // Filename pinned so a future single-container merge cannot silently orphan the live config file.
         ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, Config.SPEC, "shuruis_dmz_tournaments-common.toml");
+        TournamentConfigEditorSources.register();
         LOGGER.info("Shurui's DMZ Tournaments loaded.");
     }
 }

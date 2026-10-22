@@ -125,7 +125,7 @@ tools/parity/baselines/**/_server.log
 scratchpad_dmz/
 scratchpad_amb/
 
-# Agent launch-test run dirs (fat/modular matrix); never commit dev-run output.
+# Launch-test run dirs (fat/modular matrix); never commit dev-run output.
 /run-core/
 /run-all/
 /run-dungeons/

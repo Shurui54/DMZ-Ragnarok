@@ -40,6 +40,12 @@ public class NpcRegionManager
     // the event, so no event mob is ever left behind as a plain mob. A normal region spawn never carries it.
     public static final String TAG_EVENT = "su_event";
     /**
+     * Int stamped on a region NPC whose config scales with level (the Z orb model): the level its max-level anchors
+     * apply at. Its kill rewards then follow the killer's level, and the region's level falloff no longer applies to
+     * it (the point of scaling is that a player can fight anywhere). Absent on every mob spawned before scaling.
+     */
+    public static final String TAG_LEVEL_SCALED = "su_npcr_lvl_max";
+    /**
      * Int stamped on EVERY region-spawned mob: the {@link NpcSpawnConfig#behavior} ordinal
      * (0 Passive, 1 Wander, 2 Dialogue, 3 Follower, 4 Guard, 5 Hostile, 6 DMZ Fighter). Read by
      * the key's {@code NpcRegionBehavior} (LivingChangeTargetEvent) so SU can enforce the behaviour on ANY entity
@@ -208,11 +214,11 @@ public class NpcRegionManager
                 .flagAt(dim, x, y, z, net.shurui.shuruisutilities.regions.RegionFlag.NPCREGION_SPAWNS));
     }
 
-    /** The first selection whose XZ footprint contains the column, or null when outside the region. */
+    /** The first selection whose XZ footprint (box, or freeform outline) contains the column, or null when outside. */
     public static NpcRegion.Box boxAt(NpcRegion region, int x, int z)
     {
         for (NpcRegion.Box b : region.boxes)
-            if (x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ)
+            if (b.containsColumn(x, z))
                 return b;
         return null;
     }

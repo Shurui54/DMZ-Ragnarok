@@ -88,28 +88,24 @@ public final class PlanetGarrison
     private static final double MIN_HEALTH = 20.0;
     private static final double MIN_MELEE = 2.0;
 
-    // the datapack structure whose footprint hosts the neutral saiyan crowd on an inhabited planet (Planet Vegeta).
-    // Saibaman huts that also generate there are NOT populated by this neutral path (a saibaman is hostile), left for a
-    // future hostile populator. A ResourceLocation resolved from the live registry, never compiled against, since a
-    // datapack could omit it.
-    private static final ResourceLocation SAIYAN_SETTLEMENT_ID =
-            new ResourceLocation("shuruisutilities", "saiyan_settlement");
+    // the datapack structure behind Vegeta's randomly generated wilderness outposts. The live copy is dmz_ragnarok's
+    // (the biome/structure rename stage); the shuruisutilities one is the pre-migration shim. Only the shim id used to
+    // be looked up, so a migrated world never found a single outpost and nobody ever spawned at one. Both are tried.
+    // Saibaman huts that also generate there are NOT populated here. Resolved from the live registry, never compiled
+    // against, since a datapack could omit it.
+    private static final ResourceLocation[] SAIYAN_SETTLEMENT_IDS = {
+            new ResourceLocation("dmz_ragnarok", "saiyan_settlement"),
+            new ResourceLocation("shuruisutilities", "saiyan_settlement") };
 
-    // How many of each kind fill ONE settlement: a small group per settlement, not one big crowd, so the planet reads as
-    // populated across its surface. Every settlement also gets exactly one trader.
-    private static final int NEUTRAL_MIN_PER_SETTLEMENT = 4;
-    private static final int NEUTRAL_MAX_PER_SETTLEMENT = 8;
-    private static final int NEUTRAL_TRADERS_PER_SETTLEMENT = 1;
-
-    // How many HOSTILE garrison saiyans defend ONE saiyan_settlement structure: Vegeta's wild warrior outposts, so every
-    // one is armed as well as inhabited. Placed alongside the citizens in the same footprint and populateSettlement pass,
-    // tracked by the same per-settlement key so a killed soldier stays dead. They use the PlanetSaiyanGarrisonEntity saga
-    // chassis, are statted to the Vegeta saiyan tier by applyVegetaSaiyanStats (which lights up the saga AI tier and
-    // ranged ki-skill pool so they FIGHT), roll the citizens' appearance and armor, and are confined to Vegeta by their
-    // home planet. NOT garrison DEFENDERS: Vegeta is inhabited and never claimable, so they carry no defender flag and
-    // never enter the claim roster. A squad of 3 to 6 suits a defended outpost. Tunable; confirm with a launch test.
-    private static final int GARRISON_MIN_PER_SETTLEMENT = 3;
-    private static final int GARRISON_MAX_PER_SETTLEMENT = 6;
+    // How many HOSTILE garrison saiyans hold ONE outpost (a saiyan_settlement structure). Outposts are hostile only, by
+    // the owner's call: the peaceful citizens and traders live in the capital city, never out here. Tracked by the
+    // per-settlement key so a killed soldier stays dead. They use the PlanetSaiyanGarrisonEntity saga chassis, are
+    // statted to the Vegeta saiyan tier by applyVegetaSaiyanStats (which lights up the saga AI tier and ranged ki-skill
+    // pool so they FIGHT), roll the citizens' appearance and armor, and are confined to Vegeta by their home planet. NOT
+    // garrison DEFENDERS: Vegeta is inhabited and never claimable, so they carry no defender flag and never enter the
+    // claim roster.
+    private static final int GARRISON_MIN_PER_SETTLEMENT = 4;
+    private static final int GARRISON_MAX_PER_SETTLEMENT = 7;
 
     // How far from the player we sample for a settlement footprint, so a settlement lights up as the player approaches
     // rather than only dead-centre. Each sample is a cheap getStructureAt on already-loaded chunk data; a point in an
@@ -147,7 +143,7 @@ public final class PlanetGarrison
     private static final int CITY_CHUNKS_PER_CELL = CITY_CELL / 16;
     // Lowered from 3..6 after live play reported the capital was too crowded: a 3x3 disc of cells around the player is
     // filled, so at 1..3 per cell the loaded crowd is roughly a third of before while the city still reads as populated.
-    // Wilderness settlement counts (NEUTRAL_MIN/MAX_PER_SETTLEMENT) are deliberately left untouched.
+    // Wilderness outposts are separate: they hold a hostile squad only (GARRISON_MIN/MAX_PER_SETTLEMENT).
     private static final int CITY_CITIZENS_MIN = 1;
     private static final int CITY_CITIZENS_MAX = 3;
     // Not every cell gets a trader (a shop every 48 blocks would be absurd); lowered to roughly one cell in five so a
@@ -281,8 +277,8 @@ public final class PlanetGarrison
      *       player nears them. A no-op on any other planet.</li>
      *   <li><b>Wilderness (structure-reference based):</b> it samples the {@code saiyan_settlement} structure footprints
      *       at and around the player, and the first time a player comes near one it fills that settlement (Vegeta's wild
-     *       warrior GARRISON) with a small group of PASSIVE saiyans plus a trader AND an armed HOSTILE garrison squad,
-     *       all inside the one structure footprint.</li>
+     *       warrior outpost) with an armed HOSTILE garrison squad only, inside the one structure footprint. The peaceful
+     *       citizens and traders stay in the city.</li>
      * </ul>
      * Both record what they filled (per cell / per settlement) so nothing ever re-populates and killed inhabitants never
      * respawn.
@@ -331,38 +327,11 @@ public final class PlanetGarrison
             ensureCityCells(level, planetId, around, data, random);
 
             // Wilderness path (structure-reference based): the procedurally generated saiyan_settlement footprints out in
-            // the terrain, unchanged. Skipped only if the datapack omits the structure entirely (logged once).
-            Structure settlement = resolveSettlementStructure(level);
-            if (settlement == null)
+            // the terrain, holding a hostile squad each. Skipped only if the datapack omits the structure (logged once).
+            List<Structure> settlements = resolveSettlementStructures(level);
+            for (Structure settlement : settlements)
             {
-                return; // datapack omits the settlement structure (logged once); the city path above already ran.
-            }
-            for (BlockPos sample : sampleAround(around))
-            {
-                // only probe chunks that are ALREADY loaded: getStructureAt would otherwise drive a chunk to its
-                // structure-reference worldgen status, which is exactly the forced generation we promised to avoid. A
-                // sample in an unloaded chunk is simply skipped and picked up on a later pass once the player nears it.
-                if (!level.hasChunk(sample.getX() >> 4, sample.getZ() >> 4))
-                {
-                    continue;
-                }
-                StructureStart start = level.structureManager().getStructureAt(sample, settlement);
-                if (!start.isValid())
-                {
-                    continue;
-                }
-                long key = start.getChunkPos().toLong();
-                if (data.isSettlementPopulated(planetId, key))
-                {
-                    continue; // this settlement already has its crowd; never re-populate, so killed saiyans stay dead.
-                }
-                int spawned = populateSettlement(level, planetId, start, random);
-                if (spawned > 0)
-                {
-                    // mark ONLY after something actually joined the world, so a settlement whose chunks were mid-load
-                    // (spawned 0) is retried on a later pass rather than marked done but empty.
-                    data.markSettlementPopulated(planetId, key);
-                }
+                populateSettlementsNear(level, planetId, around, settlement, data, random);
             }
         }
         catch (Throwable t)
@@ -371,6 +340,39 @@ public final class PlanetGarrison
             {
                 LoggingHandler.sulog.warn("[PlanetGarrison] Failed to populate neutral settlements for planet {}; will "
                         + "retry as players roam it.", planetId, t);
+            }
+        }
+    }
+
+    // fill any not-yet-populated footprint of one settlement structure at or near the player.
+    private static void populateSettlementsNear(ServerLevel level, String planetId, BlockPos around, Structure settlement,
+                                                PlanetGarrisonData data, RandomSource random)
+    {
+        for (BlockPos sample : sampleAround(around))
+        {
+            // only probe chunks that are ALREADY loaded: getStructureAt would otherwise drive a chunk to its
+            // structure-reference worldgen status, which is exactly the forced generation we promised to avoid. A
+            // sample in an unloaded chunk is simply skipped and picked up on a later pass once the player nears it.
+            if (!level.hasChunk(sample.getX() >> 4, sample.getZ() >> 4))
+            {
+                continue;
+            }
+            StructureStart start = level.structureManager().getStructureAt(sample, settlement);
+            if (!start.isValid())
+            {
+                continue;
+            }
+            long key = start.getChunkPos().toLong();
+            if (data.isSettlementPopulated(planetId, key))
+            {
+                continue; // this outpost already has its squad; never re-populate, so killed saiyans stay dead.
+            }
+            int spawned = populateSettlement(level, planetId, start, random);
+            if (spawned > 0)
+            {
+                // mark ONLY after something actually joined the world, so a settlement whose chunks were mid-load
+                // (spawned 0) is retried on a later pass rather than marked done but empty.
+                data.markSettlementPopulated(planetId, key);
             }
         }
     }
@@ -546,60 +548,49 @@ public final class PlanetGarrison
         return null;
     }
 
-    // resolve the saiyan-settlement Structure from the live registry, or null (logged once) if the datapack omits it.
-    private static Structure resolveSettlementStructure(ServerLevel level)
+    // resolve every registered saiyan-settlement Structure (live and shim ids) from the live registry; empty (logged
+    // once) only if the datapack omits both.
+    private static List<Structure> resolveSettlementStructures(ServerLevel level)
     {
+        List<Structure> out = new ArrayList<>(SAIYAN_SETTLEMENT_IDS.length);
         try
         {
             Registry<Structure> registry = level.registryAccess().registryOrThrow(Registries.STRUCTURE);
-            Structure structure = registry.get(SAIYAN_SETTLEMENT_ID);
-            if (structure == null && SETTLEMENT_MISSING_WARNED.compareAndSet(false, true))
+            for (ResourceLocation id : SAIYAN_SETTLEMENT_IDS)
             {
-                LoggingHandler.sulog.warn("[PlanetGarrison] Structure '{}' is not registered; no neutral saiyans will "
-                        + "spawn at settlements.", SAIYAN_SETTLEMENT_ID);
+                Structure structure = registry.get(id);
+                if (structure != null)
+                {
+                    out.add(structure);
+                }
             }
-            return structure;
+            if (out.isEmpty() && SETTLEMENT_MISSING_WARNED.compareAndSet(false, true))
+            {
+                LoggingHandler.sulog.warn("[PlanetGarrison] No saiyan_settlement structure is registered; no saiyans "
+                        + "will spawn at outposts.");
+            }
         }
         catch (Throwable t)
         {
             if (SETTLEMENT_MISSING_WARNED.compareAndSet(false, true))
             {
-                LoggingHandler.sulog.warn("[PlanetGarrison] Failed resolving structure '{}'; no neutral saiyans will "
-                        + "spawn at settlements.", SAIYAN_SETTLEMENT_ID, t);
+                LoggingHandler.sulog.warn("[PlanetGarrison] Failed resolving the saiyan_settlement structure; no saiyans "
+                        + "will spawn at outposts.", t);
             }
-            return null;
         }
+        return out;
     }
 
-    // fill one settlement's footprint with a small group of neutral saiyans plus a trader, scattering each within the
-    // structure's bounding box on safe ground. Returns how many joined the world alive; the caller marks the settlement
-    // populated only when this is positive.
+    // fill one outpost's footprint with its hostile saiyan squad, scattering each within the structure's bounding box
+    // on safe ground. Returns how many joined the world alive; the caller marks the outpost populated only when this is
+    // positive.
     private static int populateSettlement(ServerLevel level, String planetId, StructureStart start, RandomSource random)
     {
         BoundingBox box = start.getBoundingBox();
-        int min = NEUTRAL_MIN_PER_SETTLEMENT;
-        int max = NEUTRAL_MAX_PER_SETTLEMENT;
-        int count = min >= max ? min : min + random.nextInt(max - min + 1);
-
-        int spawned = 0;
-        for (int k = 0; k < count; k++)
-        {
-            if (spawnCitizenInBox(level, planetId, box, random))
-            {
-                spawned++;
-            }
-        }
-        for (int k = 0; k < NEUTRAL_TRADERS_PER_SETTLEMENT; k++)
-        {
-            if (spawnTraderInBox(level, planetId, box, random))
-            {
-                spawned++;
-            }
-        }
-        // the garrison: an armed saiyan squad defending this outpost, placed inside the same footprint as the citizens.
         int gmin = GARRISON_MIN_PER_SETTLEMENT;
         int gmax = GARRISON_MAX_PER_SETTLEMENT;
         int gcount = gmin >= gmax ? gmin : gmin + random.nextInt(gmax - gmin + 1);
+        int spawned = 0;
         for (int k = 0; k < gcount; k++)
         {
             if (spawnGarrisonInBox(level, planetId, box, random))
@@ -625,7 +616,11 @@ public final class PlanetGarrison
         {
             return false;
         }
-        placeInBox(level, saiyan, box, random);
+        if (!placeInBox(level, saiyan, box, random))
+        {
+            saiyan.discard();
+            return false;
+        }
         saiyan.randomize(random);
         saiyan.setHomePlanet(planetId);
         SaiyanArmorSets.equip(saiyan, random);
@@ -634,56 +629,30 @@ public final class PlanetGarrison
         return addNeutralAlive(level, saiyan, planetId);
     }
 
-    // spawn one PASSIVE saiyan inside a settlement box: mint the citizen, scatter-and-safe-spot it within the footprint,
-    // roll its saiyan appearance and equip its saiyan armor (the shared recipe), assign its home planet, pin it
-    // persistent, and add it. NEVER stamps a defender flag, NEVER touches the roster, NEVER applies the combat stat
-    // block. Returns true only if it joined the world alive.
-    private static boolean spawnCitizenInBox(ServerLevel level, String planetId, BoundingBox box, RandomSource random)
-    {
-        PlanetSaiyanCitizenEntity citizen = PlanetSaiyanTownEntities.CITIZEN.get().create(level);
-        if (citizen == null)
-        {
-            return false;
-        }
-        placeInBox(level, citizen, box, random);
-        citizen.randomize(random);
-        citizen.setHomePlanet(planetId);
-        citizen.equipSaiyanArmor();
-        // stat this inhabitant to its DMZ saga tier (a Frieza soldier, or the Ginyu Force block for a named donor NPC).
-        // COMBAT NUMBERS ONLY: the citizen's passive goals and its setTarget refusal are untouched, so it stays peaceful,
-        // just tanky. This runs only from the neutral-settlement path, which is gated to inhabited planets, and Vegeta is
-        // the only inhabited planet today, so the saiyan tier lands on Vegeta and never on a generated planet's garrison.
-        applyVegetaSaiyanStats(citizen, citizen);
-        citizen.setPersistenceRequired();
-        return addNeutralAlive(level, citizen, planetId);
-    }
-
-    // spawn one saiyan trader inside a settlement box: roll its look, gear it in a full saiyan set (the town's saiyans
-    // are all armored) and assign the town's planet. Returns true only if it joined the world alive.
-    private static boolean spawnTraderInBox(ServerLevel level, String planetId, BoundingBox box, RandomSource random)
-    {
-        SaiyanTraderEntity trader = PlanetSaiyanTownEntities.TRADER.get().create(level);
-        if (trader == null)
-        {
-            return false;
-        }
-        placeInBox(level, trader, box, random);
-        trader.randomize(random);
-        trader.setHomePlanet(planetId);
-        SaiyanArmorSets.equip(trader, random);
-        trader.setPersistenceRequired();
-        return addNeutralAlive(level, trader, planetId);
-    }
-
-    // scatter a townsperson at a random column within the settlement's bounding box, then snap it to a safe stand so
+    // scatter an outpost saiyan at a random column within the settlement's bounding box, then snap it to a safe stand so
     // nobody lands inside a wall or hanging in the air. The box centre Y is a hint; SafeSpotResolver scans to the ground.
-    private static void placeInBox(ServerLevel level, Mob mob, BoundingBox box, RandomSource random)
+    // Returns false when no loaded, safe column was found: SafeSpotResolver's last resort is the world spawn, which on
+    // Vegeta is the capital's landing square, so taking it would drop a hostile squad in the middle of the city.
+    private static boolean placeInBox(ServerLevel level, Mob mob, BoundingBox box, RandomSource random)
     {
-        int x = box.minX() + random.nextInt(Math.max(1, box.getXSpan()));
-        int z = box.minZ() + random.nextInt(Math.max(1, box.getZSpan()));
         double yHint = (box.minY() + box.maxY()) / 2.0;
-        SafeSpotResolver.Result spot = SafeSpotResolver.resolve(level, x + 0.5, yHint, z + 0.5);
-        mob.moveTo(spot.x, spot.y, spot.z, random.nextFloat() * 360.0F, 0.0F);
+        for (int attempt = 0; attempt < CITY_PLACE_ATTEMPTS; attempt++)
+        {
+            int x = box.minX() + random.nextInt(Math.max(1, box.getXSpan()));
+            int z = box.minZ() + random.nextInt(Math.max(1, box.getZSpan()));
+            if (!level.hasChunk(x >> 4, z >> 4))
+            {
+                continue;
+            }
+            SafeSpotResolver.Result spot = SafeSpotResolver.resolve(level, x + 0.5, yHint, z + 0.5);
+            if (spot.fellBackToSpawn)
+            {
+                continue;
+            }
+            mob.moveTo(spot.x, spot.y, spot.z, random.nextFloat() * 360.0F, 0.0F);
+            return true;
+        }
+        return false;
     }
 
     // add a neutral townsperson to the world and report whether it joined alive. A failed add is logged once and skipped.
@@ -801,14 +770,14 @@ public final class PlanetGarrison
 
         // DMZ saga combat chassis: battle power (so a scouter reads the right band), the LOWEST AI tier, and a small
         // ranged pool so it is not a pure melee dummy. Wrapped: any drift degrades to "no DMZ combat extras", never a
-        // crash. AiTier.SIMPLE is DragonMineZ's weakest tier (the one its own saibaman fights at), which is exactly the
-        // "same AI as saga fighters at the lowest level" the user asked for; setAiTierById is 1-based (id = ordinal+1).
+        // crash. AiTier.NOVICE (2.1 called it SIMPLE) is DragonMineZ's weakest tier (id 1, the one its own saibaman
+        // fights at), which is the "same AI as saga fighters at the lowest level" the user asked for.
         if (defender instanceof DBSagasEntity saga)
         {
             try
             {
                 saga.setBattlePower((int) Math.round(Math.min(battlePower, Integer.MAX_VALUE)));
-                saga.setAiTierById(DBSagasEntity.AiTier.SIMPLE.ordinal() + 1);
+                saga.setAiTierById(com.dragonminez.common.init.entities.ai.AiTier.NOVICE.getId());
                 saga.getSkillPool().clear();
                 saga.addKiSkill(DBSagasEntity.KiSkillType.GENERIC_KI_WAVE, 60, 1.0F);
                 saga.addKiSkill(DBSagasEntity.KiSkillType.KI_LASER, 45, 1.0F);

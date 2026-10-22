@@ -25,6 +25,11 @@ final class DmzVisualsImpl
 {
     private DmzVisualsImpl() {}
 
+    /** Pale water palette for Mighty Hurricane Fury's funnel (core, border, outline), see {@link #hurricane}. */
+    private static final int WATER_CORE = 0xD8F6FF;
+    private static final int WATER_BORDER = 0x6FD3F2;
+    private static final int WATER_OUTLINE = 0x2B86B8;
+
     /** How long a scattered decorative blast flies before it pops, in ticks. */
     private static final int TRAVEL_TICKS = 40;
 
@@ -87,6 +92,12 @@ final class DmzVisualsImpl
             storm.setKiDamage(0.0f);
             storm.setHeal(true);
             storm.setFiring(true);
+
+            // WATER, NOT ELECTRIC. Since DragonMineZ 2.2 the funnel is a shader drawn from the entity's three synced
+            // colours (2.1 drew a textured model, which MixinDmzHurricaneTexture used to retexture), so the
+            // recolour is now just these colours, set once on the server and synced to everyone. Burter's own
+            // hurricane keeps DMZ's default blue because only this cast path sets them.
+            storm.setColors(WATER_CORE, WATER_BORDER, WATER_OUTLINE);
             return true;
         }
         catch (Throwable t)

@@ -53,11 +53,13 @@ import com.dragonminez.common.init.entities.ki.AbstractKiProjectile;
 public abstract class MixinDmzClashParticipant
 {
     @Redirect(
-            method = "<init>",
+            // DragonMineZ 2.2: the public (beam, owner) constructor reads the beam's power while delegating to a
+            // private (beam, owner, power) one, i.e. before this() runs, so the handler must be static.
+            method = "<init>(Lcom/dragonminez/common/init/entities/ki/AbstractKiProjectile;Lnet/minecraft/world/entity/LivingEntity;)V",
             at = @At(value = "INVOKE",
                     target = "Lcom/dragonminez/common/init/entities/ki/AbstractKiProjectile;getKiDamage()F"),
             require = 0)
-    private float su$planetClashPower(AbstractKiProjectile beam, AbstractKiProjectile ctorBeam, LivingEntity owner)
+    private static float su$planetClashPower(AbstractKiProjectile beam, AbstractKiProjectile ctorBeam, LivingEntity owner)
     {
         // the raw ki damage is exactly the value the constructor would have used; every non-planet clash returns it
         // unchanged so DragonMineZ's own balance is untouched.

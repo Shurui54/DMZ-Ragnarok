@@ -87,13 +87,8 @@ public final class DmzCompat {
      * Call AFTER {@link #reloadConfigs()} so saved/deleted race &amp; form files (notably {@code customModel})
      * apply live without a rejoin.
      *
-     * <p>Reflective chain (all public in DMZ 2.1.2): {@code getAvailableConfigFiles() -> List<String>},
-     * {@code getSpecificConfigJson(String) -> String}, {@code new SyncServerConfigS2C(path, json, reset)},
-     * {@code NetworkHandler.sendToPlayer(msg, player)}.
-     *
-     * <p>Skip semantics copy ReloadCommand: skip {@code "general-user"} and any null/blank JSON. Per player the
-     * first sent file carries {@code reset=true} (triggers the client's sync batch), the rest false. Any failure
-     * logs one warn and no-ops.
+     * <p>DragonMineZ 2.2: {@code ConfigManager.sendConfigSync(player)} after dropping its payload cache (see the
+     * body). Any failure logs one warn and no-ops.
      */
     public static boolean resyncConfigsToAll(net.minecraft.server.MinecraftServer server) {
         if (!isLoaded() || server == null) {
@@ -104,37 +99,18 @@ public final class DmzCompat {
         // repair formStackable on the same maps so the pushed JSON carries corrected flags
         repairFormStackable();
         try {
+            // DragonMineZ 2.2 syncs configs as a BATCH: the first packet begins it, an end marker commits it on the
+            // client, and the server section's storage block (database credentials) is left out. Its own
+            // sendConfigSync does all of that from a cached payload list, so the cache is dropped first (private
+            // invalidateSyncPayloads) to include what we just changed, then DMZ's own sync runs for every player.
+            // (2.1 had no batch, so this used to send each config file itself, with no end marker.)
             Class<?> configManager = Class.forName("com.dragonminez.common.config.ConfigManager");
-            Class<?> networkHandler = Class.forName("com.dragonminez.common.network.NetworkHandler");
-            Class<?> syncPacket = Class.forName("com.dragonminez.common.network.S2C.SyncServerConfigS2C");
-
-            Method getFiles = configManager.getMethod("getAvailableConfigFiles");
-            Method getJson = configManager.getMethod("getSpecificConfigJson", String.class);
-            java.lang.reflect.Constructor<?> packetCtor =
-                    syncPacket.getConstructor(String.class, String.class, boolean.class);
-            Method sendToPlayer = networkHandler.getMethod(
-                    "sendToPlayer", Object.class, net.minecraft.server.level.ServerPlayer.class);
-
-            @SuppressWarnings("unchecked")
-            java.util.List<String> files = (java.util.List<String>) getFiles.invoke(null);
-            if (files == null) {
-                return true;
-            }
-
+            Method invalidate = configManager.getDeclaredMethod("invalidateSyncPayloads");
+            invalidate.setAccessible(true);
+            invalidate.invoke(null);
+            Method send = configManager.getMethod("sendConfigSync", net.minecraft.server.level.ServerPlayer.class);
             for (net.minecraft.server.level.ServerPlayer player : server.getPlayerList().getPlayers()) {
-                boolean reset = true; // first non-skipped file per player begins the client batch
-                for (String file : files) {
-                    if (file == null || "general-user".equals(file)) {
-                        continue;
-                    }
-                    String json = (String) getJson.invoke(null, file);
-                    if (json == null || json.isBlank()) {
-                        continue;
-                    }
-                    Object msg = packetCtor.newInstance(file, json, reset);
-                    sendToPlayer.invoke(null, msg, player);
-                    reset = false;
-                }
+                send.invoke(null, player);
             }
             return true;
         } catch (Throwable t) {
@@ -153,9 +129,9 @@ public final class DmzCompat {
      * boot/reload, so this must run after DMZ (re)loads: on boot, at the end of {@link #reloadConfigs()}, and at
      * the start of {@link #resyncConfigsToAll} (before reading the JSON we push).
      *
-     * <p>Reflects into {@code ConfigManager} statics (DMZ 2.1.3): {@code LOADED_RACES} (List),
+     * <p>Reflects into {@code ConfigManager} statics: {@code LOADED_RACES} (List),
      * {@code RACE_CHARACTER}/{@code RACE_STATS}/{@code RACE_FORMS} (Maps), and the server-sync mirrors
-     * {@code SERVER_SYNCED_*} (null until first sync, skipped when null/empty). Class ids live inside each race's
+     * ({@code SERVER_SYNCED_*} in 2.1, the {@code SYNCED} batch object in 2.2; see readSyncedMirror). Class ids live inside each race's
      * {@code RaceStatsConfig.getClasses()}. Any missing field/method logs a warn and no-ops.
      */
     public static void applySuppression() {
@@ -352,12 +328,54 @@ public final class DmzCompat {
     // read a private static field, tolerating rename/absence (logs + returns null)
     private static Object readStatic(Class<?> owner, String fieldName) {
         try {
+            if (fieldName.startsWith("SERVER_SYNCED_")) {
+                Object synced = readSyncedMirror(owner, fieldName);
+                if (synced != NO_FIELD) {
+                    return synced;
+                }
+            }
             Field f = owner.getDeclaredField(fieldName);
             f.setAccessible(true);
             return f.get(null);
         } catch (Throwable t) {
             DmzNpc.LOGGER.warn("[{}] Suppression: could not read {}.{} ({}).",
                     DmzNpc.MODID, owner.getSimpleName(), fieldName, t.toString());
+            return null;
+        }
+    }
+
+    private static final Object NO_FIELD = new Object();
+
+    /**
+     * DragonMineZ 2.2 keeps the client's server-synced config mirrors in one private static {@code SYNCED} object
+     * ({@code ConfigManager$SyncedConfigs}: character, stats, forms, stackForms) instead of 2.1's
+     * {@code SERVER_SYNCED_*} statics. Answers the matching map, or {@link #NO_FIELD} when this DMZ has no such
+     * object (2.1 layout), so the caller falls back to the static field.
+     */
+    private static Object readSyncedMirror(Class<?> owner, String fieldName) {
+        String member = switch (fieldName) {
+            case "SERVER_SYNCED_CHARACTER" -> "character";
+            case "SERVER_SYNCED_STATS" -> "stats";
+            case "SERVER_SYNCED_FORMS" -> "forms";
+            case "SERVER_SYNCED_STACK_FORMS" -> "stackForms";
+            default -> null;
+        };
+        if (member == null) {
+            return NO_FIELD;
+        }
+        try {
+            Field holder = owner.getDeclaredField("SYNCED");
+            holder.setAccessible(true);
+            Object synced = holder.get(null);
+            if (synced == null) {
+                return null;
+            }
+            Field f = synced.getClass().getDeclaredField(member);
+            f.setAccessible(true);
+            return f.get(synced);
+        } catch (NoSuchFieldException e) {
+            return NO_FIELD;
+        } catch (Throwable t) {
             return null;
         }
     }

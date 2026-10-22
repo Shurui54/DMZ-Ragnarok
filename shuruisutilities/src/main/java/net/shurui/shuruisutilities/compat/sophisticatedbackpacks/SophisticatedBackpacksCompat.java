@@ -189,6 +189,40 @@ public final class SophisticatedBackpacksCompat
     }
 
     /**
+     * Read-only: whether any item stack tag stored in the backpack contents this item references (nested backpacks
+     * followed, bounded like a capture) passes {@code test}. Nothing is moved, created or marked dirty. False when the
+     * mod is absent or the item carries no backpack. Server thread only. Never throws.
+     */
+    public static boolean anyStoredItem(Tag itemNode, java.util.function.Predicate<CompoundTag> test)
+    {
+        if (itemNode == null || test == null || !present())
+            return false;
+        try
+        {
+            Set<UUID> seen = new HashSet<>();
+            Deque<UUID> queue = new ArrayDeque<>();
+            collectUuids(itemNode, seen, queue);
+            int visited = 0;
+            while (!queue.isEmpty() && visited++ < MAX_BACKPACKS)
+            {
+                CompoundTag contents = BackpackStorageAccess.read(queue.poll());
+                if (contents == null || contents.isEmpty())
+                    continue;
+                for (ListTag list : collectItemLists(contents, new java.util.ArrayList<>()))
+                    for (Tag t : list)
+                        if (t instanceof CompoundTag item && test.test(item))
+                            return true;
+                collectUuids(contents, seen, queue);
+            }
+        }
+        catch (Throwable t)
+        {
+            LoggingHandler.sulog.warn("[shard] Could not read backpack contents for an item check: {}", t.toString());
+        }
+        return false;
+    }
+
+    /**
      * Put contents captured by {@link #captureForTransfer} back into this server's store, used when the row write
      * that would have taken custody failed and the item is handed straight back to its owner. Overwrites, so a
      * clear marker removes the entry and a real tag restores it. Server thread only. Never throws.

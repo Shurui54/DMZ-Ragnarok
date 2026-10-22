@@ -22,9 +22,10 @@ import java.util.List;
 @Mixin(value = AuraRenderer.class, remap = false)
 public abstract class AuraRendererMixin {
 
-    @Inject(method = "getAuraLayers(Lnet/minecraft/world/entity/player/Player;Lcom/dragonminez/common/stats/StatsData;F)Ljava/util/List;",
+    @Inject(method = "getAuraLayers(Lnet/minecraft/world/entity/player/Player;Lcom/dragonminez/common/stats/StatsData;FZ)Ljava/util/List;",
             at = @At("RETURN"), cancellable = true, remap = false, require = 0)
-    private static void sdu$appendExtraAuras(Player player, StatsData stats, float partialTick,
+    // DragonMineZ 2.2 added the trailing use3D flag (3D aura mode); the layers we append are the same either way.
+    private static void sdu$appendExtraAuras(Player player, StatsData stats, float partialTick, boolean use3D,
                                              CallbackInfoReturnable<List<AuraRenderer.AuraLayer>> cir) {
         if (!net.shurui.dev.sdu.Config.enableAuraStacking) {
             return; // safety switch (config/dmznpc-common.toml)

@@ -116,6 +116,11 @@ public class Config {
         if (event.getConfig().getSpec() != SPEC) {
             return;
         }
+        bake();
+    }
+
+    /** Copy the spec's values into the static fields the code reads. Run on load and after an in-game edit. */
+    public static void bake() {
         requireOpToEdit = REQUIRE_OP_TO_EDIT.get();
         maxNpcHealth = MAX_NPC_HEALTH.get();
         enableDmzIntegration = ENABLE_DMZ_INTEGRATION.get();
@@ -133,57 +138,8 @@ public class Config {
         allowPrivateWorldsWithoutKey = ALLOW_PRIVATE_WORLDS_WITHOUT_KEY.get();
     }
 
-    /** Lower/upper bounds the Options editor should enforce on {@code maxNpcHealth} (mirrors the spec range). */
-    public static final int MAX_NPC_HEALTH_MIN = 1;
-    public static final int MAX_NPC_HEALTH_MAX = Integer.MAX_VALUE;
-
-    // Bounds for the five GUI-editable Feature A / Feature B values (mirror the spec ranges).
-    public static final int SHADOW_DUMMY_COOLDOWN_SECONDS_MIN = 0;
-    public static final int SHADOW_DUMMY_COOLDOWN_SECONDS_MAX = 86_400;
-    public static final int SHADOW_DUMMY_MAX_ALIVE_PER_PARTY_MIN = 1;
-    public static final int SHADOW_DUMMY_MAX_ALIVE_PER_PARTY_MAX = 64;
-    public static final int PARTY_TP_FALLOFF_THRESHOLD_MIN = 1;
-    public static final int PARTY_TP_FALLOFF_THRESHOLD_MAX = 64;
-    public static final int PARTY_TP_FALLOFF_PERCENT_MIN = 0;
-    public static final int PARTY_TP_FALLOFF_PERCENT_MAX = 100;
-
-    /**
-     * Apply new values to the live config and persist to disk. Called from the op-gated
-     * {@code SaveConfigPacket} handler so the Options screen can change server settings without a restart.
-     * Static mirror fields are updated too so callers reading them see the change immediately.
-     */
-    public static void applyAndSave(boolean requireOp, int maxHealth, boolean dmzIntegration, boolean auraStacking,
-                                    int shadowCooldownSeconds, int shadowMaxAlivePerParty,
-                                    int tpFalloffThreshold, int tpFalloffStepPercent, int tpFalloffFloorPercent) {
-        int clampedHealth = Math.max(MAX_NPC_HEALTH_MIN, Math.min(MAX_NPC_HEALTH_MAX, maxHealth));
-        int clampedCooldown = Math.max(SHADOW_DUMMY_COOLDOWN_SECONDS_MIN,
-                Math.min(SHADOW_DUMMY_COOLDOWN_SECONDS_MAX, shadowCooldownSeconds));
-        int clampedMaxAlive = Math.max(SHADOW_DUMMY_MAX_ALIVE_PER_PARTY_MIN,
-                Math.min(SHADOW_DUMMY_MAX_ALIVE_PER_PARTY_MAX, shadowMaxAlivePerParty));
-        int clampedThreshold = Math.max(PARTY_TP_FALLOFF_THRESHOLD_MIN,
-                Math.min(PARTY_TP_FALLOFF_THRESHOLD_MAX, tpFalloffThreshold));
-        int clampedStep = Math.max(PARTY_TP_FALLOFF_PERCENT_MIN,
-                Math.min(PARTY_TP_FALLOFF_PERCENT_MAX, tpFalloffStepPercent));
-        int clampedFloor = Math.max(PARTY_TP_FALLOFF_PERCENT_MIN,
-                Math.min(PARTY_TP_FALLOFF_PERCENT_MAX, tpFalloffFloorPercent));
-        REQUIRE_OP_TO_EDIT.set(requireOp);
-        MAX_NPC_HEALTH.set(clampedHealth);
-        ENABLE_DMZ_INTEGRATION.set(dmzIntegration);
-        ENABLE_AURA_STACKING.set(auraStacking);
-        SHADOW_DUMMY_COOLDOWN_SECONDS.set(clampedCooldown);
-        SHADOW_DUMMY_MAX_ALIVE_PER_PARTY.set(clampedMaxAlive);
-        PARTY_TP_FALLOFF_THRESHOLD.set(clampedThreshold);
-        PARTY_TP_FALLOFF_STEP_PERCENT.set(clampedStep);
-        PARTY_TP_FALLOFF_FLOOR_PERCENT.set(clampedFloor);
-        SPEC.save();
-        requireOpToEdit = requireOp;
-        maxNpcHealth = clampedHealth;
-        enableDmzIntegration = dmzIntegration;
-        enableAuraStacking = auraStacking;
-        shadowDummyCooldownSeconds = clampedCooldown;
-        shadowDummyMaxAlivePerParty = clampedMaxAlive;
-        partyTpFalloffThreshold = clampedThreshold;
-        partyTpFalloffStepPercent = clampedStep;
-        partyTpFalloffFloorPercent = clampedFloor;
+    /** The spec, for the in-game options editor (which saves through it, so the file keeps its comments). */
+    public static ForgeConfigSpec spec() {
+        return SPEC;
     }
 }

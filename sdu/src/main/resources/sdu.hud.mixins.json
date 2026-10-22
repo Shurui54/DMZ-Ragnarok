@@ -1,0 +1,22 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "net.shurui.dev.sdu.mixin.hud",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "sdu.refmap.json",
+  "mixins": [
+    "DmzHudLayoutConfigMixin"
+  ],
+  "client": [
+    "DmzHudElementInvoker",
+    "DmzHudElementMixin",
+    "DmzHudStyleInvoker",
+    "DmzHudStyleMixin",
+    "DmzHudLayoutMixin",
+    "DmzHudEditorScreenInvoker",
+    "DmzHudEditorScreenMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

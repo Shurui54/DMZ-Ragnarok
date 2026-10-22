@@ -31,7 +31,8 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 //
 // Feature B, per-region TP falloff by level: if the dead mob is in an NpcRegion with tpFalloffLevel set, a
 // killer whose DMZ level exceeds that threshold earns linearly less TP, down to a 20% floor over
-// tpFalloffRange levels.
+// tpFalloffRange levels. Skipped for a region NPC that scales with level (TAG_LEVEL_SCALED): its reward already
+// follows the killer's level. Unscaled region NPCs and other mobs standing in a region keep the falloff.
 //
 // how it's applied: DMZ grants kill TP on LivingDeathEvent at NORMAL priority and every positive grant fires
 // the cancelable TPGainEvent, but that event carries no kill/source info. so:
@@ -142,6 +143,10 @@ public class KillTpModifier extends ServerEventHandler
      */
     private static double featureB(Player killer, Entity dead)
     {
+        // A region NPC that scales with level pays for the killer's level already, so the region's level band no
+        // longer punishes fighting outside it (owner 2026-10: "players can go anywhere and fight").
+        if (dead.getPersistentData().contains(NpcRegionManager.TAG_LEVEL_SCALED))
+            return 1.0;
         String dimId = dead.level().dimension().location().toString();
         double x = dead.getX();
         double y = dead.getY();

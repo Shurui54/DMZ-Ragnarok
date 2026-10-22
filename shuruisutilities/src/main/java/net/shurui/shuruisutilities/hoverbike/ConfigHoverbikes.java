@@ -49,6 +49,9 @@ public class ConfigHoverbikes
                 .defineInRange("recallDistance", 10, 0, Integer.MAX_VALUE);
 
         BUILDER.pop();
+
+        // vehicle tiers live in the same toml: they scale the hoverbikes first, and DMZ's vehicles alongside
+        net.shurui.shuruisutilities.vehicleworkbench.VehicleTierConfig.load(BUILDER);
     }
 
     public static void bakeConfig(boolean reload)
@@ -58,6 +61,7 @@ public class ConfigHoverbikes
         sprintMultiplier = SUsprintMultiplier.get();
         soundEnabled = SUsoundEnabled.get();
         recallDistance = SUrecallDistance.get();
+        net.shurui.shuruisutilities.vehicleworkbench.VehicleTierConfig.bake();
 
         // on a live reload push the baked speed onto every loaded bike so the client picks it up on a dedicated
         // server. the server-start bake (reload==false) runs before any level exists, and the refresh no-ops

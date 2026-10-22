@@ -1,0 +1,31 @@
+{
+  "_comment": "Tier 2 straight from the workbench: exactly twice every part of the tier 1 blueprint.",
+  "type": "dmz_ragnarok:vehicle_crafting",
+  "order": 23,
+  "parts": [
+    {
+      "item": "dragonminez:vehicle_engine",
+      "count": 2
+    },
+    {
+      "item": "dragonminez:vehicle_plating",
+      "count": 4
+    },
+    {
+      "item": "dragonminez:vehicle_seat",
+      "count": 4
+    },
+    {
+      "item": "minecraft:black_wool",
+      "count": 4
+    },
+    {
+      "item": "minecraft:yellow_dye",
+      "count": 2
+    }
+  ],
+  "result": {
+    "item": "dragonminez:car_yellow"
+  },
+  "tier": 2
+}

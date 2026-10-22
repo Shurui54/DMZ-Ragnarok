@@ -8,7 +8,7 @@ import net.shurui.shuruisutilities.compat.DmzBridge;
 
 /**
  * The only class here that names DMZ types for the damage formula; {@link DragonDamage} is the guard in front of it.
- * Split this way so nothing classloads {@link StatsData} unless DMZ is actually present (the optional-dependency pattern).
+ * Split this way so nothing classloads {@link StatsData} unless DMZ is actually present (docs/compat-pattern.md).
  *
  * <p>Reads the POST-multiplier accessors ({@code getMeleeDamage}, {@code getStrikeDamage}, {@code getKiDamage}), not
  * the {@code ...NoForms} / {@code ...NoMultipliers} variants, so a transformed dragon's move scales with the form

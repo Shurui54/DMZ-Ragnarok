@@ -128,7 +128,7 @@ public class SpaceTravelModule extends ConfigLoaderBase
     // config-backed settings (baked in bakeConfig)
     private static boolean enabled = true;
     private static double entryAltitude = 1000.0;
-    private static double returnAltitude = 288.0;
+    private static double returnAltitude = SpaceDimension.DEFAULT_RETURN_ALTITUDE;
     private static double nearestPlanetRange = 6144.0;
     private static List<String> eligibleDimensions = Arrays.asList("minecraft:overworld");
 
@@ -138,10 +138,16 @@ public class SpaceTravelModule extends ConfigLoaderBase
     private static ForgeConfigSpec.DoubleValue cfgNearestPlanetRange;
     private static ForgeConfigSpec.ConfigValue<List<? extends String>> cfgEligibleDimensions;
 
-    // Y a player arrives at when entering space: near the bottom of the play band, with the whole 2048-block
-    // space column above them to climb. Kept above the return altitude so arriving never instantly re-triggers
-    // the descend-out check.
-    private static final double SPACE_ARRIVAL_Y = 320.0;
+    // Y a player arrives at when entering space from a non-planet launch point: 580 below the main sun plane (as it was
+    // when the sun sat at 900 and this was 320), so arriving near the origin column never lands in the sun's danger field
+    // (480), with the tall column above and below. Far above the return altitude, so arriving never re-triggers the
+    // descend-out check.
+    private static final double SPACE_ARRIVAL_Y = PlanetPositions.PLANET_Y - 580.0;
+
+    // The descend-out floor the old -64..1984 column used as its default. A config file still holding exactly this was
+    // never set by hand (it is the old default), and honouring it would bounce players out of the whole lower half of
+    // the taller column, so bakeConfig reads it as the new default.
+    private static final double LEGACY_RETURN_ALTITUDE = 288.0;
 
     // How far back from a planet body's surface a player materialises when they launch from that body's dimension
     // (phase 1b). Added to the body's radius so the standoff is measured from the surface, not the centre: a
@@ -255,6 +261,12 @@ public class SpaceTravelModule extends ConfigLoaderBase
     // leaving space and whenever the cooldown is stamped, so a fresh arrival never sweeps a line back to wherever the
     // player happened to be before.
     private final Map<UUID, Vec3> lastSpacePos = new HashMap<>();
+    // last tick's pod position per hand-flying pilot, for the manual route window (see warmManualRoute).
+    private final Map<UUID, Vec3> manualRouteLast = new HashMap<>();
+    // a hand-flown pod slower than this (blocks per tick) needs no forward window; a jump larger than this between two
+    // ticks is a teleport or a relocation, not travel, and must not aim a window.
+    private static final double MANUAL_ROUTE_MIN_SPEED = 1.0D;
+    private static final double MANUAL_ROUTE_MAX_STEP = 64.0D;
 
     // Y a player arrives at when they land on a generated planet's surface is resolved by SurfaceStamp (top of the
     // stamped cap). Leaving the surface works like leaving space: fly UP past this altitude and you return to space
@@ -455,6 +467,10 @@ public class SpaceTravelModule extends ConfigLoaderBase
                 driveAscent(player, pod);
             }
             // in a forbidden/ineligible dim we leave the course pip but never launch (refused like an on-foot entry).
+        }
+        else if (warmManualRoute(player, inSpace))
+        {
+            // a hand-flown pod in space keeps the same forward window the autopilot uses (see warmManualRoute).
         }
         else if (SpaceRouteChunks.has(player))
         {
@@ -914,6 +930,7 @@ public class SpaceTravelModule extends ConfigLoaderBase
         ascentTarget.remove(event.getEntity().getUUID());
         autopilotHoldTicks.remove(event.getEntity().getUUID());
         lastSpacePos.remove(event.getEntity().getUUID());
+        manualRouteLast.remove(event.getEntity().getUUID());
         // drop the sync memo so a resumed trip re-sends the autopilot sync on its first drive tick after relog, and
         // release any route chunk window this player had forced so a logout mid-trip never leaks pinned chunks. We do
         // NOT send an inactive sync to a player who is leaving; the autopilot persistent tag survives and resumes.
@@ -1771,8 +1788,32 @@ public class SpaceTravelModule extends ConfigLoaderBase
         {
             Vec3 bodyPos = new Vec3(
                     SurfaceTravelData.bodyX(player), SurfaceTravelData.bodyY(player), SurfaceTravelData.bodyZ(player));
+            // a super body has moved on along its orbit since the landing recorded it: return beside where it is NOW.
+            if (SuperPlanetPositions.isSuper(planetId))
+            {
+                Vec3 live = SuperPlanetData.get(server).position(planetId);
+                if (live != null)
+                {
+                    bodyPos = live;
+                }
+            }
+            else if (planetId != null && planetId.startsWith(GeneratedPlanets.ID_PREFIX))
+            {
+                // a system planet orbits too (and its plane moved when space became 3D): return beside it NOW, not
+                // where it was at landing. A legacy planet never moves and resolves to null here, keeping the record.
+                GeneratedPlanets.Generated live = GeneratedSystems.findPlanetById(server, planetId);
+                if (live != null)
+                {
+                    bodyPos = live.position;
+                }
+            }
             // stand off along +X by the surface size (a generous, size-scaled gap) so the whole body reads in view.
             double standoff = GeneratedPlanetClaims.stampedSizeForId(server, planetId) + PLANET_STANDOFF;
+            if (SuperPlanetPositions.isSuper(planetId))
+            {
+                // a super body (half-extent 352) is bigger than its surface size: always come out clear of its landing cube.
+                standoff = Math.max(standoff, SuperPlanetPositions.radius() + LANDING_MARGIN + PLANET_STANDOFF);
+            }
             Vec3 target = new Vec3(bodyPos.x + standoff, bodyPos.y, bodyPos.z);
             x = target.x;
             y = target.y;
@@ -2890,6 +2931,42 @@ public class SpaceTravelModule extends ConfigLoaderBase
         return eligibleDimensions.contains(id);
     }
 
+    // Warm the forward route window for a HAND-FLOWN pod in space, exactly as the autopilot does. Returns false (the
+    // caller then releases any window) when the player is not piloting a pod in space or is barely moving.
+    //
+    // Why: a pod outruns chunk generation. When the server pod (moved by the pilot's vehicle packets) crosses into a
+    // chunk the server has not loaded yet, its entity section goes hidden, the entity stops being tracked and every
+    // client, the pilot's included, is told to REMOVE it. The pilot's client then has no pod under them until the
+    // chunk loads and the pod is re-sent: the worst of the stutter. Measured in the dev harness at 12 blocks a tick:
+    // 92 of 161 ticks with no pod on the client. Pre-loading a line of chunks along the travel direction keeps the pod
+    // in loaded chunks. SpaceRouteChunks never generates on the server thread and bounds the window, so this costs
+    // what an autopilot trip already costs.
+    private boolean warmManualRoute(ServerPlayer player, boolean inSpace)
+    {
+        UUID id = player.getUUID();
+        SpacePodEntity pod = inSpace ? ridingSpacePod(player) : null;
+        if (pod == null || pod.getControllingPassenger() != player)
+        {
+            manualRouteLast.remove(id);
+            return false;
+        }
+        Vec3 now = pod.position();
+        Vec3 prev = manualRouteLast.put(id, now);
+        if (prev == null)
+        {
+            return false;
+        }
+        Vec3 delta = now.subtract(prev);
+        double speed = delta.length();
+        // below this a pod stays well inside the chunks the pilot's own view already keeps loaded.
+        if (speed < MANUAL_ROUTE_MIN_SPEED || speed > MANUAL_ROUTE_MAX_STEP)
+        {
+            return false;
+        }
+        SpaceRouteChunks.update(player, (ServerLevel) pod.level(), now, delta.scale(1.0D / speed), speed);
+        return true;
+    }
+
     // the DMZ space pod the player is riding (directly or nested), or null if they are not aboard one. Walks the
     // whole vehicle chain so a pod stacked under another rideable is still found.
     private SpacePodEntity ridingSpacePod(ServerPlayer player)
@@ -3281,7 +3358,13 @@ public class SpaceTravelModule extends ConfigLoaderBase
                 pod.setYHeadRot(yaw);
             }
             pod.setDeltaMovement(move);
-            pod.move(MoverType.SELF, move);
+            // never collide into an unloaded chunk: move() would generate it synchronously on the server thread (the
+            // hold above times out and advances anyway, and a fast step spans several chunks). The pilot's client is
+            // authoritative for the ridden pod, so skipping the server advance for a tick only delays observers.
+            if (SpaceRouteChunks.boxReady((ServerLevel) pod.level(), pod.getBoundingBox().expandTowards(move).inflate(1.0D)))
+            {
+                pod.move(MoverType.SELF, move);
+            }
 
             // pre-warm chunks ahead along the travel vector so the client never stalls waiting for a chunk to arrive.
             // Pass the per-tick step so the look-ahead window covers a fixed number of TICKS of travel, not a fixed
@@ -3437,7 +3520,7 @@ public class SpaceTravelModule extends ConfigLoaderBase
     // Stamp the same descend-out re-trigger grace an ordinary space entry uses, for a player who was dropped INTO
     // space by an EXTERNAL teleport (chiefly a vanilla /tp, e.g. Xaero's "teleport to player", which has no SU hook
     // of its own). Without this, a player teleported next to a friend who is floating below the return altitude
-    // (returnAltitude, 288 by default) would be bounced straight back to their origin dimension by the descend-out
+    // (returnAltitude, -1840 by default) would be bounced straight back to their origin dimension by the descend-out
     // check on the VERY NEXT tick, which is the "cannot teleport to people in space" half of the reported bug. The
     // grace only suppresses the automatic descend-out bounce for COOLDOWN_MS; it never blocks a deliberate fly-down
     // exit after that. Static so the vanilla-/tp mixin can call it without holding a module instance; it only
@@ -3458,8 +3541,8 @@ public class SpaceTravelModule extends ConfigLoaderBase
                 .comment("Y height a player must rise above (in an eligible dimension) to be moved into space. Kept above the overworld ceiling so ordinary building never triggers it.")
                 .defineInRange("entryAltitude", 1000.0, 0.0, 4096.0);
         cfgReturnAltitude = BUILDER
-                .comment("Y height a player in space must descend below to be pulled down onto the nearest planet (or, if no landable body is within nearestPlanetRange, returned to where they took off). Kept below the space arrival height so arriving never instantly triggers it.")
-                .defineInRange("returnAltitude", 288.0, -64.0, 4096.0);
+                .comment("Y height a player in space must descend below to be pulled down onto the nearest planet (or, if no landable body is within nearestPlanetRange, returned to where they took off). Space runs from Y -2032 to 2032 and planets sit all through it, so the default sits near the bottom of the column. Kept below the space arrival height so arriving never instantly triggers it. The old default (288, from when space was Y -64 to 1984) is read as the new default.")
+                .defineInRange("returnAltitude", SpaceDimension.DEFAULT_RETURN_ALTITUDE, SpaceDimension.COLUMN_MIN_Y, 4096.0);
         cfgNearestPlanetRange = BUILDER
                 .comment("How far, in blocks, to search for a landable body when a player sinks below returnAltitude. Measured to each body's SURFACE. If a planet or moon is within this range the player is landed on the nearest one; only if nothing landable is in range do they fall back to returning to where they took off. The default reaches a few generated sectors out so a body is almost always found, while staying a bounded once-per-trip scan.")
                 .defineInRange("nearestPlanetRange", 6144.0, 0.0, 100000.0);
@@ -3475,6 +3558,11 @@ public class SpaceTravelModule extends ConfigLoaderBase
         enabled = cfgEnabled.get();
         entryAltitude = cfgEntryAltitude.get();
         returnAltitude = cfgReturnAltitude.get();
+        if (returnAltitude == LEGACY_RETURN_ALTITUDE)
+        {
+            // an untouched config from the shorter column: see LEGACY_RETURN_ALTITUDE.
+            returnAltitude = SpaceDimension.DEFAULT_RETURN_ALTITUDE;
+        }
         nearestPlanetRange = cfgNearestPlanetRange.get();
         eligibleDimensions = new java.util.ArrayList<>(cfgEligibleDimensions.get());
     }

@@ -679,6 +679,19 @@ public final class GraveManager
                     it.remove();
 
                     String key = retryKey(level, pending.gravePos);
+
+                    // A ball-holding totem is never retried. The only retry path is the expiry sweep, and the sweep
+                    // deliberately skips every grave that still holds a dragon ball, so keeping this record "for a
+                    // later attempt" kept it FOREVER: the fence and head were already cleared above, but the record
+                    // (and the ball inside it) stayed in storage across restarts, and the radar went on pointing at
+                    // an empty spot as an extra ball. That is the /rggrave removeball report. Purge it now.
+                    if (holdsDragonBallRecord(level, pending.gravePos))
+                    {
+                        giveUpAndPurge(level, pending, 1);
+                        RETRIES.remove(key);
+                        continue;
+                    }
+
                     MarkerAttempts attempts = RETRIES.computeIfAbsent(key, k -> new MarkerAttempts());
                     attempts.tries++;
 
@@ -695,7 +708,7 @@ public final class GraveManager
                     }
                     else
                     {
-                        giveUpAndPurge(level, pending);
+                        giveUpAndPurge(level, pending, MAX_MARKER_ATTEMPTS);
                         RETRIES.remove(key);
                     }
                 }
@@ -720,7 +733,7 @@ public final class GraveManager
      * Whether or not it finds one, the record goes. Leaving it would restore the loop this exists to end, and a
      * missed name is recoverable by {@code /grave cleannames}, which is precisely what that command is for.
      */
-    private static void giveUpAndPurge(ServerLevel level, PendingMarkerRemoval pending)
+    private static void giveUpAndPurge(ServerLevel level, PendingMarkerRemoval pending, int attempts)
     {
         boolean nameRemoved = false;
         try
@@ -735,8 +748,95 @@ public final class GraveManager
         GraveStorage.get(level).remove(pending.gravePos);
         LoggingHandler.sulog.info(
                 "[Grave] gave up on marker {} for grave at {} after {} attempts; record purged, name {}",
-                pending.markerId, pending.gravePos, MAX_MARKER_ATTEMPTS,
+                pending.markerId, pending.gravePos, attempts,
                 nameRemoved ? "removed" : "not found (use /grave cleannames if one is left floating)");
+    }
+
+    // True when the grave record at this position still holds a dragon ball. Never throws.
+    private static boolean holdsDragonBallRecord(ServerLevel level, BlockPos gravePos)
+    {
+        try
+        {
+            GraveData data = GraveStorage.get(level).get(gravePos);
+            return data != null
+                    && net.shurui.shuruisutilities.dragonballbag.DragonBallTotem.holdsDragonBall(data.container());
+        }
+        catch (Throwable t)
+        {
+            return false;
+        }
+    }
+
+    /**
+     * One-time cleanup at server start: drop every ball-holding grave RECORD whose totem no longer stands in the world
+     * (no oak fence at the grave position, or no player head on top of it). Such a record is what an earlier removal
+     * that never finished left behind (see the ball-holding branch in {@link #drainPending}): the blocks were cleared,
+     * the record stayed, and because the expiry sweep never touches a ball-holding grave nothing would ever have
+     * removed it, so the radar kept showing a ball there after every restart. Nobody can open a totem whose blocks are
+     * gone, so the record has no owner-facing value left; each purge is logged with its position, owner and contents.
+     *
+     * <p>Only ball-holding records are checked, so the chunk reads stay limited to the few totems the radar shows. A
+     * grave whose blocks are intact is never touched. Returns how many records were purged. Never throws.
+     */
+    public static int purgeOrphanedBallTotems(MinecraftServer server)
+    {
+        int purged = 0;
+        if (server == null)
+            return 0;
+        for (ServerLevel level : server.getAllLevels())
+        {
+            if (level == null)
+                continue;
+            try
+            {
+                GraveStorage storage = GraveStorage.get(level);
+                List<GraveData> orphans = new ArrayList<>();
+                for (GraveData data : storage.all())
+                {
+                    if (data == null
+                            || !net.shurui.shuruisutilities.dragonballbag.DragonBallTotem.holdsDragonBall(data.container()))
+                        continue;
+                    BlockPos pos = data.pos();
+                    level.getChunk(pos.getX() >> 4, pos.getZ() >> 4,
+                            net.minecraft.world.level.chunk.ChunkStatus.FULL, true);
+                    boolean standing = level.getBlockState(pos).is(Blocks.OAK_FENCE)
+                            && level.getBlockState(pos.above()).is(Blocks.PLAYER_HEAD);
+                    if (!standing)
+                        orphans.add(data);
+                }
+                for (GraveData data : orphans)
+                {
+                    BlockPos pos = data.pos();
+                    removeMarkerById(level, data.markerId());
+                    storage.remove(pos);
+                    clearRetryState(level, pos);
+                    purged++;
+                    LoggingHandler.sulog.warn("[Grave] purged an orphaned dragon ball totem record at {} {} {} {} "
+                            + "(owner {}, contents {}): its fence/head no longer stand, so it only showed on the radar",
+                            level.dimension().location(), pos.getX(), pos.getY(), pos.getZ(),
+                            data.ownerName(), describeContents(data.container()));
+                }
+            }
+            catch (Throwable t)
+            {
+                LoggingHandler.sulog.warn("[Grave] orphaned totem cleanup failed in {}: {}",
+                        level.dimension().location(), t.toString());
+            }
+        }
+        LoggingHandler.sulog.info("[Grave] orphaned dragon ball totem cleanup at start: {} record(s) purged", purged);
+        return purged;
+    }
+
+    private static String describeContents(Container container)
+    {
+        List<String> parts = new ArrayList<>();
+        for (int i = 0; i < container.getContainerSize(); i++)
+        {
+            ItemStack stack = container.getItem(i);
+            if (!stack.isEmpty())
+                parts.add(stack.getCount() + "x " + net.minecraftforge.registries.ForgeRegistries.ITEMS.getKey(stack.getItem()));
+        }
+        return parts.toString();
     }
 
     // marker found on a deferred retry: purge storage + release the chunk ticket

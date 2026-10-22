@@ -33,7 +33,10 @@ public class PacketOpenNpcRegionEditor implements ISUPacket
     public boolean showTitle = true;
     public boolean showHud = true;
     public boolean eventOnly = false;
-    /** The region's selections as {minX,minY,minZ,maxX,maxY,maxZ}, for the editor's Selections screen. */
+    /**
+     * The region's selections as {minX,minY,minZ,maxX,maxY,maxZ,points}, for the editor's Selections screen. points is
+     * the vertex count of a freeform outline (the six bounds are then its bounding box), 0 for a cuboid.
+     */
     public List<int[]> boxes = new ArrayList<>();
     // Airdrop crate boss (Crates screen). Null crateBoss = automatic apex x2.
     public boolean crateBossEnabled = true;
@@ -80,7 +83,8 @@ public class PacketOpenNpcRegionEditor implements ISUPacket
         this.showHud = region.showHud;
         this.eventOnly = region.isEventOnly();
         for (NpcRegion.Box b : region.boxes)
-            this.boxes.add(new int[] {b.minX, b.minY, b.minZ, b.maxX, b.maxY, b.maxZ});
+            this.boxes.add(new int[] {b.minX, b.minY, b.minZ, b.maxX, b.maxY, b.maxZ,
+                    b.isOutline() ? b.outline.length / 2 : 0});
         this.crateBossEnabled = region.crateBossEnabled;
         this.crateBoss = region.crateBoss;
         this.crateLoot = region.crateLoot == null ? new ArrayList<>() : region.crateLoot;
@@ -158,7 +162,7 @@ public class PacketOpenNpcRegionEditor implements ISUPacket
         int n = buf.readVarInt();
         for (int i = 0; i < n; i++)
             p.boxes.add(new int[] {buf.readInt(), buf.readInt(), buf.readInt(),
-                    buf.readInt(), buf.readInt(), buf.readInt()});
+                    buf.readInt(), buf.readInt(), buf.readInt(), buf.readInt()});
         p.crateBossEnabled = buf.readBoolean();
         if (buf.readBoolean())
             p.crateBoss = NpcSpawnConfig.decode(buf);

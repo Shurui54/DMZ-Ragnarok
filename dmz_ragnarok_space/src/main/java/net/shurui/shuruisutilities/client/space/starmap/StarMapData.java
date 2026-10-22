@@ -52,7 +52,7 @@ public final class StarMapData
     // so the client has no server destination name for it; these lang keys give the four solar-system landmarks a proper
     // name, and any other fixed body falls back to a prettified dimension path (prettify). Reliable, not invented: these
     // ids are exactly the ones PlanetPositions' orbit and radius tables name.
-    private static Component fixedBodyName(String key)
+    public static Component fixedBodyName(String key)
     {
         switch (key)
         {

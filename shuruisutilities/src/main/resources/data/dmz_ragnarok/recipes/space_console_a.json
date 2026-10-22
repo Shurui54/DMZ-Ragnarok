@@ -1,0 +1,30 @@
+{
+  "_comment": "The full space console is the vehicle workbench, so players need a way to make one: a monitor of glass over a redstone deck, built on DragonMineZ vehicle plating.",
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "G": {
+      "item": "minecraft:glass_pane"
+    },
+    "R": {
+      "item": "minecraft:redstone"
+    },
+    "C": {
+      "item": "minecraft:comparator"
+    },
+    "P": {
+      "item": "dragonminez:vehicle_plating"
+    },
+    "I": {
+      "item": "minecraft:iron_ingot"
+    }
+  },
+  "pattern": [
+    "GRG",
+    "PCP",
+    "III"
+  ],
+  "result": {
+    "item": "dmz_ragnarok:space_console_a"
+  }
+}

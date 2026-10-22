@@ -17,11 +17,15 @@ import net.shurui.dev.sdu.api.PrivateItems;
 
 /**
  * Optional JEI integration: hides the items of PRIVATE features (sdu.api.PrivateItems) from JEI's list unless the
- * connected server opened their gate (the synced ClientGate answer, never a client-side key check).
+ * connected server opened their gate (the synced ClientGate answer, never a client-side key check), and always hides
+ * every cosmetic item ({@code CosmeticContentItems}).
+ *
+ * <p>It also adds the vehicle pages: the workbench's blueprints ({@link VehicleCraftingCategory}, the full console) and
+ * the upgrade steps ({@link VehicleUpgradeCategory}, the compact console).
  *
  * <p>JEI stays optional: it is compileOnly and a soft dependency in mods.toml, and nothing in the suite names this
  * class. JEI finds it through the {@link JeiPlugin} annotation, so it is only ever classloaded when JEI is installed
- * (the optional-dependency pattern). Only what JEI LISTS changes; the items stay registered and the server still decides
+ * (docs/compat-pattern.md). Only what JEI LISTS changes; the items stay registered and the server still decides
  * whether they work.
  *
  * <p>JEI's runtime can start before the login key packet lands (recipes and tags arrive first), so the list is
@@ -43,6 +47,36 @@ public class RagnarokJeiPlugin implements IModPlugin
     public ResourceLocation getPluginUid()
     {
         return UID;
+    }
+
+    // The space console's vehicle blueprints get their own JEI page, with the console as its catalyst.
+    @Override
+    public void registerCategories(mezz.jei.api.registration.IRecipeCategoryRegistration registration)
+    {
+        registration.addRecipeCategories(new VehicleCraftingCategory(registration.getJeiHelpers().getGuiHelper()),
+                new VehicleUpgradeCategory(registration.getJeiHelpers().getGuiHelper()));
+    }
+
+    @Override
+    public void registerRecipes(mezz.jei.api.registration.IRecipeRegistration registration)
+    {
+        net.minecraft.client.multiplayer.ClientLevel level = net.minecraft.client.Minecraft.getInstance().level;
+        if (level == null)
+            return;
+        registration.addRecipes(VehicleCraftingCategory.TYPE,
+                net.shurui.shuruisutilities.vehicleworkbench.VehicleWorkbenchRegistry.sorted(level.getRecipeManager()));
+        registration.addRecipes(VehicleUpgradeCategory.TYPE, VehicleUpgradeCategory.entries(level.getRecipeManager()));
+    }
+
+    @Override
+    public void registerRecipeCatalysts(mezz.jei.api.registration.IRecipeCatalystRegistration registration)
+    {
+        registration.addRecipeCatalyst(new ItemStack(
+                net.shurui.shuruisutilities.spaceconsole.SpaceConsoleBlocks.SPACE_CONSOLE_A.get()),
+                VehicleCraftingCategory.TYPE);
+        registration.addRecipeCatalyst(new ItemStack(
+                net.shurui.shuruisutilities.spaceconsole.SpaceConsoleBlocks.SPACE_CONSOLE_B.get()),
+                VehicleUpgradeCategory.TYPE);
     }
 
     @Override
@@ -74,6 +108,12 @@ public class RagnarokJeiPlugin implements IModPlugin
         Set<Item> hidden = new HashSet<>();
         for (ItemStack stack : PrivateItems.hiddenStacks())
             hidden.add(stack.getItem());
+        // Cosmetic art items (worn pieces, pet and mount icons, crate props, the cosmetic token) are never listed:
+        // they come only from the wardrobe, shop and crates, never from crafting or creative.
+        for (net.minecraftforge.registries.RegistryObject<Item> ro
+                : net.shurui.shuruisutilities.cosmetics.wardrobe.CosmeticContentItems.ITEMS.getEntries())
+            if (ro.isPresent())
+                hidden.add(ro.get());
 
         List<ItemStack> restore = new ArrayList<>();
         for (Item item : removed)

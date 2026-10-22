@@ -7,7 +7,7 @@ import net.minecraftforge.fml.ModList;
  * Whether a player currently has a DragonMineZ ki weapon DRAWN (out in the hand), as DMZ itself decides it.
  *
  * <p>Guard half of the usual pair; {@link KiWeaponActiveImpl} is the only class naming a DMZ type
- * (the optional-dependency pattern). This is the signal a hand-style cosmetic accessory is gated on: the weapon props are
+ * (docs/compat-pattern.md). This is the signal a hand-style cosmetic accessory is gated on: the weapon props are
  * skins over the ki weapon, so they show exactly when the ki weapon shows.
  *
  * <h2>Which DMZ call, and why it is the right one</h2>

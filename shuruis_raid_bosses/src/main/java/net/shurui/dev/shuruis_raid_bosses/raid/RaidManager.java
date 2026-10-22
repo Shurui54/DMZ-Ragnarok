@@ -145,6 +145,18 @@ public class RaidManager {
         return false;
     }
 
+    /**
+     * Teleport leash entry point, called from {@code mixin.MixinEntityRaidLeash} for EVERY non-player entity teleport,
+     * so the not-a-raid-enemy answer is one map lookup. True when the destination is outside the owning raid's arena
+     * and the teleport must not happen.
+     */
+    public static boolean refuseEnemyTeleport(net.minecraft.world.entity.Entity e, double x, double y, double z) {
+        if (instance == null || e == null || e.level().isClientSide) return false;
+        if (!RaidDamageTracker.isBoss(e.getUUID())) return false;
+        RaidInstance inst = instance.instance(RaidDamageTracker.defOf(e.getUUID()));
+        return inst != null && inst.refuseTeleport(e, x, y, z);
+    }
+
     /** route an enemy death to whichever raid owns it (via the damage tracker) */
     public void onEntityDeath(UUID enemyId, UUID killerId) {
         String defId = RaidDamageTracker.defOf(enemyId);

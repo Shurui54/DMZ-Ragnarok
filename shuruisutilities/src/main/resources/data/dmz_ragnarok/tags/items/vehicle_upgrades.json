@@ -1,0 +1,8 @@
+{
+  "replace": false,
+  "values": [
+    "dmz_ragnarok:hoverbike_upgrade",
+    "dmz_ragnarok:car_upgrade",
+    "dmz_ragnarok:aircraft_upgrade"
+  ]
+}

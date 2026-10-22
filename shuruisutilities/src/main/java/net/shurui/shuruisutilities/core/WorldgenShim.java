@@ -140,7 +140,7 @@ public final class WorldgenShim
      * loaded by that same manager at a higher priority than the mod, so collecting there would read back the last
      * copy of itself instead of the jar. See the class note.
      */
-    private static Map<String, byte[]> collect()
+    static Map<String, byte[]> collect()
     {
         Map<String, byte[]> out = new java.util.TreeMap<>();
         IModFileInfo info = ModList.get().getModFileById(ShuruisUtilities.MODID);

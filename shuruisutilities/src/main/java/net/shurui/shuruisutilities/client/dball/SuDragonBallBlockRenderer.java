@@ -12,6 +12,7 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.dragonminez.client.init.blocks.renderer.DragonBallBlockRenderer;
 import com.dragonminez.common.init.block.entity.DragonBallBlockEntity;
 
+import net.shurui.shuruisutilities.client.dormancy.DormantBallRender;
 import net.shurui.shuruisutilities.core.SUConfig;
 
 import software.bernie.geckolib.core.object.Color;
@@ -51,6 +52,24 @@ public final class SuDragonBallBlockRenderer implements BlockEntityRenderer<Drag
     {
         String setId = ball.getBallSetId();
         DragonBallSets.Look look = DragonBallSets.lookFor(setId);
+        // A DORMANT set (spent on a wish, see BallDormancyClient) is drawn as solid stone in the SAME shape and size as
+        // its active ball: the sphere shell (same radius and centre) in sphere style, the ball's own geo in cube style
+        // or for a set we do not transform, always opaque with vanilla's stone texture, no glass, no inner star, no
+        // rim. Live: the client cache flips on every dormancy sync, so the look changes the moment the set falls dormant
+        // or wakes.
+        if (DormantBallRender.isDormantSet(setId))
+        {
+            if (look != null && SUConfig.dragonBallRenderStyle != SUConfig.DragonBallRenderStyle.CUBE)
+            {
+                DragonBallShell.renderStone(poseStack, buffer, packedLight, look.radius(), look.centerY(),
+                        DormantBallRender.STONE_TEXTURE);
+                return;
+            }
+            dmz.setAlpha(1.0F);
+            dmz.defaultRender(poseStack, ball, buffer, RenderType.entityCutoutNoCull(DormantBallRender.STONE_TEXTURE),
+                    null, 0.0F, partialTick, packedLight);
+            return;
+        }
         if (look != null)
         {
             if (SUConfig.dragonBallRenderStyle == SUConfig.DragonBallRenderStyle.CUBE)

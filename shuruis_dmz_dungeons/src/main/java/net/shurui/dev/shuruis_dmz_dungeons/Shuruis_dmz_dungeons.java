@@ -77,6 +77,7 @@ public class Shuruis_dmz_dungeons {
 
         // Filename pinned so a future single-container merge cannot silently orphan the live config file.
         ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, Config.SPEC, "shuruis_dmz_dungeons-common.toml");
+        DungeonConfigEditorSources.register();
     }
 
     private void commonSetup(final FMLCommonSetupEvent event) {

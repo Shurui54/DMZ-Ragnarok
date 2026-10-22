@@ -20,6 +20,10 @@ import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
+import net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHud;
+import net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHudElement;
+import net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHudFrame;
+import net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHudSlot;
 import net.shurui.shuruisutilities.combat.ClashRhythm;
 import net.shurui.shuruisutilities.combat.PacketClashScore;
 import net.shurui.shuruisutilities.commons.network.NetworkUtils;
@@ -100,6 +104,12 @@ public final class ClashRhythmOverlay
      */
     private static boolean ocarinaMode;
     private static int ocarinaSong;
+
+    /** True while a song is being played on the ocarina (the pose reads this for the local player). */
+    public static boolean ocarinaPlaying()
+    {
+        return active && ocarinaMode;
+    }
 
     /** Server says a SONG has begun. Same chart machinery, reported to the ocarina instead of a clash. */
     public static void beginOcarina(long songSeed, String songName, int songId)
@@ -367,18 +377,69 @@ public final class ClashRhythmOverlay
                 0.8F, quality >= ClashRhythm.PERFECT_SCORE ? pitch : pitch * 0.94F);
     }
 
-    public static final IGuiOverlay HUD = ClashRhythmOverlay::render;
+    // The panel is a Ragnarok HUD extra: placed, scaled and hidden in DragonMineZ's HUD editor.
+    public static final IGuiOverlay HUD = (gui, g, partial, width, height) ->
+            RagnarokHud.draw(RagnarokHudSlot.CLASH, g, partial, width, height);
 
-    private static void render(ForgeGui gui, GuiGraphics g, float partial, int width, int height)
+    /** Bind the panel to its slot in DMZ's HUD layout. */
+    public static void registerElement()
     {
-        if (!active && resultTicks <= 0)
+        RagnarokHud.register(new Element());
+    }
+
+    private static final class Element extends RagnarokHudElement
+    {
+        Element()
         {
-            return;
+            super(RagnarokHudSlot.CLASH);
         }
+
+        @Override
+        public float width()
+        {
+            return PANEL_W;
+        }
+
+        @Override
+        public float height()
+        {
+            return PANEL_H;
+        }
+
+        @Override
+        public float[] defaultPlacement()
+        {
+            // centred, a quarter of the way down, where DMZ draws its ki clash meter (360 * 1 / 4 in layout units)
+            return new float[] {0.5f, 0.0f, 0.0f, 360.0f * PANEL_Y_NUMERATOR / PANEL_Y_DENOMINATOR, 1.0f};
+        }
+
+        @Override
+        public Appear appear()
+        {
+            // a fight prompt must not slide in from off screen; it fades like DMZ's meters
+            return Appear.FADE;
+        }
+
+        @Override
+        public boolean update(boolean preview, float partialTick)
+        {
+            return preview || active || resultTicks > 0;
+        }
+
+        @Override
+        public void render(GuiGraphics g, float partialTick, RagnarokHudFrame frame)
+        {
+            drawPanel(g, partialTick, frame.preview && !active && resultTicks <= 0);
+        }
+    }
+
+    // In the element's local space: the panel's top-left is (0, 0). An idle preview draws the empty lanes.
+    private static void drawPanel(GuiGraphics g, float partial, boolean idlePreview)
+    {
         try
         {
-            int left = (width - PANEL_W) / 2;
-            int top = height * PANEL_Y_NUMERATOR / PANEL_Y_DENOMINATOR;
+            int left = 0;
+            int top = 0;
 
             g.fill(left, top, left + PANEL_W, top + PANEL_H, COL_PANEL);
             g.fill(left, top, left + PANEL_W, top + 1, COL_BORDER);
@@ -386,6 +447,14 @@ public final class ClashRhythmOverlay
             g.fill(left, top, left + 1, top + PANEL_H, COL_BORDER);
             g.fill(left + PANEL_W - 1, top, left + PANEL_W, top + PANEL_H, COL_BORDER);
 
+            if (idlePreview)
+            {
+                int lineX = left + HIT_LINE_INSET + NOTE_SIZE;
+                g.fill(lineX, top + 4, lineX + 1, top + PANEL_H - 12, COL_HIT_LINE);
+                String sample = Component.translatable("gui.dmz_ragnarok.clash.score", 0).getString();
+                g.drawString(Minecraft.getInstance().font, sample, left + 6, top + PANEL_H - 10, COL_TEXT, false);
+                return;
+            }
             if (!active)
             {
                 drawResult(g, left, top);

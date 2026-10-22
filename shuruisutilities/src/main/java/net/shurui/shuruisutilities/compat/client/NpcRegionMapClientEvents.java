@@ -8,8 +8,8 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.ModList;
 import net.minecraftforge.fml.common.Mod;
 
-// client driver for the NPC-region World Map integration: the outline overlay (re-injected once a second) and
-// the right-drag draw gesture, both only when Xaero's World Map is present, so a client without it never loads
+// client driver for the NPC-region World Map integration: the outline overlay (re-injected once a second), the
+// right-drag box gesture and the freeform draw mode, both only when Xaero's World Map is present, so a client without it never loads
 // a Xaero-referencing class. gesture rides ScreenEvents (not an inject) so it survives runtime obf; the
 // Xaero-typed work goes through NpcRegionMapInput, only touched behind the WORLDMAP guard.
 @Mod.EventBusSubscriber(modid = "dmz_ragnarok", value = Dist.CLIENT, bus = Mod.EventBusSubscriber.Bus.FORGE)
@@ -34,15 +34,17 @@ public final class NpcRegionMapClientEvents
     @SubscribeEvent
     public static void onMousePressed(ScreenEvent.MouseButtonPressed.Pre event)
     {
-        // never consume the press: Xaero needs it to record its own right-click pos
-        if (WORLDMAP)
-            NpcRegionMapInput.onPress(event.getScreen(), event.getMouseX(), event.getMouseY(), event.getButton());
+        // consumed only for the draw-mode button and a right click while drawing (undo); otherwise Xaero needs the
+        // press to record its own right-click pos and to pan
+        if (WORLDMAP
+                && NpcRegionMapInput.onPress(event.getScreen(), event.getMouseX(), event.getMouseY(), event.getButton()))
+            event.setCanceled(true);
     }
 
     @SubscribeEvent
     public static void onMouseReleased(ScreenEvent.MouseButtonReleased.Pre event)
     {
-        // cancel (suppress Xaero's menu) only when a real drag created a region
+        // cancel (suppress Xaero's menu) only when a real drag created a region, or for a right release while drawing
         if (WORLDMAP
                 && NpcRegionMapInput.onRelease(event.getScreen(), event.getMouseX(), event.getMouseY(), event.getButton()))
             event.setCanceled(true);
@@ -58,8 +60,10 @@ public final class NpcRegionMapClientEvents
     @SubscribeEvent
     public static void onKeyPressed(ScreenEvent.KeyPressed.Pre event)
     {
-        // toggle the overlay while the world map is open (an in-game keybind can't fire here)
-        if (WORLDMAP)
-            NpcRegionMapInput.onKey(event.getScreen(), event.getKeyCode());
+        // the overlay toggle while the world map is open (an in-game keybind can't fire here)
+        // toggle the overlay, and the draw-mode keys (Backspace, Enter, Escape): consumed so Escape leaves draw mode
+        // instead of closing the map
+        if (WORLDMAP && NpcRegionMapInput.onKey(event.getScreen(), event.getKeyCode()))
+            event.setCanceled(true);
     }
 }

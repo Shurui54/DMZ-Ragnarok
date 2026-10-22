@@ -48,6 +48,8 @@ config = "sdu.mixins.json"
 # Soft Custom NPCs bridge GUI mixins; CnpcMixinPlugin skips them when Custom NPCs is absent.
 [[mixins]]
 config = "sdu.cnpc.mixins.json"
+[[mixins]]
+config = "sdu.hud.mixins.json"
 
 # A dependency - use the . to indicate dependency for a specific modid. Dependencies are optional.
 [[dependencies."${mod_id}"]] #optional
@@ -81,7 +83,7 @@ side = "BOTH"
 [[dependencies."${mod_id}"]]
 modId = "dragonminez"
 mandatory = true
-versionRange = "[2.1.1b,)"
+versionRange = "[2.2,)"
 ordering = "AFTER"
 side = "BOTH"
 # CustomNPCs-Unofficial (1.20.1 Forge port) - SOFT dep for the DMZ x Custom NPCs bridge. If absent the

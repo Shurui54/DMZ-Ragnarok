@@ -59,9 +59,12 @@ public final class BlackHolePositions
     public static volatile int sectorSize = DEFAULT_SECTOR_SIZE;
     static volatile double density = DEFAULT_DENSITY;
 
-    // Vertical band, matching the star/generated band.
-    private static final double MIN_Y = 200.0;
-    private static final double MAX_Y = 1600.0;
+    // Vertical band a black hole centre may occupy: the full space column less a margin for the disc and the lethal
+    // pull near the floor, so holes sit above and below players like everything else but never drag anyone straight
+    // into the descend-out floor (-1840). Was 200..1600 in the old -64..1984 column. Black holes are pure derivation
+    // (nothing stored), and a hole in the old band keeps its exact position: only cells outside it are newly added.
+    private static final double MIN_Y = SpaceDimension.BODY_FLOOR_Y + 256.0;   // -1520
+    private static final double MAX_Y = SpaceDimension.BODY_CEILING_Y - 128.0; // 1840
 
     // Visual disc half-extent range, in blocks. Smaller than a star (a black hole reads as a compact dark void, not a
     // huge glowing ball), but its pull reaches far past the disc. 40..80 half-extent = 80..160 blocks across.
@@ -216,7 +219,7 @@ public final class BlackHolePositions
         // note). Super bodies are few and far apart, so the full influence clearance against them is workable.
         float influenceReach = (float) (radius * INFLUENCE_CLEARANCE_FACTOR);
         if (overlapsFixedOrOrigin(server, pos, influenceReach)
-                || SuperPlanetPositions.overlaps(pos, influenceReach)
+                || SuperPlanetPositions.overlapsLive(server, pos, influenceReach)
                 || HazardExclusion.overlapsGeneratedOrAsteroid(server, pos, radius))
         {
             return null;

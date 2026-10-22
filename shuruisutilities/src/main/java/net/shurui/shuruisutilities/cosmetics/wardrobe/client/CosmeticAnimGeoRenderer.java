@@ -15,7 +15,6 @@ import net.minecraftforge.api.distmarker.OnlyIn;
 import software.bernie.geckolib.cache.GeckoLibCache;
 import software.bernie.geckolib.cache.object.BakedGeoModel;
 import software.bernie.geckolib.renderer.GeoObjectRenderer;
-import software.bernie.geckolib.renderer.layer.AutoGlowingGeoLayer;
 
 import net.shurui.shuruisutilities.core.ShuruisUtilities;
 
@@ -31,11 +30,11 @@ import net.shurui.shuruisutilities.core.ShuruisUtilities;
  * {@code 180 - yaw} facing GeckoLib's entity renderer applies, so the rig stands at the effect's feet oriented to the
  * subject's yaw exactly as a standing NPC at that yaw would.
  *
- * <h2>Full bright</h2>
+ * <h2>Full bright, and no glow layer</h2>
  * The rigs are magical FX (fire, gates, spirits), so they are drawn at {@link LightTexture#FULL_BRIGHT} to read as
- * glowing at any time of day. The source pack ships no separate emissive map, so an {@link AutoGlowingGeoLayer} is
- * added only defensively: it lights a {@code _glowmask} texture if the converter ever produces one, and does nothing
- * when (as now) there is none.
+ * glowing at any time of day. There is deliberately NO {@code AutoGlowingGeoLayer}: GeckoLib's layer re-draws the
+ * whole model every frame with a generated glow texture even when no {@code _glowmask} exists, and with none (these
+ * rigs ship none) that pass painted the entire rig solid black over its real texture, hiding the player inside it.
  */
 @OnlyIn(Dist.CLIENT)
 public final class CosmeticAnimGeoRenderer extends GeoObjectRenderer<CosmeticAnimAnimatable>
@@ -45,7 +44,6 @@ public final class CosmeticAnimGeoRenderer extends GeoObjectRenderer<CosmeticAni
     private CosmeticAnimGeoRenderer()
     {
         super(new CosmeticAnimGeoModel());
-        addRenderLayer(new AutoGlowingGeoLayer<>(this));
     }
 
     /**

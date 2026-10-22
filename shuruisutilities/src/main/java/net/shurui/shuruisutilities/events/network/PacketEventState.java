@@ -16,7 +16,7 @@ import net.shurui.shuruisutilities.commons.network.NetworkUtils;
  * body is one NBT compound carrying a list of active events (id, name, theme key, colour, remaining ms). Sent on
  * login after the key sync and whenever the active set changes; cleared on logout. The id is pinned here so the
  * wire never shifts; the client HUD that consumes it lands in a later batch (E11), so for now the client sink is
- * an inert no-op and the payload is simply parsed and dropped. See the design notes.
+ * an inert no-op and the payload is simply parsed and dropped. See docs/events-2.0-plan.md.
  */
 public class PacketEventState implements ISUPacket
 {

@@ -174,7 +174,15 @@ public final class TerrainRegenHandler
         // open here escaped, and clearing it costs one assignment.
         TerrainRegenService.resetCascadeCapture();
         if (event.level instanceof ServerLevel level)
+        {
             TerrainRegenService.drain(level);
+            // The saved copy is rebuilt from the live debt when it is written (TerrainRegenSaved.save), so it only has
+            // to be marked dirty when that debt changed. Without this the file was only ever refreshed by the Save
+            // event, which Forge fires AFTER the level's data has been written, so it always held the previous save's
+            // debt, and the shutdown save lost everything owed since the last autosave.
+            if (TerrainRegenService.consumeDirty(level))
+                TerrainRegenSaved.get(level).setDirty();
+        }
     }
 
     @SubscribeEvent

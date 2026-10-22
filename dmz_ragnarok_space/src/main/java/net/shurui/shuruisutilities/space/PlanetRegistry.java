@@ -142,6 +142,7 @@ public final class PlanetRegistry
         cachedTick = Long.MIN_VALUE;
         cachedBodies = Collections.emptyList();
         SpaceLayout.invalidateFixedCache();
+        SuperPlanetPositions.invalidateLive();
     }
 
     public static List<Planet> bodies(MinecraftServer server)

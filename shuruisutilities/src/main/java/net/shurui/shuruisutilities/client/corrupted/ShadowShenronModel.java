@@ -7,7 +7,7 @@ import net.shurui.shuruisutilities.corrupted.ShadowShenronEntity;
 
 import software.bernie.geckolib.model.GeoModel;
 
-// geomodel for the shadow shenron prop. fixed SU asset paths (no per-entity config): the jar ships the
+// geomodel for the shadow shenron prop. fixed SU asset paths (no per-entity config): the mod ships the
 // geo, texture and animation under these exact locations. the animation file's single looping clip is "idle",
 // requested by the entity's controller.
 public final class ShadowShenronModel extends GeoModel<ShadowShenronEntity>

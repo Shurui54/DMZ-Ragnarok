@@ -24,7 +24,7 @@ import net.minecraft.nbt.CompoundTag;
  *
  * <p>Cosmetic Armor is NOT on this project's compile classpath, and the existing {@link CosArmorGraveCompat} avoids
  * the problem by touching only Forge events. Adding the mod to the build for three calls would mean committing
- * another binary to {@code libs/}, so this takes the reflection escape hatch that the optional-dependency pattern
+ * another binary to {@code libs/}, so this takes the reflection escape hatch that {@code docs/compat-pattern.md}
  * sanctions for exactly this case (dungeons drives WorldEdit the same way).
  *
  * <p>It also buys the version guard the suite's standing rule asks for: a {@code ModList} check proves the mod is

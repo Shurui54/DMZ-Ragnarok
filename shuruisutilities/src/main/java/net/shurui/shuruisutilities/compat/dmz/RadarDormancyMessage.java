@@ -8,8 +8,13 @@ import java.util.Set;
 import com.dragonminez.common.dragonball.DragonRadarDefinition;
 import com.dragonminez.common.init.item.DragonRadarItem;
 
+import net.minecraft.ChatFormatting;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.TickTask;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.ItemStack;
 
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
@@ -29,8 +34,9 @@ import net.shurui.shuruisutilities.util.output.logger.LoggingHandler;
  * <p>DMZ's {@code DragonRadarItem.use} already owns right-click: it cycles the radar range and prints its own
  * action-bar line, on its own 320-tick cooldown. Rather than mix into that vanilla-override method (a remap and
  * argument-capture risk for no gain), this listens for the FORGE {@link PlayerInteractEvent.RightClickItem}, which
- * fires for the same click WITHOUT touching DMZ's flow: the range still cycles, and this simply adds the dormancy
- * line ALONGSIDE it. The event is not cancelled and no result is set, so DMZ's behaviour is untouched. It fires
+ * fires for the same click WITHOUT touching DMZ's flow: the range still cycles. Because the event fires BEFORE
+ * DMZ's use(), whose own range line then replaced ours the same tick, the line is sent one tick later and repeats the
+ * range DMZ showed, followed by each set's timer in hours and minutes. The event is not cancelled and no result is set, so DMZ's behaviour is untouched. It fires
  * even while the range toggle is on its cooldown, so the status is always available on a right-click.
  *
  * <p>Server side only: the deadline lives in {@link BallDormancyStorage} on the server the player is on, which is
@@ -59,13 +65,72 @@ public final class RadarDormancyMessage
             if (server == null)
                 return;
 
-            for (String setId : radarSets(radar))
-                player.displayClientMessage(BallDormancy.radarStatus(server, setId), true);
+            List<String> sets = radarSets(radar);
+            if (sets.isEmpty())
+                return;
+            int rangeBefore = stack.hasTag() ? stack.getTag().getInt(RANGE_TAG) : 0;
+            boolean onCooldown = player.getCooldowns().isOnCooldown(stack.getItem());
+            InteractionHand hand = event.getHand();
+            // Sent on the NEXT tick, after DMZ's own use() has put its range line on the action bar this tick (Forge's
+            // RightClickItem fires BEFORE the item's use, so a line sent here was replaced at once; with two sets the
+            // second also replaced the first). The range DMZ just showed is repeated in front, so nothing is lost.
+            server.tell(new TickTask(server.getTickCount() + 1, () -> {
+                try
+                {
+                    if (player.hasDisconnected())
+                        return;
+                    MutableComponent line = Component.empty();
+                    ItemStack held = player.getItemInHand(hand);
+                    if (!onCooldown && held.getItem() == stack.getItem() && held.hasTag())
+                    {
+                        int range = held.getTag().getInt(RANGE_TAG);
+                        if (range > 0 && range != rangeBefore)
+                            line.append(Component.translatable(RANGE_KEY, range)).append(Component.literal("  |  "));
+                    }
+                    for (int i = 0; i < sets.size(); i++)
+                    {
+                        if (i > 0)
+                            line.append(Component.literal("  |  "));
+                        line.append(timerLine(server, sets.get(i)));
+                    }
+                    player.displayClientMessage(line, true);
+                }
+                catch (Throwable t)
+                {
+                    LoggingHandler.sulog.warn("[dormancy] radar status message failed: {}", t.toString());
+                }
+            }));
         }
         catch (Throwable t)
         {
             LoggingHandler.sulog.warn("[dormancy] radar status message failed: {}", t.toString());
         }
+    }
+
+    /** DMZ's radar NBT key for the current range, and its action-bar text key (DMZ's own lang). */
+    private static final String RANGE_TAG = "RadarRange";
+    private static final String RANGE_KEY = "gui.dmzradar.range";
+
+    /**
+     * "Earth dragon balls dormant: 3h 12m left" or "Earth dragon balls active", from the same source of truth as
+     * {@code /dormancystatus} ({@link BallDormancy#remainingMillis}, network-wide through {@link BallDormancyNetwork}).
+     * Literal text, so it needs nothing on the client.
+     */
+    static MutableComponent timerLine(MinecraftServer server, String setId)
+    {
+        String name = BallDormancy.displayName(setId).getString();
+        String noun = name.toLowerCase(java.util.Locale.ROOT).endsWith("dragon ball") ? name + "s" : name + " dragon balls";
+        long remaining = BallDormancy.remainingMillis(server, setId);
+        if (remaining < 0L)
+            return Component.literal(noun + " active").withStyle(ChatFormatting.AQUA);
+        return Component.literal(noun + " dormant: " + hoursMinutes(remaining) + " left").withStyle(ChatFormatting.GOLD);
+    }
+
+    /** Hours and minutes, e.g. "3h 12m" (hours can exceed 24), rounded up to the next minute. */
+    static String hoursMinutes(long millis)
+    {
+        long minutes = Math.max(1L, (millis + 59_999L) / 60_000L);
+        return (minutes / 60L) + "h " + (minutes % 60L) + "m";
     }
 
     // The ball set id(s) a radar reports on. Almost every radar is a single set (getBallSetId); getValidBallSetIds

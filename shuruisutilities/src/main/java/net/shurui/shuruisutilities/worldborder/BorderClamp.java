@@ -90,6 +90,50 @@ public final class BorderClamp
         }
     }
 
+    /**
+     * The effective border of {@code level} shaved by {@code margin}, as {@code {lowX, highX, lowZ, highZ}}, or null
+     * when it is unbounded on any side or collapses. Same intersection as {@link #clampInside}. Never throws.
+     */
+    public static double[] innerBox(ServerLevel level, int margin)
+    {
+        try
+        {
+            double lowX = Double.NEGATIVE_INFINITY;
+            double highX = Double.POSITIVE_INFINITY;
+            double lowZ = Double.NEGATIVE_INFINITY;
+            double highZ = Double.POSITIVE_INFINITY;
+            net.minecraft.world.level.border.WorldBorder vanilla = level.getWorldBorder();
+            if (vanilla != null)
+            {
+                lowX = Math.max(lowX, vanilla.getMinX());
+                highX = Math.min(highX, vanilla.getMaxX());
+                lowZ = Math.max(lowZ, vanilla.getMinZ());
+                highZ = Math.min(highZ, vanilla.getMaxZ());
+            }
+            WorldBorder suite = WorldBorderHooks.get().border(level);
+            if (suite != null && suite.isEnabled())
+            {
+                double[] box = suiteInnerBox(suite);
+                if (box != null)
+                {
+                    lowX = Math.max(lowX, box[0]);
+                    highX = Math.min(highX, box[1]);
+                    lowZ = Math.max(lowZ, box[2]);
+                    highZ = Math.min(highZ, box[3]);
+                }
+            }
+            double[] out = { lowX + margin, highX - margin, lowZ + margin, highZ - margin };
+            for (double v : out)
+                if (Double.isInfinite(v) || Double.isNaN(v))
+                    return null;
+            return out[0] < out[1] && out[2] < out[3] ? out : null;
+        }
+        catch (Throwable t)
+        {
+            return null;
+        }
+    }
+
     /** Clamp one axis value into {@code [low + margin, high - margin]}, falling back to the box centre if the inset
      * band collapses (margin larger than the box) or an edge is unbounded on one side only. */
     private static int clampAxis(int value, double low, double high, int margin)

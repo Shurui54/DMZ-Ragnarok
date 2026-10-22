@@ -1,15 +1,15 @@
 package net.shurui.dev.sdu.compat;
 
 import com.dragonminez.common.hair.CustomHair;
-import com.dragonminez.common.hair.HairManager;
+import com.dragonminez.common.hair.HairCodec;
 import net.shurui.dev.sdu.DmzNpc;
 
 /**
  * Bridge to DMZ's hair-code system. DMZ encodes a custom hairstyle as a shareable string via
- * {@link HairManager#toCode}/{@link HairManager#fromCode}. Validates such a code so the {@code DMZ NPC} tab
+ * {@link HairCodec#toCode}/{@link HairCodec#fromCode}. Validates such a code so the {@code DMZ NPC} tab
  * can accept one and store it on the NPC (see {@link net.shurui.dev.sdu.compat.cnpc.SduHairHolder}).
  *
- * <p>DMZ is a hard dep so {@code HairManager} is always present; still try/caught so a malformed code or a
+ * <p>DMZ is a hard dep so {@code HairCodec} is always present; still try/caught so a malformed code or a
  * DMZ change degrades to "invalid".
  */
 public final class DmzHair {
@@ -23,7 +23,7 @@ public final class DmzHair {
             return false;
         }
         try {
-            CustomHair hair = HairManager.fromCode(code.trim());
+            CustomHair hair = HairCodec.fromCode(code.trim());
             return hair != null && !hair.isEmpty();
         } catch (Throwable t) {
             DmzNpc.LOGGER.debug("[{}] Invalid DMZ hair code '{}': {}", DmzNpc.MODID, code, t.toString());
@@ -37,7 +37,7 @@ public final class DmzHair {
             return null;
         }
         try {
-            return HairManager.fromCode(code.trim());
+            return HairCodec.fromCode(code.trim());
         } catch (Throwable t) {
             return null;
         }

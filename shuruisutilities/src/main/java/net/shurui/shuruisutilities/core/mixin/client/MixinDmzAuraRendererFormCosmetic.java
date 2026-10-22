@@ -29,8 +29,9 @@ public abstract class MixinDmzAuraRendererFormCosmetic
 {
     private static final AtomicBoolean SU_FC_AURA_BIND_LOGGED = new AtomicBoolean(false);
 
-    @Inject(method = "getAuraLayers", at = @At("HEAD"), remap = false, require = 0)
-    private static void su$auraFormCosmeticBegin(Player player, StatsData stats, float partialTick, CallbackInfoReturnable<?> cir)
+    @Inject(method = "getAuraLayers", at = @At("HEAD") /* 2.2: (Player, StatsData, float, boolean use3D) */, remap = false, require = 0)
+    private static void su$auraFormCosmeticBegin(Player player, StatsData stats, float partialTick, boolean use3D,
+            CallbackInfoReturnable<?> cir)
     {
         if (SU_FC_AURA_BIND_LOGGED.compareAndSet(false, true))
         {
@@ -54,7 +55,8 @@ public abstract class MixinDmzAuraRendererFormCosmetic
     }
 
     @Inject(method = "getAuraLayers", at = @At("RETURN"), remap = false, require = 0)
-    private static void su$auraFormCosmeticEnd(Player player, StatsData stats, float partialTick, CallbackInfoReturnable<?> cir)
+    private static void su$auraFormCosmeticEnd(Player player, StatsData stats, float partialTick, boolean use3D,
+            CallbackInfoReturnable<?> cir)
     {
         try
         {

@@ -88,6 +88,7 @@ public final class EditorScreens
             case "npcregions" -> mc.setScreen(new net.shurui.shuruisutilities.client.gui.editor.NpcRegionListScreen(p.rows));
             case "shrines" -> mc.setScreen(new net.shurui.shuruisutilities.client.gui.editor.ShrineListScreen(p.rows));
             case "shrine" -> mc.setScreen(new net.shurui.shuruisutilities.client.gui.editor.ShrineEditScreen(p.meta, p.rows));
+            case "rituals" -> mc.setScreen(new net.shurui.shuruisutilities.client.gui.editor.RitualSettingsScreen(p.meta));
             case "hoverbikes" -> mc.setScreen(new net.shurui.shuruisutilities.client.gui.editor.HoverbikeScreen(p.meta));
             case "saibamanpets" -> mc.setScreen(new net.shurui.shuruisutilities.client.gui.editor.SaibamanPetScreen(p.meta));
             case "sparringsettings" -> mc.setScreen(new net.shurui.shuruisutilities.client.gui.editor.SparringSettingsScreen(p.meta));

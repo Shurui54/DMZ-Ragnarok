@@ -56,13 +56,15 @@ displayName = "DMZ Ragnarok: Space"
 authors = "${mod_authors}"
 description = '''The space travel, planet and planet-buster systems for DMZ Ragnarok. Registers into the dmz_ragnarok namespace; requires DMZ Ragnarok core.'''
 
-# All eight mixin configs contributed by the trees (Space now has its own, dmz_ragnarok_space.mixins.json). In the fat jar they all resolve the single generated
+# All nine mixin configs contributed by the trees (Space now has its own, dmz_ragnarok_space.mixins.json). In the fat jar they all resolve the single generated
 # dmz_ragnarok.refmap.json (the module jars each ship their own refmap). Mixins into DMZ classes stay
 # require = 0 in their configs.
 [[mixins]]
 config = "sdu.mixins.json"
 [[mixins]]
 config = "sdu.cnpc.mixins.json"
+[[mixins]]
+config = "sdu.hud.mixins.json"
 [[mixins]]
 config = "mixins.shuruisutilities.json"
 [[mixins]]
@@ -97,7 +99,7 @@ side = "BOTH"
 [[dependencies."${mod_id}"]]
 modId = "dragonminez"
 mandatory = true
-versionRange = "[2.1.1b,)"
+versionRange = "[2.2,)"
 ordering = "AFTER"
 side = "BOTH"
 
@@ -196,7 +198,7 @@ side = "BOTH"
 [[dependencies."dmz_ragnarok_dungeons"]]
 modId = "dragonminez"
 mandatory = true
-versionRange = "[2.1.1b,)"
+versionRange = "[2.2,)"
 ordering = "AFTER"
 side = "BOTH"
 [[dependencies."dmz_ragnarok_dungeons"]]
@@ -215,7 +217,7 @@ side = "BOTH"
 [[dependencies."dmz_ragnarok_raids"]]
 modId = "dragonminez"
 mandatory = true
-versionRange = "[2.1.1b,)"
+versionRange = "[2.2,)"
 ordering = "AFTER"
 side = "BOTH"
 [[dependencies."dmz_ragnarok_raids"]]
@@ -234,7 +236,7 @@ side = "BOTH"
 [[dependencies."dmz_ragnarok_tournaments"]]
 modId = "dragonminez"
 mandatory = true
-versionRange = "[2.1.1b,)"
+versionRange = "[2.2,)"
 ordering = "AFTER"
 side = "BOTH"
 [[dependencies."dmz_ragnarok_tournaments"]]
@@ -255,7 +257,7 @@ side = "BOTH"
 [[dependencies."dmz_ragnarok_space"]]
 modId = "dragonminez"
 mandatory = true
-versionRange = "[2.1.1b,)"
+versionRange = "[2.2,)"
 ordering = "AFTER"
 side = "BOTH"
 [[dependencies."dmz_ragnarok_space"]]

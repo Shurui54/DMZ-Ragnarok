@@ -35,16 +35,7 @@ public class OpenEditorRequestPacket {
             if (!SduPerms.canEdit(player)) {
                 return;
             }
-            switch (which) {
-                case "race" -> DmzNet.openRaceEditor(player);
-                case "form" -> DmzNet.openFormEditor(player);
-                case "saga" -> DmzNet.openSagaEditor(player);
-                case "sidequest" -> DmzNet.openSideQuestEditor(player);
-                case "wish" -> DmzNet.openWishEditor(player);
-                case "shrine" -> DmzNet.openShrineConfig(player);
-                case "options" -> DmzNet.openOptions(player);
-                default -> { }
-            }
+            DmzNet.openEditorFor(player, which);
         });
         context.setPacketHandled(true);
     }

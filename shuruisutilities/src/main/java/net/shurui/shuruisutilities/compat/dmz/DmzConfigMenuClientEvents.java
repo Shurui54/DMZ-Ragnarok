@@ -2,7 +2,6 @@ package net.shurui.shuruisutilities.compat.dmz;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -41,6 +40,7 @@ public final class DmzConfigMenuClientEvents {
     private static final String SCREEN_CLASS = "com.dragonminez.client.gui.character.ConfigMenuScreen";
     private static final String CONFIG_OPTION_CLASS = SCREEN_CLASS + "$ConfigOption";
     private static final String CONFIG_TYPE_CLASS = SCREEN_CLASS + "$ConfigType";
+    private static final String CONFIG_CATEGORY_CLASS = SCREEN_CLASS + "$Category";
 
     // keys DMZ turns into the label lookups gui.dragonminez.config.dragonBallRenderStyle / .customStatHud / .auraTrails
     // / .flightAura / .suiteAnnouncements / .customStatHudScale
@@ -75,11 +75,20 @@ public final class DmzConfigMenuClientEvents {
             @SuppressWarnings("unchecked")
             Object floatType = Enum.valueOf(typeClass, "FLOAT");
 
+            // DragonMineZ 2.2 groups the menu into categories: ConfigOption(Category, key, type, value, min, max, setter,
+            // action, actionLabelKey). Our rows go under VISUALS (render switches) and INTERFACE (HUD and messages).
+            @SuppressWarnings({"unchecked", "rawtypes"})
+            Class<? extends Enum> categoryClass = (Class<? extends Enum>) Class.forName(CONFIG_CATEGORY_CLASS);
+            @SuppressWarnings("unchecked")
+            Object visuals = Enum.valueOf(categoryClass, "VISUALS");
+            @SuppressWarnings("unchecked")
+            Object iface = Enum.valueOf(categoryClass, "INTERFACE");
             Constructor<?> ctor = optionClass.getDeclaredConstructor(
+                    categoryClass,
                     String.class,
                     typeClass,
                     float.class, float.class, float.class,
-                    Consumer.class);
+                    Consumer.class, Runnable.class, String.class);
             ctor.setAccessible(true);
 
             boolean added = false;
@@ -89,15 +98,17 @@ public final class DmzConfigMenuClientEvents {
                 float value = SUConfig.dragonBallRenderStyle == DragonBallRenderStyle.CUBE ? 1f : 0f;
                 Consumer<Float> setter = v -> SUConfig.setDragonBallRenderStyle(
                         v > 0f ? DragonBallRenderStyle.CUBE : DragonBallRenderStyle.SPHERE);
-                opts.add(ctor.newInstance(ROW_KEY_BALL_STYLE, booleanType, value, 0f, 1f, setter));
+                opts.add(ctor.newInstance(visuals, ROW_KEY_BALL_STYLE, booleanType, value, 0f, 1f, setter, null, null));
                 added = true;
             }
 
-            // Custom stat HUD: 1f = ON = SU's scouter HUD active (config default true), 0f = OFF = DMZ's default HUD.
+            // Custom stat HUD: 1f = ON = the Ragnarok style of DMZ's HUD editor is selected (SU's panel replaces DMZ's
+            // main HUD), 0f = OFF = back to the DMZ style the player came from. Without DMZ's layout system it is the
+            // old CustomStatHud switch.
             if (!hasRow(opts, keyField, ROW_KEY_STAT_HUD)) {
-                float value = SUConfig.customStatHud ? 1f : 0f;
-                Consumer<Float> setter = v -> SUConfig.setCustomStatHud(v > 0f);
-                opts.add(ctor.newInstance(ROW_KEY_STAT_HUD, booleanType, value, 0f, 1f, setter));
+                float value = net.shurui.shuruisutilities.client.hud.RagnarokHudSettings.ragnarokStyleOn() ? 1f : 0f;
+                Consumer<Float> setter = v -> net.shurui.shuruisutilities.client.hud.RagnarokHudSettings.setRagnarokStyle(v > 0f);
+                opts.add(ctor.newInstance(iface, ROW_KEY_STAT_HUD, booleanType, value, 0f, 1f, setter, null, null));
                 added = true;
             }
 
@@ -105,7 +116,7 @@ public final class DmzConfigMenuClientEvents {
             if (!hasRow(opts, keyField, ROW_KEY_AURA_TRAILS)) {
                 float value = SUConfig.auraTrails ? 1f : 0f;
                 Consumer<Float> setter = v -> SUConfig.setAuraTrails(v > 0f);
-                opts.add(ctor.newInstance(ROW_KEY_AURA_TRAILS, booleanType, value, 0f, 1f, setter));
+                opts.add(ctor.newInstance(visuals, ROW_KEY_AURA_TRAILS, booleanType, value, 0f, 1f, setter, null, null));
                 added = true;
             }
 
@@ -114,7 +125,7 @@ public final class DmzConfigMenuClientEvents {
             if (!hasRow(opts, keyField, ROW_KEY_FLIGHT_AURA)) {
                 float value = SUConfig.flightAura ? 1f : 0f;
                 Consumer<Float> setter = v -> SUConfig.setFlightAura(v > 0f);
-                opts.add(ctor.newInstance(ROW_KEY_FLIGHT_AURA, booleanType, value, 0f, 1f, setter));
+                opts.add(ctor.newInstance(visuals, ROW_KEY_FLIGHT_AURA, booleanType, value, 0f, 1f, setter, null, null));
                 added = true;
             }
 
@@ -130,26 +141,23 @@ public final class DmzConfigMenuClientEvents {
                     net.shurui.shuruisutilities.commons.network.NetworkUtils.sendToServer(
                             new net.shurui.shuruisutilities.announce.PacketAnnouncementPref(on));
                 };
-                opts.add(ctor.newInstance(ROW_KEY_SUITE_ANNOUNCEMENTS, booleanType, value, 0f, 1f, setter));
+                opts.add(ctor.newInstance(iface, ROW_KEY_SUITE_ANNOUNCEMENTS, booleanType, value, 0f, 1f, setter, null, null));
                 added = true;
             }
 
-            // Custom stat HUD scale: a native FLOAT slider over the config's documented sane range 0.25..4.0. The stored
-            // value is a double; DMZ hands the setter a float, which widens losslessly back into the double field.
+            // Custom stat HUD scale: a native FLOAT slider over the config's documented sane range 0.25..4.0. It scales
+            // the panel's placement in DMZ's HUD layout (the same scale DMZ's editor handles set), carrying the
+            // currency pills along; without DMZ's layout system it is the old CustomStatHudScale.
             if (!hasRow(opts, keyField, ROW_KEY_STAT_HUD_SCALE)) {
-                float value = (float) SUConfig.customStatHudScale;
-                Consumer<Float> setter = v -> SUConfig.setCustomStatHudScale(v.doubleValue());
-                opts.add(ctor.newInstance(ROW_KEY_STAT_HUD_SCALE, floatType, value, 0.25f, 4.0f, setter));
+                float value = net.shurui.shuruisutilities.client.hud.RagnarokHudSettings.panelScale();
+                Consumer<Float> setter = v -> net.shurui.shuruisutilities.client.hud.RagnarokHudSettings.applyPanelScale(v);
+                opts.add(ctor.newInstance(iface, ROW_KEY_STAT_HUD_SCALE, floatType, value, 0.25f, 4.0f, setter, null, null));
                 added = true;
             }
 
             if (!added) return;
 
-            // Init.Post runs after the screen's own init, so maxScroll was already computed without our rows. Recompute
-            // it or an appended row sits past the scroll range and can never be reached.
-            Method update = screen.getClass().getDeclaredMethod("updateConfigsList");
-            update.setAccessible(true);
-            update.invoke(screen);
+            // 2.1 needed updateConfigsList here to recompute the scroll range; 2.2 lays the rows out every frame.
         } catch (Throwable ignored) {
             // DMZ internals renamed or otherwise unavailable: skip the injection silently, never crash the screen.
         }

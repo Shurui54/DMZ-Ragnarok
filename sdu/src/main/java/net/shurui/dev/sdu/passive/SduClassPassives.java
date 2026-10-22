@@ -1,10 +1,14 @@
 package net.shurui.dev.sdu.passive;
 
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import com.dragonminez.common.passives.ClassPassives;
+import com.dragonminez.common.passives.IClassPassive;
 
 import net.shurui.dev.sdu.DmzNpc;
 import net.shurui.dev.sdu.race.RaceData;
@@ -31,9 +35,42 @@ public final class SduClassPassives {
     private SduClassPassives() {
     }
 
-    /** DMZ's own class ids, which own their handlers and must never be replaced. */
+    /** DMZ's own class ids, which own their handlers and must never be replaced. unversed is DMZ 2.2's eighth. */
     private static final Set<String> DMZ_OWNED = Set.of(
-            "warrior", "spiritualist", "martialartist", "berserker", "paladin", "tank", "cleric");
+            "warrior", "spiritualist", "martialartist", "berserker", "paladin", "tank", "cleric", "unversed");
+
+    /**
+     * Class ids whose passive is bespoke suite code (registered through {@link #registerOwned}), so the generic
+     * handler must not replace it either. Same reason as {@link #DMZ_OWNED}: the registry is a plain map.
+     */
+    private static final Set<String> SUITE_OWNED = ConcurrentHashMap.newKeySet();
+
+    /** Extra passive value keys a bespoke class reads, shown in the class editor after the generic menu. */
+    private static final Map<String, List<String>> EXTRA_MENU = new ConcurrentHashMap<>();
+
+    /**
+     * Register a bespoke passive for one class id and keep {@link #refresh} from ever overwriting it. Safe on both
+     * sides; {@code extraKeys} are the passive value keys it reads, listed in the class editor.
+     */
+    public static void registerOwned(IClassPassive passive, String... extraKeys) {
+        if (passive == null || passive.classKey() == null || passive.classKey().isBlank()) {
+            return;
+        }
+        String key = passive.classKey().toLowerCase(Locale.ROOT);
+        SUITE_OWNED.add(key);
+        if (extraKeys != null && extraKeys.length > 0) {
+            EXTRA_MENU.put(key, List.of(extraKeys));
+        }
+        ClassPassives.register(passive);
+    }
+
+    /** The bespoke value keys for a class id, empty for a generic or DMZ class. */
+    public static List<String> extraMenu(String classId) {
+        if (classId == null) {
+            return List.of();
+        }
+        return EXTRA_MENU.getOrDefault(classId.toLowerCase(Locale.ROOT), List.of());
+    }
 
     /** What we have already registered, so a re-scan after a race save is idempotent. */
     private static final Set<String> REGISTERED = new HashSet<>();
@@ -57,7 +94,7 @@ public final class SduClassPassives {
                         continue;
                     }
                     String key = id.toLowerCase(Locale.ROOT);
-                    if (DMZ_OWNED.contains(key) || !REGISTERED.add(key)) {
+                    if (DMZ_OWNED.contains(key) || SUITE_OWNED.contains(key) || !REGISTERED.add(key)) {
                         continue;
                     }
                     ClassPassives.register(new SduClassPassive(key));

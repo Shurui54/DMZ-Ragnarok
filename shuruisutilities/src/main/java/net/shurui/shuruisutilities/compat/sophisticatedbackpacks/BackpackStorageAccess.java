@@ -24,7 +24,7 @@ import net.minecraft.nbt.CompoundTag;
  * <h2>Why reflection rather than a compileOnly dependency</h2>
  *
  * <p>Sophisticated Backpacks is NOT on this project's compile classpath, and adding the jar to {@code libs/} for
- * a handful of calls is more weight than the escape hatch the optional-dependency pattern sanctions for exactly
+ * a handful of calls is more weight than the escape hatch {@code docs/compat-pattern.md} sanctions for exactly
  * this case. Every lookup here is resolved once and cached; any failure leaves {@link #AVAILABLE} false so both
  * entry points degrade to doing nothing rather than throwing on every hop.
  *

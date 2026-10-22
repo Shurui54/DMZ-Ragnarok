@@ -1,14 +1,5 @@
 {
-  "__comment": "SU biomes moved to the dmz_ragnarok namespace in the dimension/biome rename stage. Both namespaces are listed: dmz_ragnarok is the live post-migration biome id, and the old shuruisutilities id is kept so a pre-migration world (whose terrain still carries the old biome) keeps spawning saibamans until it is migrated. Both biomes are always registered (the old files remain as datapack shims), so listing both is always valid. This is a merge tag (replace false).",
+  "__comment": "Intentionally empty merge. DMZ's saibaman modifier (weights 80/70/60/45/35/25, packs of up to 4) made saibamen nearly every monster on Vegeta. Vegeta's saibamen now come from SU's lighter data/dmz_ragnarok/forge/biome_modifier/vegeta_saibamen.json instead, so the Vegeta biomes must not be members here. replace:false so DMZ's own list (none of ours) is untouched.",
   "replace": false,
-  "values": [
-    "dmz_ragnarok:vegeta",
-    "dmz_ragnarok:vegeta_arid",
-    "dmz_ragnarok:vegeta_meadow",
-    "dmz_ragnarok:vegeta_deep",
-    "shuruisutilities:vegeta",
-    "shuruisutilities:vegeta_arid",
-    "shuruisutilities:vegeta_meadow",
-    "shuruisutilities:vegeta_deep"
-  ]
+  "values": []
 }

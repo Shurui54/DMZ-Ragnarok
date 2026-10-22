@@ -108,13 +108,23 @@ public final class TerrainRegenSaved extends SavedData
     /** Positions still awaiting the reconnect pass, mirrored from the service on save. */
     Deque<BlockPos> reconnect = new ArrayDeque<>();
 
+    /**
+     * The level whose live debt this mirrors, so {@link #save} can copy that debt at the moment it is written. Not
+     * persisted. Copying at write time is the point: Forge fires {@code LevelEvent.Save} only after the level's data
+     * storage has already been written, so a copy taken there always reached disk one save late, and the one taken at
+     * shutdown never reached it at all, which is how a restart mid repair left craters open for good.
+     */
+    private ServerLevel level;
+
     public TerrainRegenSaved() {}
 
     /** Attach to a level, loading any debt saved before the last shutdown. */
     public static TerrainRegenSaved get(ServerLevel level)
     {
-        return level.getDataStorage().computeIfAbsent(
+        TerrainRegenSaved data = level.getDataStorage().computeIfAbsent(
                 tag -> load(level, tag), TerrainRegenSaved::new, NAME);
+        data.level = level;
+        return data;
     }
 
     /**
@@ -226,6 +236,9 @@ public final class TerrainRegenSaved extends SavedData
     @Override
     public CompoundTag save(CompoundTag tag)
     {
+        // Write the debt as it stands now, not as the last Save event saw it (see the field note on level).
+        if (level != null)
+            TerrainRegenService.persistInto(level, this);
         tag.putInt(TAG_VERSION, FORMAT_VERSION);
 
         // Oldest debt first, so what survives a truncation is the part closest to being due.

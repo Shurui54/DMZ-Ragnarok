@@ -10,7 +10,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
-import net.minecraft.world.item.ItemStack;
 
 import com.dragonminez.common.config.ConfigManager;
 import com.dragonminez.common.config.GeneralServerConfig;
@@ -34,7 +33,8 @@ import com.dragonminez.common.stats.character.Stats;
  * MixinDmzStatCap* mixins), so respect it and never read caps directly. Writes go through the same setters
  * DMZ's addToStat uses (post StatChangeEvent + write attribute base, auto-synced), so no extra sync needed.
  *
- * Item shrinks by 1 only if at least one point landed; otherwise left intact + capsule.full. remap=false
+ * Item shrinks by 1 only if at least one point landed (2.2: we set DMZ's anyApplied flag and its caller shrinks once
+ * for the whole split list); otherwise left intact + capsule.full. remap=false
  * (DMZ descriptors), require=0. Capsule use is already server-side only (caller's !isClientSide guard).
  */
 @Mixin(targets = "com.dragonminez.common.init.item.consumables.CapsuleItem", remap = false)
@@ -51,10 +51,10 @@ public abstract class MixinDmzCapsuleRedistribute
     private Integer tierMultiplier;
 
     @Inject(method = "applyCapsuleStats", at = @At("HEAD"), cancellable = true, require = 0)
-    private void su$redistributeCapsule(ItemStack capsule, StatsData data, String statName,
+    private void su$redistributeCapsule(StatsData data, String statName, boolean[] anyApplied,
                                         CallbackInfoReturnable<Component> cir)
     {
-        if (data == null || statName == null || capsule == null)
+        if (data == null || statName == null || anyApplied == null || anyApplied.length == 0)
             return; // fall through to DMZ's stock impl
 
         GeneralServerConfig.CapsuleValues values =
@@ -99,7 +99,8 @@ public abstract class MixinDmzCapsuleRedistribute
             return;
         }
 
-        capsule.shrink(1);
+        // DragonMineZ 2.2: the caller consumes ONE capsule after the whole split list if any stat took points.
+        anyApplied[0] = true;
 
         MutableComponent message;
         if (placedHere > 0)

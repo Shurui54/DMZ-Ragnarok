@@ -49,7 +49,7 @@ public final class CorruptedBallBlockEntity extends BlockEntity implements GeoBl
     }
 
     // DMZ's dball animation file names the idle clip "animation.dball1.idle"; ".then" takes the part after
-    // "animation.". reused as-is because the geo is a copy of DMZ's, keeping the same bone/animation set.
+    // "animation.". reused as-is because the copied DMZ geo is used, keeping the same bone/animation set.
     private PlayState predicate(AnimationState<CorruptedBallBlockEntity> state)
     {
         state.getController().setAnimation(RawAnimation.begin().then("dball1.idle", Animation.LoopType.LOOP));

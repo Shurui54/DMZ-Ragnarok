@@ -223,7 +223,7 @@ public final class SuperPlanetGod
             try
             {
                 saga.setBattlePower((int) Math.round(Math.min(battlePower, Integer.MAX_VALUE)));
-                saga.setAiTierById(DBSagasEntity.AiTier.SIMPLE.ordinal() + 1);
+                saga.setAiTierById(com.dragonminez.common.init.entities.ai.AiTier.NOVICE.getId());
                 saga.getSkillPool().clear();
                 saga.addKiSkill(DBSagasEntity.KiSkillType.GENERIC_KI_WAVE, 60, 1.0F);
                 saga.addKiSkill(DBSagasEntity.KiSkillType.KI_LASER, 45, 1.0F);

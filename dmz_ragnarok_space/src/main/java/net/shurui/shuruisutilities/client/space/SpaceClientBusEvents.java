@@ -106,6 +106,8 @@ public final class SpaceClientBusEvents
         // here from the core menu class so the Space module owns its own overlay registration; with Space absent this
         // subscriber never loads and the overlay is simply not registered.
         event.registerAboveAll(PlanetInfoOverlay.OVERLAY_ID, PlanetInfoOverlay::render);
+        // placed through DMZ's HUD layout as a Ragnarok HUD extra
+        PlanetInfoOverlay.registerElement();
     }
 
     @SubscribeEvent
@@ -114,6 +116,20 @@ public final class SpaceClientBusEvents
         // install the client-side SpaceClientHook provider so the core keybind handler can fire the planet-select /
         // planet-info actions without naming the Space client classes. Client dist only, so it never loads server-side.
         event.enqueueWork(SpaceClientHookImpl::register);
+        // The options editor's Client tab: the two space display files.
+        net.shurui.dev.sdu.config.editor.ConfigEditorRegistry.addClient(new net.shurui.dev.sdu.config.editor.JsonObjectSource(
+                "space.visuals", "config/dmz_ragnarok-spacevisuals.json",
+                net.shurui.dev.sdu.config.editor.ConfigTabs.CLIENT, SpaceVisualsConfig::get, SpaceVisualsConfig::new,
+                () -> SpaceVisualsConfig.get().save())
+                .comment("orbitLines", "Faint orbit lines for the main system's rings and nearby systems' planets.")
+                .comment("distantBodies", "Distant systems and far bodies drawn as lit planet discs.")
+                .comment("deepSky", "The deep starfield and nebula layer in the space sky.")
+                .restart("deepSky"));
+        net.shurui.dev.sdu.config.editor.ConfigEditorRegistry.addClient(new net.shurui.dev.sdu.config.editor.JsonObjectSource(
+                "space.planetinfo", "config/shuruisutilities-planetinfo.json",
+                net.shurui.dev.sdu.config.editor.ConfigTabs.CLIENT, PlanetInfoConfig::get, PlanetInfoConfig::new,
+                () -> PlanetInfoConfig.get().save())
+                .comment("overlayEnabled", "Show the planet info overlay while flying in space."));
     }
 
     // Client-derived travel signal, shared by the tick starter below and by the sound instance's self-stop. Autopilot

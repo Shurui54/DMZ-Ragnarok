@@ -142,6 +142,13 @@ public class RaceClassStatsScreen extends FieldEditScreen {
                             v -> setPassiveValue(key, v));
                     tip( tr("gui.dmz_ragnarok.npc.classpassive.t_" + key));
                 }
+                // A class with bespoke suite code (the Konatsian swordsman) reads its own keys too; list them so
+                // its numbers are editable here rather than only in stats.json.
+                for (String key : net.shurui.dev.sdu.passive.SduClassPassives.extraMenu(className)) {
+                    scaleField(tr("gui.dmz_ragnarok.npc.classpassive." + key), passiveValue(key),
+                            v -> setPassiveValue(key, v));
+                    tip( tr("gui.dmz_ragnarok.npc.classpassive.t_" + key));
+                }
             }
             default -> { }
         }

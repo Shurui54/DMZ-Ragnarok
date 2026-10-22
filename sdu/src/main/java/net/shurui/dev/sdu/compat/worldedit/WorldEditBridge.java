@@ -15,7 +15,7 @@ import java.util.UUID;
  *
  * <p>WorldEdit is an OPTIONAL dependency of {@code sdu}: no WorldEdit type is imported or compiled
  * against here; every access is pure reflection, gated behind {@link #isPresent()}. Copied from the
- * raid-bosses addon's bridge per the optional-dependency pattern.
+ * raid-bosses addon's bridge per {@code docs/compat-pattern.md}.
  */
 public final class WorldEditBridge {
     private WorldEditBridge() {}

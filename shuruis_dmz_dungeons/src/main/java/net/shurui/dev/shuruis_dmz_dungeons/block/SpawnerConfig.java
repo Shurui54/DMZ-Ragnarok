@@ -125,6 +125,70 @@ public class SpawnerConfig {
 
     public String disguise = ""; // block id; blank = vanilla mob spawner render
 
+    // Level scaling (owner 2026-10, the Z orb model, see core LevelScale). The plain values above are the LEVEL 1
+    // anchors, so a level 1 player sees exactly what the spawner always gave. On by default; the NBT key is written
+    // only when turned off, and every anchor only when pinned, so an untouched spawner's NBT never changes. A null
+    // anchor is AUTO (LevelScale.DEFAULT_MULTIPLE times the level 1 value). The spawner's boss roll and floor bosses
+    // never scale.
+    public boolean levelScaling = true;
+    public int scaleMaxLevel = net.shurui.shuruisutilities.npcregion.LevelScale.DEFAULT_MAX_LEVEL;
+    public Integer tpMinAtMax, tpMaxAtMax, balMinAtMax, balMaxAtMax;
+
+    // stats at the max level; maxHealth / attackDamage / defense / kiDmgMin..kiDmgMax are the level 1 anchors
+    public Float maxHealthAtMax, attackDamageAtMax, defenseAtMax;
+    public Integer kiDmgMinAtMax, kiDmgMaxAtMax;
+
+    public float maxHealthAtMax() {
+        return maxHealthAtMax != null ? maxHealthAtMax : net.shurui.shuruisutilities.npcregion.LevelScale.autoMax(maxHealth);
+    }
+
+    public float attackDamageAtMax() {
+        return attackDamageAtMax != null ? attackDamageAtMax : net.shurui.shuruisutilities.npcregion.LevelScale.autoMax(attackDamage);
+    }
+
+    public float defenseAtMax() {
+        return defenseAtMax != null ? defenseAtMax : net.shurui.shuruisutilities.npcregion.LevelScale.autoMax(defense);
+    }
+
+    public int kiDmgMinAtMax() {
+        return kiDmgMinAtMax != null ? kiDmgMinAtMax : net.shurui.shuruisutilities.npcregion.LevelScale.autoMax(kiDmgMin);
+    }
+
+    public int kiDmgMaxAtMax() {
+        return kiDmgMaxAtMax != null ? kiDmgMaxAtMax : net.shurui.shuruisutilities.npcregion.LevelScale.autoMax(kiDmgMax);
+    }
+
+    /**
+     * Scale a freshly built spawner mob for a level (core LevelScaledStats stamps the anchors so a stronger attacker
+     * can raise it later). {@code rolledKi} is the ki damage this mob rolled from kiDmgMin..kiDmgMax; it keeps the
+     * same place inside the max-level ki range.
+     */
+    public void applyLevelStats(LivingEntity entity, int level, float rolledKi) {
+        int lo = Math.min(kiDmgMin, kiDmgMax), hi = Math.max(kiDmgMin, kiDmgMax);
+        double u = hi > lo ? Math.max(0.0, Math.min(1.0, (rolledKi - lo) / (double) (hi - lo))) : 0.0;
+        int loM = Math.min(kiDmgMinAtMax(), kiDmgMaxAtMax()), hiM = Math.max(kiDmgMinAtMax(), kiDmgMaxAtMax());
+        double kiM = loM + (hiM - loM) * u;
+        net.shurui.shuruisutilities.npcregion.LevelScaledStats.stampAndApply(entity, scaleMaxLevel,
+                maxHealth, maxHealthAtMax(), attackDamage, attackDamageAtMax(), defense, defenseAtMax(),
+                rolledKi, rolledKi > 0 || kiM > 0 ? kiM : 0, level);
+    }
+
+    public int tpMinAtMax() {
+        return tpMinAtMax != null ? tpMinAtMax : net.shurui.shuruisutilities.npcregion.LevelScale.autoMax(tpMin);
+    }
+
+    public int tpMaxAtMax() {
+        return tpMaxAtMax != null ? tpMaxAtMax : net.shurui.shuruisutilities.npcregion.LevelScale.autoMax(tpMax);
+    }
+
+    public int balMinAtMax() {
+        return balMinAtMax != null ? balMinAtMax : net.shurui.shuruisutilities.npcregion.LevelScale.autoMax(balMin);
+    }
+
+    public int balMaxAtMax() {
+        return balMaxAtMax != null ? balMaxAtMax : net.shurui.shuruisutilities.npcregion.LevelScale.autoMax(balMax);
+    }
+
     public SpawnerConfig() {
     }
 
@@ -249,7 +313,7 @@ public class SpawnerConfig {
         }
         saga.setCanFly(false);
         saga.setFlying(false);
-        saga.setZanzoken(false, 0);
+        saga.setZanzoken(com.dragonminez.common.init.entities.sagas.DBSagasEntity.ZANZOKEN_TIER_NONE, 0);
         saga.setWildSense(false, 0);
         saga.setEvade(false, 0);
     }
@@ -452,6 +516,40 @@ public class SpawnerConfig {
         // APPENDED: this format is positional, so inserting a field mid-stream shifts everything after it.
         buf.writeUtf(rgModelId == null ? "" : rgModelId);
         buf.writeUtf(bossRgModelId == null ? "" : bossRgModelId);
+        // APPENDED: level scaling (a nullable anchor is a presence flag then the value, so "auto" survives the trip)
+        buf.writeBoolean(levelScaling);
+        buf.writeVarInt(scaleMaxLevel);
+        writeOpt(buf, tpMinAtMax);
+        writeOpt(buf, tpMaxAtMax);
+        writeOpt(buf, balMinAtMax);
+        writeOpt(buf, balMaxAtMax);
+        writeOptF(buf, maxHealthAtMax);
+        writeOptF(buf, attackDamageAtMax);
+        writeOptF(buf, defenseAtMax);
+        writeOpt(buf, kiDmgMinAtMax);
+        writeOpt(buf, kiDmgMaxAtMax);
+    }
+
+    private static void writeOptF(FriendlyByteBuf buf, Float v) {
+        buf.writeBoolean(v != null);
+        if (v != null) {
+            buf.writeFloat(v);
+        }
+    }
+
+    private static Float readOptF(FriendlyByteBuf buf) {
+        return buf.readBoolean() ? buf.readFloat() : null;
+    }
+
+    private static void writeOpt(FriendlyByteBuf buf, Integer v) {
+        buf.writeBoolean(v != null);
+        if (v != null) {
+            buf.writeVarInt(v);
+        }
+    }
+
+    private static Integer readOpt(FriendlyByteBuf buf) {
+        return buf.readBoolean() ? buf.readVarInt() : null;
     }
 
     public static SpawnerConfig decode(FriendlyByteBuf buf) {
@@ -511,6 +609,17 @@ public class SpawnerConfig {
         c.bossUseDefaultTransform = buf.readBoolean();
         c.rgModelId = buf.readUtf();
         c.bossRgModelId = buf.readUtf();
+        c.levelScaling = buf.readBoolean();
+        c.scaleMaxLevel = Math.max(2, buf.readVarInt());
+        c.tpMinAtMax = readOpt(buf);
+        c.tpMaxAtMax = readOpt(buf);
+        c.balMinAtMax = readOpt(buf);
+        c.balMaxAtMax = readOpt(buf);
+        c.maxHealthAtMax = readOptF(buf);
+        c.attackDamageAtMax = readOptF(buf);
+        c.defenseAtMax = readOptF(buf);
+        c.kiDmgMinAtMax = readOpt(buf);
+        c.kiDmgMaxAtMax = readOpt(buf);
         return c;
     }
 
@@ -584,7 +693,43 @@ public class SpawnerConfig {
         tag.putBoolean("MainUseDefaultTransform", mainUseDefaultTransform);
         tag.put("BossTransform", bossTransform == null ? new CompoundTag() : bossTransform);
         tag.putBoolean("BossUseDefaultTransform", bossUseDefaultTransform);
+        // level scaling: only what differs from the default, so an untouched spawner saves exactly as before
+        if (!levelScaling) {
+            tag.putBoolean("LevelScaling", false);
+        }
+        if (scaleMaxLevel != net.shurui.shuruisutilities.npcregion.LevelScale.DEFAULT_MAX_LEVEL) {
+            tag.putInt("ScaleMaxLevel", scaleMaxLevel);
+        }
+        putOpt(tag, "TpMinAtMax", tpMinAtMax);
+        putOpt(tag, "TpMaxAtMax", tpMaxAtMax);
+        putOpt(tag, "BalMinAtMax", balMinAtMax);
+        putOpt(tag, "BalMaxAtMax", balMaxAtMax);
+        putOptF(tag, "MaxHealthAtMax", maxHealthAtMax);
+        putOptF(tag, "DamageAtMax", attackDamageAtMax);
+        putOptF(tag, "DefenseAtMax", defenseAtMax);
+        putOpt(tag, "KiDmgMinAtMax", kiDmgMinAtMax);
+        putOpt(tag, "KiDmgMaxAtMax", kiDmgMaxAtMax);
         return tag;
+    }
+
+    private static void putOpt(CompoundTag tag, String key, Integer v) {
+        if (v != null) {
+            tag.putInt(key, Math.max(0, v));
+        }
+    }
+
+    private static void putOptF(CompoundTag tag, String key, Float v) {
+        if (v != null && Float.isFinite(v)) {
+            tag.putFloat(key, Math.max(0f, v));
+        }
+    }
+
+    private static Float getOptF(CompoundTag tag, String key) {
+        return tag.contains(key) ? Math.max(0f, tag.getFloat(key)) : null;
+    }
+
+    private static Integer getOpt(CompoundTag tag, String key) {
+        return tag.contains(key) ? Math.max(0, tag.getInt(key)) : null;
     }
 
     // Full deep copy via the NBT round trip, so the mutable kiMoves/bossKiMoves/drops lists and the
@@ -667,6 +812,18 @@ public class SpawnerConfig {
         c.mainUseDefaultTransform = !tag.contains("MainUseDefaultTransform") || tag.getBoolean("MainUseDefaultTransform");
         c.bossTransform = tag.contains("BossTransform") ? tag.getCompound("BossTransform") : new CompoundTag();
         c.bossUseDefaultTransform = !tag.contains("BossUseDefaultTransform") || tag.getBoolean("BossUseDefaultTransform");
+        c.levelScaling = !tag.contains("LevelScaling") || tag.getBoolean("LevelScaling");
+        c.scaleMaxLevel = tag.contains("ScaleMaxLevel") ? Math.max(2, tag.getInt("ScaleMaxLevel"))
+                : net.shurui.shuruisutilities.npcregion.LevelScale.DEFAULT_MAX_LEVEL;
+        c.tpMinAtMax = getOpt(tag, "TpMinAtMax");
+        c.tpMaxAtMax = getOpt(tag, "TpMaxAtMax");
+        c.balMinAtMax = getOpt(tag, "BalMinAtMax");
+        c.balMaxAtMax = getOpt(tag, "BalMaxAtMax");
+        c.maxHealthAtMax = getOptF(tag, "MaxHealthAtMax");
+        c.attackDamageAtMax = getOptF(tag, "DamageAtMax");
+        c.defenseAtMax = getOptF(tag, "DefenseAtMax");
+        c.kiDmgMinAtMax = getOpt(tag, "KiDmgMinAtMax");
+        c.kiDmgMaxAtMax = getOpt(tag, "KiDmgMaxAtMax");
         return c;
     }
 

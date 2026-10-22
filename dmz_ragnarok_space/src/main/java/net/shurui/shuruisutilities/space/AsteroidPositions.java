@@ -78,11 +78,12 @@ public final class AsteroidPositions
     // the 384-block spacing is the raised "semi-common" density the user asked for (~2.5 lumps in view, up from ~0.9).
     private static final double DENSITY = 0.6;
 
-    // Vertical band asteroids are allowed to occupy, in blocks. Space is min_y -64, height 2048 (ceiling ~1984). A lump
-    // is kept between these plus its own radius so it never pokes out of the playable Y range and stays roughly in the
-    // band the planets and the player fly through.
-    private static final double MIN_Y = 64.0;
-    private static final double MAX_Y = 1600.0;
+    // Vertical band asteroids are allowed to occupy, in blocks: the space body band (SpaceDimension, inside the
+    // -2032..2032 column), so a lump is block-stamped only where it fits in the world and where players fly. A lump is
+    // kept between these plus its own radius. Was 64..1600 in the old -64..1984 column; widening it only ADDS cells
+    // (an asteroid in the old band derives exactly as before, and stamped ones are remembered by AsteroidStampData).
+    private static final double MIN_Y = SpaceDimension.BODY_FLOOR_Y;
+    private static final double MAX_Y = SpaceDimension.BODY_CEILING_Y;
 
     // Half-extent (radius) range for a lump, in blocks. The user asked for small to medium and VARYING, from a few
     // blocks across up to a few tens of blocks. Radius 3..18 means a diameter of roughly 6 up to ~36 blocks, so the
@@ -386,7 +387,7 @@ public final class AsteroidPositions
     // scatter) and made of smaller pieces (WRECK_*_RADIUS above), so the old count would read as a sparse handful of
     // specks strewn across a large volume; more lumps keep it looking like a shattered world. Second, and this is the
     // subtle one, the NOMINAL count here is NOT the count you get. Each lump is culled in wreckLumps if it leaves the
-    // 64..1600 Y band or overlaps a fixed body or the origin, and scatter is body.radius * WRECK_SCATTER_FACTOR, so
+    // MIN_Y..MAX_Y band or overlaps a fixed body or the origin, and scatter is body.radius * WRECK_SCATTER_FACTOR, so
     // doubling the factor also flings lumps roughly twice as far in Y. A large destroyed planet (big body.radius) now
     // throws a meaningful fraction of its lumps clean out of the Y band and loses them, so its SURVIVING count sits well
     // below the nominal band, and more so the bigger the planet. The band is deliberately padded to absorb that loss and

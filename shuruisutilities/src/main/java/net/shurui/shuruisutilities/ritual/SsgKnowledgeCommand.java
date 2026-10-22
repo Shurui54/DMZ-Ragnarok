@@ -9,7 +9,6 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 
-import net.shurui.shuruisutilities.core.SUConfig;
 import net.shurui.shuruisutilities.util.output.logger.LoggingHandler;
 
 /**
@@ -68,10 +67,10 @@ public final class SsgKnowledgeCommand
         if (WishRitualManager.ssgKnowledgeWishBlocked(player))
             return false;
         WishRitualStore.grantSsgKnowledge(player);
-        // Tell the player exactly how many allies the ring needs, from the same config the ritual scan enforces, so the
+        // Tell the player exactly how many allies the ring needs, from the same setting the ritual scan enforces, so the
         // instruction can never disagree with what actually completes the ritual.
         player.sendSystemMessage(Component.translatable("ritual.dmz_ragnarok.ssg.knowledge.granted",
-                Math.max(1, SUConfig.ssgRitualRequiredChargers)));
+                RitualSettings.ssgRequiredChargers(player.getServer())));
         LoggingHandler.sulog.info("[ritual] {} wished for the knowledge of Super Saiyan God.",
                 player.getGameProfile().getName());
         return true;

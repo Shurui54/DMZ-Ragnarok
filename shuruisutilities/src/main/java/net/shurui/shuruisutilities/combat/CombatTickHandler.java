@@ -48,8 +48,15 @@ public final class CombatTickHandler
         SonicCrash.clear();
         SonicBoomService.clear();
         // (Held ocarinas are the Ragnarok Key's: it puts them away on its own ServerStoppingEvent.)
-        // Drop every dimension's terrain-regen debt too. On an integrated client that opens several worlds in one
-        // session the static maps would otherwise carry one world's owed blocks and tallies into the next.
+    }
+
+    @SubscribeEvent
+    public void onServerStopped(net.minecraftforge.event.server.ServerStoppedEvent event)
+    {
+        // Drop every dimension's terrain-regen debt. On an integrated client that opens several worlds in one session
+        // the static maps would otherwise carry one world's owed blocks and tallies into the next. STOPPED, never
+        // STOPPING: ServerStoppingEvent fires before the final world save, so clearing there emptied the debt the
+        // shutdown save was about to write, and every crater still owed at a restart stayed open for good.
         net.shurui.shuruisutilities.regen.TerrainRegenService.forgetAll();
     }
 }

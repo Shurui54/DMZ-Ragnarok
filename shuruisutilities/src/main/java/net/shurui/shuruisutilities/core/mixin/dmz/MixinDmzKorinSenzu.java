@@ -3,7 +3,7 @@ package net.shurui.shuruisutilities.core.mixin.dmz;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import com.dragonminez.common.stats.StatsData;
 
@@ -25,7 +25,9 @@ import net.shurui.shuruisutilities.compat.dmz.KorinRewardEvents;
  * option, and none is added. The chip picks the flying or black cloud from alignment itself when it is deployed. If the
  * nimbus feature is switched off or the chip cannot be resolved, DMZ's own gift runs as before.
  *
- * <p>The handler takes the target's parameters exactly, plus the callback, as mixin argument capture requires.
+ * <p>The handler takes the target's parameters exactly, plus the callback, as mixin argument capture requires. Since
+ * DragonMineZ 2.2 {@code handleKarin} returns whether the action succeeded (it drives the dialogue's success reply),
+ * so a replaced option returns our own outcome.
  */
 @Mixin(targets = "com.dragonminez.common.network.C2S.NPCActionC2S", remap = false)
 public class MixinDmzKorinSenzu
@@ -34,14 +36,14 @@ public class MixinDmzKorinSenzu
     private static final int NIMBUS_OPTION = 1;
 
     @Inject(method = "handleKarin", at = @At("HEAD"), cancellable = true, require = 0)
-    private static void su$nimbusChip(ServerPlayer player, StatsData data, int option, CallbackInfo ci)
+    private static void su$nimbusChip(ServerPlayer player, StatsData data, int option, CallbackInfoReturnable<Boolean> cir)
     {
         if (option != NIMBUS_OPTION || player == null)
             return;
         try
         {
             if (KorinRewardEvents.grantNimbusChipFromDialogue(player))
-                ci.cancel();
+                cir.setReturnValue(true);
         }
         catch (Throwable ignored)
         {
@@ -50,18 +52,19 @@ public class MixinDmzKorinSenzu
     }
 
     @Inject(method = "handleKarin", at = @At("HEAD"), cancellable = true, require = 0)
-    private static void su$weeklySuiteSenzu(ServerPlayer player, StatsData data, int option, CallbackInfo ci)
+    private static void su$weeklySuiteSenzu(ServerPlayer player, StatsData data, int option, CallbackInfoReturnable<Boolean> cir)
     {
         if (option != SENZU_OPTION || player == null)
             return;
-        ci.cancel();
+        boolean granted = false;
         try
         {
-            KorinRewardEvents.grantFromDialogue(player);
+            granted = KorinRewardEvents.grantFromDialogue(player);
         }
         catch (Throwable ignored)
         {
             // never let the handout crash the packet handler; the player simply gets nothing this click
         }
+        cir.setReturnValue(granted);
     }
 }

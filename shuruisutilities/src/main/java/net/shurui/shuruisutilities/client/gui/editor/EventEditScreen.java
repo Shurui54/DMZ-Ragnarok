@@ -105,6 +105,13 @@ public class EventEditScreen extends FieldEditScreen
     /** The label typed for a floor add, applied when the server's copied config comes back (acceptFloor). */
     private String pendingFloorLabel = "";
 
+    /** The zone a yearly day range runs in (the server's own), and the shared clock when the editor opened. */
+    private final String serverZone;
+    private final long serverNowAtOpen;
+    private final long openedAtMillis = System.currentTimeMillis();
+    /** An older free-text annual window that was turned into day dropdowns on open: its old text, else "". */
+    private String migratedFrom = "";
+
     public EventEditScreen(CompoundTag eventTag, CompoundTag picks)
     {
         super(Component.translatable("gui.dmz_ragnarok.core.hub.events"), UI_W, UI_H, null);
@@ -126,6 +133,67 @@ public class EventEditScreen extends FieldEditScreen
         pickCosmeticIds.addAll(readList(p, "cosmeticIds"));
         pickCosmeticNames.addAll(readList(p, "cosmeticNames"));
         java.util.Arrays.fill(ct, "");
+        String zone = p.getString("serverZone");
+        this.serverZone = EventSchedule.validZone(zone) ? zone : java.time.ZoneId.systemDefault().getId();
+        this.serverNowAtOpen = p.contains("serverNow") ? p.getLong("serverNow") : System.currentTimeMillis();
+        migrateSchedule();
+    }
+
+    /**
+     * Bring an older schedule into the day dropdowns, LOCALLY (nothing is stored until Save). An older ANNUAL window
+     * becomes the month/day range of its local start and end (an end at exactly 00:00 belongs to the day before),
+     * and the old text is kept for a note on the Schedule tab. An older ONE-OFF (dated, not annual) window is left
+     * exactly as it is and shown read-only as "one-off, legacy" until the admin chooses to change it, so it never
+     * silently becomes yearly. A blank schedule gets tomorrow as a one-day range.
+     */
+    private void migrateSchedule()
+    {
+        EventDef.Schedule sc = def.schedule;
+        if (sc.isDayRange())
+            return;
+        if (sc.annual)
+        {
+            int[] r = EventSchedule.legacyDayRange(sc.startLocal, sc.endLocal);
+            if (r != null)
+            {
+                migratedFrom = sc.startLocal.replace('T', ' ') + " to " + sc.endLocal.replace('T', ' ') + " " + sc.zone;
+                applyRange(r);
+                return;
+            }
+        }
+        if (isLegacyOneOff())
+            return;
+        java.time.LocalDate tomorrow = serverToday().plusDays(1);
+        applyRange(new int[] { tomorrow.getMonthValue(), tomorrow.getDayOfMonth(), tomorrow.getMonthValue(),
+                tomorrow.getDayOfMonth() });
+    }
+
+    /** An older dated window (not annual, not a day range) with something set: shown read-only. */
+    private boolean isLegacyOneOff()
+    {
+        EventDef.Schedule sc = def.schedule;
+        return !sc.isDayRange() && !sc.annual && (sc.startEpochMillis > 0 || sc.endEpochMillis > 0
+                || (sc.startLocal != null && !sc.startLocal.isBlank()));
+    }
+
+    private void applyRange(int[] r)
+    {
+        def.schedule.startMonth = r[0];
+        def.schedule.startDay = r[1];
+        def.schedule.endMonth = r[2];
+        def.schedule.endDay = r[3];
+        def.schedule.annual = true;
+    }
+
+    /** The shared clock now, as of the server's snapshot plus the time the editor has been open. */
+    private long serverNow()
+    {
+        return serverNowAtOpen + Math.max(0L, System.currentTimeMillis() - openedAtMillis);
+    }
+
+    private java.time.LocalDate serverToday()
+    {
+        return java.time.Instant.ofEpochMilli(serverNow()).atZone(EventSchedule.zoneOrUtc(serverZone)).toLocalDate();
     }
 
     private static List<String> readList(CompoundTag t, String key)
@@ -222,43 +290,151 @@ public class EventEditScreen extends FieldEditScreen
                 v -> def.manualState = EventDef.ManualState.parse(v == null || v.isBlank() ? "AUTO" : v));
     }
 
+    private static final java.time.format.DateTimeFormatter PREVIEW =
+            java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+
+    private String monthName(int m)
+    {
+        return m >= 1 && m <= 12 ? tr("gui.dmz_ragnarok.core.event.month_" + m) : "?";
+    }
+
+    private String dayText(int m, int d)
+    {
+        return monthName(m) + " " + d;
+    }
+
     private void buildSchedule()
     {
-        tf(tr("gui.dmz_ragnarok.core.event.field_zone"), def.schedule.zone,
-                v -> def.schedule.zone = v == null || v.isBlank() ? "UTC" : v.trim());
-        tf(tr("gui.dmz_ragnarok.core.event.field_start_local"), def.schedule.startLocal,
-                v -> def.schedule.startLocal = v == null ? "" : v.trim());
-        tf(tr("gui.dmz_ragnarok.core.event.field_end_local"), def.schedule.endLocal,
-                v -> def.schedule.endLocal = v == null ? "" : v.trim());
-        bf(tr("gui.dmz_ragnarok.core.event.field_annual"), def.schedule.annual,
-                () -> def.schedule.annual = !def.schedule.annual);
-        label("§7" + tr("gui.dmz_ragnarok.core.event.resolved") + " §f" + resolvedWindow(), 14, rowY + 4);
+        if (isLegacyOneOff())
+        {
+            buildLegacyOneOff();
+            return;
+        }
+        EventDef.Schedule sc = def.schedule;
+        dayRow(tr("gui.dmz_ragnarok.core.event.field_start_day"), sc.startMonth, sc.startDay,
+                m -> sc.startMonth = m, d -> sc.startDay = d);
+        dayRow(tr("gui.dmz_ragnarok.core.event.field_end_day"), sc.endMonth, sc.endDay,
+                m -> sc.endMonth = m, d -> sc.endDay = d);
+
+        java.time.ZoneId zone = EventSchedule.zoneOrUtc(serverZone);
+        rowY += 2;
+        // Which days are included, in words, then the occurrence the scheduler will use next (or is running).
+        int days = EventSchedule.rangeDays(sc.startMonth, sc.startDay, sc.endMonth, sc.endDay);
+        String range = sc.startMonth == sc.endMonth && sc.startDay == sc.endDay
+                ? tr("gui.dmz_ragnarok.core.event.range_single", dayText(sc.startMonth, sc.startDay))
+                : tr("gui.dmz_ragnarok.core.event.range_days", dayText(sc.startMonth, sc.startDay),
+                        dayText(sc.endMonth, sc.endDay), days);
+        label("§f" + range, 14, rowY + 2);
         rowY += ROW_H;
-        label("§8" + tr("gui.dmz_ragnarok.core.event.schedule_hint"), 14, rowY + 2);
+        if (EventSchedule.wraps(sc.startMonth, sc.startDay, sc.endMonth, sc.endDay))
+        {
+            label("§7" + tr("gui.dmz_ragnarok.core.event.range_wraps"), 14, rowY + 2);
+            rowY += ROW_H;
+        }
+        if ((sc.startMonth == 2 && sc.startDay == 29) || (sc.endMonth == 2 && sc.endDay == 29))
+        {
+            label("§7" + tr("gui.dmz_ragnarok.core.event.range_feb29"), 14, rowY + 2);
+            rowY += ROW_H;
+        }
+        label("§7" + tr("gui.dmz_ragnarok.core.event.range_midnight"), 14, rowY + 2);
+        rowY += ROW_H;
+        label("§7" + tr("gui.dmz_ragnarok.core.event.server_zone") + " §f" + zone.getId() + " §8("
+                + zoneOffsetText(zone) + ")", 14, rowY + 2);
+        rowY += ROW_H;
+
+        if (days > EventSchedule.MAX_WINDOW_DAYS)
+        {
+            label("§c" + tr("gui.dmz_ragnarok.core.event.range_too_long", EventSchedule.MAX_WINDOW_DAYS), 14, rowY + 2);
+            rowY += ROW_H;
+        }
+        else
+        {
+            long now = serverNow();
+            long[] w = EventSchedule.dayRangeWindow(sc.startMonth, sc.startDay, sc.endMonth, sc.endDay, zone, now);
+            String key = now >= w[0] && now < w[1] ? "gui.dmz_ragnarok.core.event.range_running"
+                    : "gui.dmz_ragnarok.core.event.range_next";
+            label("§7" + tr(key), 14, rowY + 2);
+            rowY += ROW_H;
+            label("§f" + local(w[0], zone) + " §7-> §f" + local(w[1], zone), 20, rowY + 2);
+            rowY += ROW_H;
+            label("§8" + EventSchedule.toDbUtc(w[0]).substring(0, 16) + " -> "
+                    + EventSchedule.toDbUtc(w[1]).substring(0, 16) + " UTC", 20, rowY + 2);
+            rowY += ROW_H;
+        }
+        if (!migratedFrom.isEmpty())
+        {
+            label("§e" + tr("gui.dmz_ragnarok.core.event.migrated"), 14, rowY + 2);
+            rowY += ROW_H;
+            label("§8" + migratedFrom, 20, rowY + 2);
+            rowY += ROW_H;
+        }
     }
 
-    /** A read-only preview of the window the current local strings + zone resolve to, in UTC, or a hint if unset. */
-    private String resolvedWindow()
+    /** One "label  [Month v] [Day v]" row. The day list follows the month (February lists 29). */
+    private void dayRow(String labelText, int month, int day, java.util.function.IntConsumer setMonth,
+                        java.util.function.IntConsumer setDay)
     {
-        long s = tryResolve(def.schedule.startLocal, def.schedule.zone, def.schedule.startEpochMillis);
-        long e = tryResolve(def.schedule.endLocal, def.schedule.zone, def.schedule.endEpochMillis);
-        if (s <= 0 && e <= 0)
-            return tr("gui.dmz_ragnarok.core.event.resolved_unset");
-        return EventSchedule.toDbUtc(s) + " -> " + EventSchedule.toDbUtc(e) + " UTC";
+        int m = month >= 1 && month <= 12 ? month : 1;
+        int maxDay = EventSchedule.maxDaysInMonth(m);
+        int d = Math.max(1, Math.min(day, maxDay));
+        // Keep the stored value in step with what the dropdowns show (a month change can shorten the day list).
+        setMonth.accept(m);
+        setDay.accept(d);
+
+        label(labelText, 14, rowY + 5);
+        List<String> months = new ArrayList<>();
+        for (int i = 1; i <= 12; i++)
+            months.add(monthName(i));
+        List<String> dayLabels = new ArrayList<>();
+        for (int i = 1; i <= maxDay; i++)
+            dayLabels.add(Integer.toString(i));
+        int x = fieldColX();
+        int total = fieldColW();
+        int dayW = 34;
+        int monthW = Math.max(40, total - dayW - GuiTheme.UNIT);
+        choiceAt(x, rowY, monthW, months, m - 1, idx -> setMonth.accept(idx + 1));
+        choiceAt(x + monthW + GuiTheme.UNIT, rowY, total - monthW - GuiTheme.UNIT, dayLabels, d - 1,
+                idx -> setDay.accept(idx + 1));
+        rowY += ROW_H + 2;
     }
 
-    private static long tryResolve(String local, String zone, long fallback)
+    /** An older one-off window: shown read-only until the admin changes it to yearly days. */
+    private void buildLegacyOneOff()
     {
-        if (local == null || local.isBlank())
-            return fallback;
-        try
-        {
-            return EventSchedule.resolveEpoch(local, zone == null || zone.isBlank() ? "UTC" : zone);
-        }
-        catch (Exception e)
-        {
-            return fallback;
-        }
+        EventDef.Schedule sc = def.schedule;
+        java.time.ZoneId zone = EventSchedule.zoneOrUtc(sc.zone);
+        label("§e" + tr("gui.dmz_ragnarok.core.event.legacy_oneoff"), 14, rowY + 2);
+        rowY += ROW_H;
+        label("§7" + tr("gui.dmz_ragnarok.core.event.legacy_oneoff_tip"), 14, rowY + 2);
+        rowY += ROW_H + 2;
+        label("§f" + local(sc.startEpochMillis, zone) + " §7-> §f" + local(sc.endEpochMillis, zone), 20, rowY + 2);
+        rowY += ROW_H;
+        label("§8" + zone.getId() + ", " + EventSchedule.toDbUtc(sc.startEpochMillis).substring(0, 16) + " -> "
+                + EventSchedule.toDbUtc(sc.endEpochMillis).substring(0, 16) + " UTC", 20, rowY + 2);
+        rowY += ROW_H + 4;
+        btn(14, rowY, 150, 12, Component.translatable("gui.dmz_ragnarok.core.event.legacy_convert"), () -> {
+            applyFields();
+            int[] r = EventSchedule.legacyDayRange(sc.startLocal, sc.endLocal);
+            if (r == null)
+            {
+                java.time.LocalDate t = serverToday().plusDays(1);
+                r = new int[] { t.getMonthValue(), t.getDayOfMonth(), t.getMonthValue(), t.getDayOfMonth() };
+            }
+            applyRange(r);
+            rebuildWidgets();
+        });
+        rowY += ROW_H + 4;
+    }
+
+    private static String local(long epochMillis, java.time.ZoneId zone)
+    {
+        return java.time.Instant.ofEpochMilli(epochMillis).atZone(zone).format(PREVIEW);
+    }
+
+    private String zoneOffsetText(java.time.ZoneId zone)
+    {
+        java.time.ZoneOffset off = zone.getRules().getOffset(java.time.Instant.ofEpochMilli(serverNow()));
+        return "UTC" + (off.getTotalSeconds() == 0 ? "" : off.getId());
     }
 
     private void buildTheme()
@@ -1078,8 +1254,15 @@ public class EventEditScreen extends FieldEditScreen
     private void save()
     {
         applyFields();
-        def.schedule.startEpochMillis = tryResolve(def.schedule.startLocal, def.schedule.zone, def.schedule.startEpochMillis);
-        def.schedule.endEpochMillis = tryResolve(def.schedule.endLocal, def.schedule.zone, def.schedule.endEpochMillis);
+        if (def.schedule.isDayRange())
+        {
+            // The server sets the zone (its own) and freezes the epochs and locals from the days; sending the
+            // preview's values too keeps the def readable by anything that looks before the server answers.
+            def.schedule.annual = true;
+            def.schedule.zone = serverZone;
+            EventSchedule.freeze(def.schedule, serverNow());
+        }
+        // A legacy one-off is sent as it was loaded: the server re-freezes it from its own locals, unchanged.
         NetworkUtils.sendToServer(new PacketEventEditorSave(def.toNbt()));
         // The server validates and, on success, re-sends this event (refreshing the screen with the persisted rev);
         // a rejection arrives as a chat line and the local edits are kept so the admin can fix and re-save.

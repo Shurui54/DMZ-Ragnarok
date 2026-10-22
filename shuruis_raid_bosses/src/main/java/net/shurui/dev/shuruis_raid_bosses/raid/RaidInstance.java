@@ -1099,6 +1099,32 @@ public class RaidInstance {
     private static final int NULL_GRACE_TICKS = 100;
 
     /**
+     * Ceiling on how long a tracked enemy may stay unresolvable while the chunk it was last seen in is still being
+     * loaded back. The normal grace ({@link #NULL_GRACE_TICKS}) only starts to count once that chunk's entities are
+     * loaded, because an enemy whose chunk unloaded is not gone, it is on disk, and the ticket {@link #holdChunk}
+     * places brings it back within a few ticks. This bounds the wait if the load never completes.
+     */
+    private static final int NULL_GRACE_MAX_TICKS = 1200;
+
+    /**
+     * Keeps the chunk a live raid enemy stands in loaded and entity ticking while the fight runs. Without it, an
+     * enemy whose chunk had no player in view range (the fighters bounced, rescued or briefly gone) was saved to disk
+     * with the chunk, read as vanished, and after the grace window the raid ended as a failure. Refreshed every
+     * second, so the lifespan only has to outlive one refresh.
+     */
+    private static final net.minecraft.server.level.TicketType<net.minecraft.world.level.ChunkPos> ENEMY_TICKET =
+            net.minecraft.server.level.TicketType.create("dmzr_raid_enemy",
+                    java.util.Comparator.comparingLong(net.minecraft.world.level.ChunkPos::toLong), 60);
+
+    /** Hold (or bring back) the chunk at {@code pos} for {@link #ENEMY_TICKET}'s lifespan. */
+    private static void holdChunk(ServerLevel level, Vec3 pos) {
+        if (level == null || pos == null) return;
+        net.minecraft.world.level.ChunkPos cp = new net.minecraft.world.level.ChunkPos(
+                net.minecraft.core.BlockPos.containing(pos));
+        level.getChunkSource().addRegionTicket(ENEMY_TICKET, cp, 2, cp);
+    }
+
+    /**
      * a DMZ transform spawned this form carrying DMZ's own scaling (old stats x multiplier, refilled hp) and
      * DROPPING everything the raid set: ki-move pool, melee/ki damage, speed, scale, battle power, name. re-apply
      * the def stats so every form honours the raid config; this is what makes edited HP stick on transforming
@@ -1419,6 +1445,56 @@ public class RaidInstance {
         }
     }
 
+    /**
+     * Whether an enemy may keep {@code target} as its target. A player who is not an active participant (never in this
+     * raid, or eliminated: rescued from a lethal hit or killed and sent home) is not: DragonMineZ's saga AI teleports
+     * straight to its target wherever it is (wild sense, zanzoken, every combo step), so a boss still aimed at a
+     * fighter who was just sent home followed them out of the arena, into a chunk nobody had loaded, and the raid
+     * either lost its boss and failed or saw it reappear at the arena edge. Anything that is not a player (an ally,
+     * a summon) is left to the other passes.
+     */
+    private boolean fightingTarget(LivingEntity target) {
+        if (!(target instanceof net.minecraft.world.entity.player.Player)) return true;
+        UUID id = target.getUUID();
+        return participants.contains(id) && !eliminated.contains(id);
+    }
+
+    /**
+     * A fighter has just left the fight (rescued or killed). Point every enemy that was on them at someone still
+     * fighting, and stop any combo in flight on them: DragonMineZ keeps a combo's target in its own field, separate
+     * from the mob target, and each combo step teleports onto that target and hits it.
+     */
+    private void releaseFighter(ServerPlayer p) {
+        RaidBossDef def = def();
+        for (UUID id : new java.util.ArrayList<>(liveEnemies)) {
+            LivingEntity e = enemy(id);
+            if (!(e instanceof Mob mob) || mob.getTarget() != p) continue;
+            if (e instanceof DBSagasEntity saga && saga.isComboing()) saga.stopCombo();
+            mob.setTarget(def != null && def.arena != null ? nearestParticipantInArena(def, e) : null);
+        }
+    }
+
+    /**
+     * Leash for a tracked enemy's own teleport (called from the raid teleport mixin before the move happens). A
+     * teleport whose destination is outside this raid's arena is refused, so DragonMineZ's teleport-to-target moves
+     * can never carry a boss out of the fight, into an unloaded chunk, or to a random spot outside. The enemy also
+     * drops a target outside the arena, which is what it was teleporting to.
+     *
+     * @return true when the teleport must not happen
+     */
+    public boolean refuseTeleport(Entity e, double x, double y, double z) {
+        if (!started() || !liveEnemies.contains(e.getUUID())) return false;
+        RaidBossDef def = def();
+        if (def == null || def.arena == null) return false;
+        if (!e.level().dimension().equals(def.arena.dimension())) return false;
+        if (def.arena.contains(e.level(), new Vec3(x, y, z))) return false;
+        if (e instanceof Mob mob && mob.getTarget() != null && !def.arena.containsWithMargin(mob.getTarget(), 0.0)) {
+            if (e instanceof DBSagasEntity saga && saga.isComboing()) saga.stopCombo();
+            mob.setTarget(nearestParticipantInArena(def, mob));
+        }
+        return true;
+    }
+
     /** Share of enemy retargets that pick an ally instead of a player. The rest go to the player. */
     private static final double ALLY_FOCUS_CHANCE = 0.25;
 
@@ -1451,10 +1527,12 @@ public class RaidInstance {
             LivingEntity current = mob.getTarget();
             boolean unusable = current == null
                     || !current.isAlive()
-                    || liveEnemies.contains(current.getUUID());
+                    || liveEnemies.contains(current.getUUID())
+                    || !fightingTarget(current);
             if (!unusable && !reroll) continue;
             LivingEntity pick = pickFocus(e);
             if (pick != null) mob.setTarget(pick);
+            else if (current != null && !fightingTarget(current)) mob.setTarget(null);
         }
     }
 
@@ -1828,6 +1906,7 @@ public class RaidInstance {
             if (e != null && e.isAlive()) {
                 nullGraceTicks.remove(id); // resolvable + alive, reset any grace
                 lastKnownPos.put(id, e.position()); // in case it vanishes into a transform next tick
+                if (activeTicks % 20 == 1 && e.level() instanceof ServerLevel el) holdChunk(el, e.position());
                 // DMZ saga bosses can clear the GLOWING flag each tick, so re-pin it. cheap: near no-ops when set.
                 applyGlow(e);
                 continue;
@@ -1854,7 +1933,17 @@ public class RaidInstance {
             // age the grace window; keep it in liveEnemies until it expires so a transient-null / mid-transform
             // boss isn't counted as gone.
             int ticks = nullGraceTicks.merge(id, 1, Integer::sum);
-            if (ticks >= NULL_GRACE_TICKS) {
+            // An enemy whose chunk unloaded is on disk, not gone: ask for its last known chunk back, and only start
+            // the real grace once that chunk's entities are loaded and it still is not there.
+            Vec3 last = lastKnownPos.get(id);
+            ServerLevel arenaLevel = server.getLevel(def.arena.dimension());
+            boolean lastChunkLoaded = true;
+            if (last != null && arenaLevel != null) {
+                if (ticks % 20 == 1) holdChunk(arenaLevel, last);
+                lastChunkLoaded = arenaLevel.areEntitiesLoaded(
+                        net.minecraft.world.level.ChunkPos.asLong(net.minecraft.core.BlockPos.containing(last)));
+            }
+            if (ticks >= NULL_GRACE_MAX_TICKS || (ticks >= NULL_GRACE_TICKS && lastChunkLoaded)) {
                 nullGraceTicks.remove(id);
                 lastKnownPos.remove(id);
                 RaidDamageTracker.clear(id);
@@ -2334,6 +2423,7 @@ public class RaidInstance {
         DmzHooks.fullHeal(p);
         DmzHooks.clearCombatLocks(p); // fullHeal leaves STUN/strikeLocked behind, drop the lockout too
         eliminated.add(p.getUUID()); // falling once is final, no re-entry this raid
+        releaseFighter(p);
         return true;
     }
 
@@ -2341,6 +2431,7 @@ public class RaidInstance {
     public void onParticipantDeath(ServerPlayer p) {
         if (state == RaidState.ACTIVE && participants.contains(p.getUUID())) {
             eliminated.add(p.getUUID());
+            releaseFighter(p);
         }
     }
 

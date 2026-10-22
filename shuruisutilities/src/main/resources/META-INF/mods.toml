@@ -85,7 +85,7 @@ side = "BOTH"
 [[dependencies."${mod_id}"]]
 modId = "dragonminez"
 mandatory = true
-versionRange = "[1.0,)"
+versionRange = "[2.2,)"
 ordering = "AFTER"
 side = "BOTH"
 

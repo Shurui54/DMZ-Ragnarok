@@ -23,12 +23,12 @@ import net.shurui.shuruisutilities.util.output.logger.LoggingHandler;
 /**
  * DMZ-facing seed-merge for the dragon-ball ritual forms, reached only through {@link RitualRaceMerge}'s guard.
  *
- * <p>Adds three form groups to DMZ's own race folders and patches the price arrays that decide reachability:
+ * <p>Adds the ritual form groups to DMZ's own race folders and patches the price arrays that decide reachability:
  * <ul>
  *   <li><b>saiyan / ssj5.json</b> ({@code superforms} rung 9, {@code supersaiyan5}). The {@code superforms} price array
  *       is padded to nine entries with rung 9 set to {@code -1} (granted only, client refuses purchase).</li>
- *   <li><b>saiyan / godforms.json</b> ({@code supersaiyangod}). The {@code godforms} price is set to a single positive
- *       value only if base DMZ left it empty, so SSG is purchasable but gated by {@code MixinDmzSsgPurchaseGate}.</li>
+ *   <li>SU's former Super Saiyan God group ({@code saiyan/godforms.json}) is retired and removed where SU seeded it;
+ *       the god ritual grants DragonMineZ's own god form instead (half saiyans get DMZ's file from their bundle).</li>
  *   <li><b>namekian / primalnamekian.json</b> ({@code superforms} rung 4). The {@code superforms} price rung 4 is set to
  *       {@code -1} (granted only).</li>
  * </ul>
@@ -71,17 +71,15 @@ final class RitualRaceMergeImpl
             changed |= insertOrRepairForm("saiyan", "supersaiyan.json", "supersaiyan5daima",
                     "/ritual_forms/saiyan/ssj5daima.json");
 
-            // The god ritual is the one saiyan line a half saiyan DOES keep, so Super Saiyan God is seeded for
-            // both. Same source file for both races: the form is identical, and a second copy in the half_saiyan
-            // bundle would be a second thing to keep in step.
-            for (String race : new String[] {"saiyan", "half_saiyan"})
-            {
-                changed |= copyFormIfAbsent(race, "godforms.json", "/ritual_forms/saiyan/godforms.json");
-            }
+            // The god ritual grants DragonMineZ's OWN base god form (the godritual group). Our former Super Saiyan
+            // God group (godforms / supersaiyangod) is retired: removed where SU seeded it, never written again.
+            // Saiyan only: half_saiyan is a bundled race, and its bundle (v9) both drops godforms.json and ships
+            // DMZ's own godritual.json, so the extractor's own upgrade does that race (deleting the file here would
+            // look like an admin edit and stop the upgrade).
+            changed |= retireOurGodForms("saiyan");
             changed |= copyFormIfAbsent("namekian", "primalnamekian.json", "/ritual_forms/namekian/primalnamekian.json");
 
             changed |= patchSaiyanPrices();
-            changed |= patchHalfSaiyanGodPrice();
             changed |= patchNamekianPrices();
 
             if (changed)
@@ -199,6 +197,46 @@ final class RitualRaceMergeImpl
         return el.isJsonPrimitive() && el.getAsJsonPrimitive().isString() && el.getAsString().isEmpty();
     }
 
+    /** The god form SU used to seed (godforms.json holding only supersaiyangod). */
+    private static final String OUR_GOD_FILE = "godforms.json";
+    private static final String OUR_GOD_GROUP = "godforms";
+    private static final String OUR_GOD_FORM = "supersaiyangod";
+
+    /**
+     * Delete SU's retired Super Saiyan God group from a race, but only when it is still ours: group {@code godforms}
+     * holding nothing but {@code supersaiyangod}. A file an admin has extended with other forms is left alone.
+     * Characters still standing in the removed form are healed by the unresolved-form repair on login and tick.
+     */
+    private static boolean retireOurGodForms(String race)
+    {
+        try
+        {
+            Path dest = racesDir().resolve(race).resolve("forms").resolve(OUR_GOD_FILE);
+            if (!Files.exists(dest))
+                return false;
+            JsonObject root = read(dest);
+            if (root == null)
+                return false;
+            String group = root.has("groupName") ? root.get("groupName").getAsString() : "";
+            JsonObject forms = child(root, "forms");
+            if (!OUR_GOD_GROUP.equalsIgnoreCase(group) || forms == null || forms.size() != 1 || !forms.has(OUR_GOD_FORM))
+            {
+                LoggingHandler.sulog.info("[ritual] Left {}/{} in place: it is not SU's retired god form any more.",
+                        race, OUR_GOD_FILE);
+                return false;
+            }
+            Files.delete(dest);
+            LoggingHandler.sulog.info("[ritual] Removed SU's retired Super Saiyan God form ({}/{}); the god ritual now "
+                    + "grants DragonMineZ's own god form.", race, OUR_GOD_FILE);
+            return true;
+        }
+        catch (Throwable t)
+        {
+            LoggingHandler.sulog.warn("[ritual] Could not retire {}/{}.", race, OUR_GOD_FILE, t);
+            return false;
+        }
+    }
+
     private static boolean copyFormIfAbsent(String race, String fileName, String resource)
     {
         try
@@ -267,35 +305,6 @@ final class RitualRaceMergeImpl
         if (changed)
             write(file, root);
         return changed;
-    }
-
-    /**
-     * Price Super Saiyan God for half saiyans on an install that predates them having it.
-     *
-     * <p>The bundled half_saiyan character.json now ships {@code godforms: [150000]}, which covers a fresh install
-     * and any folder {@link RaceBundleExtractor} is allowed to upgrade. It does not cover the case that matters
-     * most on a live server: a folder an admin has edited, which the extractor deliberately leaves alone. There the
-     * file still says {@code prices: []}, and an empty price list is one of the two ways a form group is silently
-     * unreachable, so the god ritual would seed the FORM and the race still could not take it.
-     *
-     * <p>Only fills an EMPTY list, exactly like the saiyan patch: a price an operator has actually set, including a
-     * deliberate retune, is theirs. Nothing else about the group is touched, so the rest of the edited file stands.
-     */
-    private static boolean patchHalfSaiyanGodPrice()
-    {
-        Path file = racesDir().resolve("half_saiyan").resolve("character.json");
-        JsonObject root = read(file);
-        if (root == null)
-            return false; // the race folder is not there; the bundle extractor has not run or DMZ is not ready
-        JsonObject costs = child(root, "formSkillsCosts");
-        if (costs == null)
-            return false;
-        JsonArray godPrices = ensurePrices(group(costs, "godforms"));
-        if (godPrices.size() != 0)
-            return false;
-        godPrices.add(new JsonPrimitive(SSG_PRICE));
-        write(file, root);
-        return true;
     }
 
     private static boolean patchNamekianPrices()

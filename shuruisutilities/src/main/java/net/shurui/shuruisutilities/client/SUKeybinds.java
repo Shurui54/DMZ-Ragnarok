@@ -179,7 +179,7 @@ public final class SUKeybinds
                     new net.shurui.shuruisutilities.character.PacketCharacterAction("open", 0, ""));
         while (MOVE_REGION_HUD.consumeClick())
             if (key)
-                mc.setScreen(new net.shurui.shuruisutilities.client.hud.HudMoveScreen());
+                net.shurui.shuruisutilities.client.hud.HudMoveScreen.open();
         while (TOGGLE_HOVERBIKE.consumeClick())
             NetworkUtils.INSTANCE.sendToServer(new net.shurui.shuruisutilities.hoverbike.PacketHoverbikeToggle());
         while (OPEN_PLANET_SELECT.consumeClick())

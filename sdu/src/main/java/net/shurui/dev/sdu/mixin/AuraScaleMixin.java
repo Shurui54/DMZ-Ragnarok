@@ -20,9 +20,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin(value = AuraRenderer.class, remap = false)
 public abstract class AuraScaleMixin {
 
-    @Inject(method = "getAuraScale(Lcom/dragonminez/common/stats/StatsData;[F)[F",
+    @Inject(method = "getAuraScale(Lnet/minecraft/world/entity/player/Player;Lcom/dragonminez/common/stats/StatsData;)[F",
             at = @At("RETURN"), cancellable = true, remap = false, require = 0)
-    private static void sdu$scaleAura(StatsData stats, float[] in,
+    // DragonMineZ 2.2: getAuraScale(Player, StatsData) (2.1 took the body scale array as its second argument).
+    private static void sdu$scaleAura(net.minecraft.world.entity.player.Player player, StatsData stats,
                                       CallbackInfoReturnable<float[]> cir) {
         if (!net.shurui.dev.sdu.Config.enableAuraStacking) {
             return; // shared safety switch (config/dmznpc-common.toml)

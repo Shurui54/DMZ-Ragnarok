@@ -1,4 +1,5 @@
-{ "__comment": "SHIM kept so pre-migration worlds still load. Live definition is now the dmz_ragnarok copy of this file. Prevents a hard datapack load failure only; it does not make an unmigrated world correct. Migration via world-tools/ns-rename is required.",
+{
+  "__comment": "SHIM kept so pre-migration worlds still load. Live definition is now the dmz_ragnarok copy of this file. Prevents a hard datapack load failure only; it does not make an unmigrated world correct. Migration via world-tools/ns-rename is required.",
   "type": "minecraft:jigsaw",
   "biomes": [
     "shuruisutilities:vegeta",
@@ -15,20 +16,20 @@
         {
           "type": "dragonminez:saga_saibaman1",
           "weight": 100,
-          "minCount": 3,
-          "maxCount": 5
+          "minCount": 1,
+          "maxCount": 2
         },
         {
           "type": "dragonminez:saga_saibaman2",
           "weight": 80,
-          "minCount": 2,
-          "maxCount": 4
+          "minCount": 1,
+          "maxCount": 2
         },
         {
           "type": "dragonminez:saga_saibaman3",
           "weight": 60,
-          "minCount": 2,
-          "maxCount": 3
+          "minCount": 1,
+          "maxCount": 2
         },
         {
           "type": "dragonminez:saga_saibaman4",

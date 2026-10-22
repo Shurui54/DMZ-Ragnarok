@@ -5,7 +5,7 @@ import net.minecraftforge.fml.ModList;
 /**
  * Guard entry point for seeding the ritual forms into DMZ's own saiyan and namekian races. Holds no DMZ imports: it only
  * checks that DMZ is present before touching {@link RitualRaceMergeImpl}, which references {@code ConfigManager}. Follows
- * the optional-dependency pattern.
+ * docs/compat-pattern.md.
  *
  * <p>Unlike {@link RaceBundleExtractor} (which writes whole SU-owned race folders), this performs a SEED-IF-ABSENT merge
  * into DMZ's stock race folders: it adds the SSJ5 and Super Saiyan God form group files to saiyan and Primal Namekian to

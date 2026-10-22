@@ -1,32 +1,45 @@
 package net.shurui.shuruisutilities.space;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.phys.Vec3;
 
 /**
- * Placement MATHS for the seven SUPER dragon-ball bodies in space: the id namespace, the visual half-extent, the
- * INITIAL layout (a pure function seeded into {@link SuperPlanetData} on first init) and the constraint-checking sampler
- * {@link SuperPlanetData} draws a fresh position from when a body RELOCATES. Nothing here is stored: the authoritative
- * current position of every body lives in {@link SuperPlanetData} and is synced to clients, because a body may move
- * (point 5 relocation) so its position can no longer be a pure function the way a fixed planet's is.
+ * Orbit MATHS for the seven SUPER dragon-ball bodies in space: the id namespace, the visual half-extent, the reserved
+ * radius BANDS their orbits live in, and the chooser {@link SuperPlanetData} calls to give a body a fresh random orbit
+ * (on first start, on migrating an older save, and every time a body relocates). Nothing here is stored: each body's
+ * orbit ELEMENTS (radius, start phase, period, plane height) are persisted in {@link SuperPlanetData} and synced to
+ * clients in {@link PacketSpaceLayoutSync}; both sides derive the live position from them at the shared {@link
+ * OrbitClock} instant, so nothing is pushed per tick.
  *
- * <h3>Placement constraints (points 5 and 6)</h3>
- * Every body sits <b>{@value #MIN_FROM_EARTH}..{@value #MAX_FROM_EARTH}</b> blocks from Earth (the fixed body keyed
- * {@code minecraft:overworld}, whose position comes from {@link PlanetPositions#position} at runtime, never hardcoded)
- * and at least <b>{@value #MIN_SEPARATION}</b> blocks from every other super body. The initial layout spreads the seven
- * evenly by angle on a ring around Earth with a hashed per-body radius in a band that provably keeps any two of them
- * well past the separation minimum; the relocation sampler rejection-samples the same annulus, additionally rejecting a
- * candidate that would overlap a fixed body or a generated planet (which includes the Black Star target planets, since
- * those ARE generated planets), so a relocated body never lands on top of anything.
+ * <h3>Orbits around the main sun (owner, 2026-10-21)</h3>
+ * "super dragon balls should be orbiting the main sun, they do not do that, at random distances." They used to sit in a
+ * 20000..45000 band around EARTH, frozen where they were seeded (their orbit was derived from that spot, so with
+ * periods of a day or more they never visibly went anywhere). Each body now orbits the central sun on its OWN circular
+ * orbit at a random radius inside its own band, with a random phase and the period of {@link Orbits#periodMillis} (the
+ * same Kepler-like curve the fixed planets and system planets use).
  *
- * <h3>Why generated planets still avoid the INITIAL ring</h3>
- * {@link #overlaps} is a pure function over the initial ring positions, consulted by {@link GeneratedPlanets} exactly as
- * before so a generated planet is never derived on top of a super body's starting spot. A relocated body is NOT added to
- * that check (it would need syncing into the pure derivation): instead the sampler guarantees the new spot is already
- * clear of every generated planet, and generated planets are a static pure field, so the two never collide afterwards.
+ * <h3>Bands: why two bodies can never collide and none touches a fixed planet</h3>
+ * The bands sit in the gaps BETWEEN the fixed planet rings ({@link PlanetPositions#ringRadiusOfIndex}), two per gap for
+ * the four innermost gaps, so there are {@link #bandCount()} (8) bands for seven bodies (one spare, so a relocating body
+ * has a real choice). Each gap keeps {@link #ringKeepOut()} clear of both rings (the largest fixed body, its moon's
+ * orbit and the super body itself plus a clearance), and the two bands of a gap are {@link #bandGap()} apart, which is
+ * more than two super half-extents plus the clearance. At most one body owns a band, so any two bodies differ in orbit
+ * radius by more than they could ever reach across: they can never touch whatever their phases. The band edges track
+ * the configured ring numbers, so a ring config change is caught on load (a body whose radius no longer falls in a band
+ * is given a new orbit, see {@link SuperPlanetData}).
+ *
+ * <h3>Generated systems, stars and black holes</h3>
+ * Generated SYSTEMS no longer yield to super bodies at all (they used to yield to the seven "initial" spots, which were
+ * anchored on Earth and so moved with Earth's orbit, making systems near them blink in and out). Instead the orbit
+ * chooser picks the radius and plane height inside a body's band that keeps its whole orbit clear of every system's
+ * planets, or, if no such radius exists in that band, the one that crosses the fewest systems (logged). Lone stars and
+ * black holes keep yielding to a super body, now to its LIVE position ({@link #overlapsLive}), exactly the way they
+ * already yield to the orbiting fixed planets: both sides derive the same live positions from the same synced elements.
  */
 public final class SuperPlanetPositions
 {
@@ -40,58 +53,38 @@ public final class SuperPlanetPositions
 
     // the reference fixed body the super size is derived from: four times its half-extent.
     private static final String NAMEK_KEY = "dragonminez:namek";
-    // Earth: the anchor every super body is placed relative to, resolved live so it tracks the fixed-ring config.
+    // Earth, used only for the admin status line's "distance from Earth" column.
     private static final String EARTH_KEY = "minecraft:overworld";
 
     public static final int COUNT = 7;
 
-    // distance band from Earth every super body must sit in (point 6).
-    public static final double MIN_FROM_EARTH = 20000.0;
-    public static final double MAX_FROM_EARTH = 45000.0;
-    // minimum centre-to-centre spacing between any two super bodies (point 6).
-    public static final double MIN_SEPARATION = 15000.0;
+    // Vertical band a super body's orbital plane may sit at, around the main sun plane (PlanetPositions.PLANET_Y, 0). With
+    // the 352 half-extent the body spans -1452..1452, inside SpaceDimension.BODY_FLOOR_Y..BODY_CEILING_Y (-1776..1968).
+    // The upper edge is kept at 1100 on purpose: a save from the old -64..1984 column holds plane heights 700..1100,
+    // and those stay valid here, so no super body moves on upgrade.
+    static final double MIN_Y = PlanetPositions.PLANET_Y - 1100.0;
+    static final double MAX_Y = PlanetPositions.PLANET_Y + 1100.0;
 
-    // the INITIAL ring the seven bodies are seeded on, as a radius band around Earth. 24000..36000 sits inside the
-    // 20000..45000 band with margin, and even angular spacing over this band keeps the closest possible pair (both at
-    // 24000, adjacent) about 18,900 blocks apart, comfortably past MIN_SEPARATION. See the class note.
-    private static final double INIT_RING_BASE = 24000.0;
-    private static final double INIT_RING_SPREAD = 12000.0;
-    // a small hashed angular wobble (up to +/- 5% of the even spacing) so the initial ring is not a perfect heptagon
-    // while staying far past the separation minimum.
-    private static final double INIT_ANGLE_WOBBLE = 0.05;
-
-    // Vertical band a super body's centre may occupy. Kept well inside the space play band with room for the large
-    // half-extent.
-    private static final double MIN_Y = 700.0;
-    private static final double MAX_Y = 1100.0;
-
-    // clearance in blocks added around a super body's half-extent when rejecting an overlap (generated planet or fixed
-    // body), matching the generated field's FIXED_CLEARANCE approach.
+    // clearance in blocks added around a super body's half-extent when keeping it clear of anything else, matching the
+    // generated field's FIXED_CLEARANCE approach.
     private static final double OVERLAP_CLEARANCE = 256.0;
 
-    // rejection-sampling budget for a relocation. Generous: with six ~15000 exclusion disks in a wide annulus there is
-    // always free room (the initial seven fit), so a valid spot is normally found in a handful of tries; the high cap is
-    // only a safety net.
-    private static final int SAMPLE_ATTEMPTS = 4000;
+    // the gaps between fixed rings the bands use (gap g lies between ring g and ring g+1), and bands per gap.
+    private static final int GAPS_USED = 4;
+    private static final int BANDS_PER_GAP = 2;
 
-    // splitmix64-style hash of the star number, deterministic and JVM-stable (integer arithmetic only).
-    private static long hash(int star)
-    {
-        long z = (star * 0x9E3779B97F4A7C15L) ^ 0x5DB2A1C3F00DBEEFL;
-        z = (z ^ (z >>> 30)) * 0xBF58476D1CE4E5B9L;
-        z = (z ^ (z >>> 27)) * 0x94D049BB133111EBL;
-        return z ^ (z >>> 31);
-    }
+    // how many random (radius, plane height) candidates the chooser scores inside one band. Rare (first start, migration,
+    // a relocation) and each candidate is a pass over the cached system list (a few hundred entries), so this is cheap.
+    private static final int ORBIT_SAMPLES = 96;
 
     // the visual half-extent of every super body: four times Namek's half-extent, computed live so it tracks the fixed
-    // radius formula. Both sides compute the identical value (a pure hash of the Namek key), so it needs no sync.
+    // radius formula. Both sides compute the identical value (a table lookup), so it needs no sync.
     public static float radius()
     {
         return 4.0F * PlanetPositions.radius(NAMEK_KEY);
     }
 
-    // Earth's current world position, the anchor for every super body. Pure on both sides (PlanetPositions.position is a
-    // hash over the synced ring config).
+    // Earth's current world position, for the admin status line only.
     public static Vec3 earth()
     {
         return PlanetPositions.position(EARTH_KEY);
@@ -127,186 +120,241 @@ public final class SuperPlanetPositions
         }
     }
 
-    /**
-     * The INITIAL world position for a star, a pure function of the star and Earth's position. This is what seeds
-     * {@link SuperPlanetData} on first init and what {@link #overlaps} keeps generated planets clear of. Evenly spaced by
-     * angle around Earth on a hashed-radius ring inside the 20000..45000 band.
-     */
-    public static Vec3 initialPosition(int star)
+    // ===== orbit bands =====
+
+    /** How many radius bands exist (two per used gap between fixed rings). Always more than {@link #COUNT}. */
+    public static int bandCount()
     {
-        Vec3 earth = earth();
-        long h = hash(star);
-        double baseAngle = (star - 1) * (Math.PI * 2.0 / COUNT);
-        double wobble = (((h & 0xFFFFL) / 65536.0) - 0.5) * (Math.PI * 2.0 / COUNT) * (INIT_ANGLE_WOBBLE * 2.0);
-        double angle = baseAngle + wobble;
-        double radius = INIT_RING_BASE + ((h >>> 16) & 0xFFFFL) / 65536.0 * INIT_RING_SPREAD;
-        double x = earth.x + Math.cos(angle) * radius;
-        double z = earth.z + Math.sin(angle) * radius;
-        double y = MIN_Y + ((h >>> 32) & 0xFFFFL) / 65536.0 * (MAX_Y - MIN_Y);
-        return new Vec3(x, y, z);
+        return GAPS_USED * BANDS_PER_GAP;
     }
 
-    /**
-     * True if a body centred at {@code pos} with the given half-extent overlaps any super body's INITIAL ring position's
-     * expanded bounding cube. Consulted by {@link GeneratedPlanets} so a generated planet is never derived on top of a
-     * super body's starting spot. Pure function (initial positions only), so the client rejects identically.
-     */
-    public static boolean overlaps(Vec3 pos, float radius)
+    // how far a band edge stays from a fixed ring: the largest fixed body, its moon's orbit and the moon itself, the
+    // super half-extent and the clearance.
+    static double ringKeepOut()
     {
-        float superRadius = radius();
-        for (int star = 1; star <= COUNT; ++star)
+        double fixedReach = PlanetPositions.MAX_FIXED_RADIUS * (1.0 + MoonBody.ORBIT_FACTOR + MoonBody.RADIUS_FACTOR);
+        return fixedReach + radius() + OVERLAP_CLEARANCE;
+    }
+
+    // the radial gap between the two bands of one ring gap: more than two super half-extents plus the clearance, so a
+    // body in one band can never reach a body in the next.
+    static double bandGap()
+    {
+        return 2.0 * radius() + OVERLAP_CLEARANCE;
+    }
+
+    // the usable width of one band (both bands of a gap are equal).
+    private static double bandWidth(int gap)
+    {
+        double inner = PlanetPositions.ringRadiusOfIndex(gap) + ringKeepOut();
+        double outer = PlanetPositions.ringRadiusOfIndex(gap + 1) - ringKeepOut();
+        return Math.max(0.0, (outer - inner - bandGap()) / BANDS_PER_GAP);
+    }
+
+    /** Inner edge of a band, blocks from the sun. */
+    public static double bandLow(int band)
+    {
+        int gap = band / BANDS_PER_GAP;
+        int half = band % BANDS_PER_GAP;
+        double inner = PlanetPositions.ringRadiusOfIndex(gap) + ringKeepOut();
+        return inner + half * (bandWidth(gap) + bandGap());
+    }
+
+    /** Outer edge of a band, blocks from the sun. */
+    public static double bandHigh(int band)
+    {
+        return bandLow(band) + bandWidth(band / BANDS_PER_GAP);
+    }
+
+    /** The band an orbit radius falls in under the current ring config, or -1 if it falls in none. */
+    public static int bandOf(double orbitRadius)
+    {
+        for (int band = 0; band < bandCount(); ++band)
         {
-            Vec3 c = initialPosition(star);
-            double half = superRadius + OVERLAP_CLEARANCE + radius;
-            if (Math.abs(pos.x - c.x) <= half
-                    && Math.abs(pos.y - c.y) <= half
-                    && Math.abs(pos.z - c.z) <= half)
+            if (orbitRadius >= bandLow(band) && orbitRadius <= bandHigh(band))
             {
-                return true;
+                return band;
             }
         }
-        return false;
+        return -1;
+    }
+
+    /** A random band not in {@code taken}, or -1 if every band is taken (impossible: 8 bands, 7 bodies). */
+    public static int pickFreeBand(Set<Integer> taken, RandomSource random)
+    {
+        List<Integer> free = new ArrayList<>(bandCount());
+        for (int band = 0; band < bandCount(); ++band)
+        {
+            if (!taken.contains(band))
+            {
+                free.add(band);
+            }
+        }
+        return free.isEmpty() ? -1 : free.get(random.nextInt(free.size()));
+    }
+
+    /** A chosen orbit: band, radius from the sun, start phase, period, plane height, and how many systems it crosses. */
+    public record Orbit(int band, double radius, double phase0, double period, double y, int systemsCrossed)
+    {
+        /** Where this orbit puts the body at an epoch. Same maths as {@link SuperPlanetData}'s live position. */
+        public Vec3 positionAt(long epochMillis)
+        {
+            Vec3 sun = PlanetPositions.sunPosition();
+            double[] xz = Orbits.positionXZ(sun.x, sun.z, radius, phase0, epochMillis);
+            return new Vec3(xz[0], y, xz[1]);
+        }
     }
 
     /**
-     * Draw a fresh position for a body that is RELOCATING, satisfying every constraint: 20000..45000 from Earth, at
-     * least {@value #MIN_SEPARATION} from each of {@code others} (the current positions of the six other bodies), and not
-     * overlapping any fixed body or generated planet. Rejection-samples the annulus; on the (practically impossible)
-     * event that no fully-clear spot is found it relaxes the generated/fixed checks and returns a spot that at least
-     * keeps the separation, so this never returns null and never soft-locks a relocation.
+     * A fresh random orbit inside {@code band}: a random phase, a radius and plane height sampled inside the band, and the
+     * period from {@link Orbits#periodMillis}. Of the sampled radii it keeps the first whose whole orbit stays clear of
+     * every generated system (radially past the system's outermost planet, or vertically above or below its planets),
+     * otherwise the one crossing the fewest systems. Server only (it reads the system grid with the server's config).
+     * It never consults the black-hole or star fields, which yield to super bodies (no recursion back into here).
      */
-    public static Vec3 sampleRelocation(MinecraftServer server, List<Vec3> others, RandomSource random)
+    public static Orbit chooseOrbit(MinecraftServer server, int band, RandomSource random)
     {
-        Vec3 earth = earth();
+        double lo = bandLow(band);
+        double hi = bandHigh(band);
         float superRadius = radius();
-        Vec3 separationOnly = null;
-        for (int attempt = 0; attempt < SAMPLE_ATTEMPTS; ++attempt)
+        // how close (radially / vertically) a super orbit may come to a system centre before it could touch the system's
+        // outermost planet: the outer ring, the biggest planet, the super half-extent and the clearance. The vertical
+        // reach adds the most a planet is lifted off the star's height by its system's orbital tilt.
+        double radialReach = GeneratedSystems.MAX_OUTER_RING + GeneratedPlanets.maxBodyRadius() + superRadius
+                + OVERLAP_CLEARANCE;
+        // vertical reach is per system now (its planets swing up to sys.maxLift off the star's height).
+        double verticalPad = GeneratedPlanets.maxBodyRadius() + superRadius + OVERLAP_CLEARANCE;
+        // the systems whose radial extent touches this band at all; the rest can never conflict.
+        List<GeneratedSystems.System> all = GeneratedSystems.allSystems(server);
+        int n = 0;
+        double[] dist = new double[all.size()];
+        double[] height = new double[all.size()];
+        double[] vReach = new double[all.size()];
+        Vec3 sun = PlanetPositions.sunPosition();
+        for (GeneratedSystems.System sys : all)
         {
-            double angle = random.nextDouble() * (Math.PI * 2.0);
-            double dist = MIN_FROM_EARTH + random.nextDouble() * (MAX_FROM_EARTH - MIN_FROM_EARTH);
-            double x = earth.x + Math.cos(angle) * dist;
-            double z = earth.z + Math.sin(angle) * dist;
+            double d = Math.hypot(sys.starPos.x - sun.x, sys.starPos.z - sun.z);
+            if (d + radialReach < lo || d - radialReach > hi)
+            {
+                continue;
+            }
+            dist[n] = d;
+            height[n] = sys.starPos.y;
+            vReach[n] = sys.maxLift + verticalPad;
+            ++n;
+        }
+        double bestR = (lo + hi) * 0.5;
+        double bestY = (MIN_Y + MAX_Y) * 0.5;
+        int bestConflicts = Integer.MAX_VALUE;
+        double bestClear = -Double.MAX_VALUE;
+        for (int attempt = 0; attempt < ORBIT_SAMPLES; ++attempt)
+        {
+            double r = lo + random.nextDouble() * (hi - lo);
             double y = MIN_Y + random.nextDouble() * (MAX_Y - MIN_Y);
-            Vec3 p = new Vec3(x, y, z);
-            if (!keepsSeparation(p, others))
+            int conflicts = 0;
+            double minClear = Double.MAX_VALUE;
+            for (int i = 0; i < n; ++i)
             {
-                continue;
-            }
-            if (separationOnly == null)
-            {
-                separationOnly = p; // remember the first separation-clear spot for the relaxed fallback.
-            }
-            if (overlapsFixed(server, p, superRadius) || overlapsGenerated(server, p, superRadius)
-                    || overlapsHazard(server, p, superRadius))
-            {
-                continue;
-            }
-            return p;
-        }
-        if (separationOnly != null)
-        {
-            return separationOnly;
-        }
-        // nothing kept even the separation (all six others crowded the annulus, effectively impossible): fall back to a
-        // ring point at the mid radius on the angle furthest from the others, so a relocation always yields SOMETHING.
-        return furthestAngle(earth, others);
-    }
-
-    private static boolean keepsSeparation(Vec3 p, List<Vec3> others)
-    {
-        double minSq = MIN_SEPARATION * MIN_SEPARATION;
-        for (Vec3 o : others)
-        {
-            if (o != null && p.distanceToSqr(o) < minSq)
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static boolean overlapsFixed(MinecraftServer server, Vec3 pos, float superRadius)
-    {
-        for (FixedBody planet : SpaceLayout.fixedBodies(server))
-        {
-            double reach = planet.radius + superRadius + OVERLAP_CLEARANCE;
-            if (pos.distanceToSqr(planet.position) <= reach * reach)
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static boolean overlapsGenerated(MinecraftServer server, Vec3 pos, float superRadius)
-    {
-        double range = superRadius + GeneratedPlanets.maxBodyRadius() + OVERLAP_CLEARANCE;
-        for (GeneratedPlanets.Generated g : GeneratedPlanets.generatedNear(server, pos, range))
-        {
-            double reach = superRadius + g.radius + OVERLAP_CLEARANCE;
-            if (pos.distanceToSqr(g.position) <= reach * reach)
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    // reject a relocation spot that would sit on a STAR or a BLACK HOLE. Stars and black holes yield to a super body's
-    // INITIAL positions (SuperPlanetPositions.overlaps), but a RELOCATED body is not in that pure check, so the sampler
-    // must clear the hazards itself; because the hazard fields never move, a spot cleared here stays clear afterwards.
-    // Uses each hazard's DISC radius plus the super clearance; the star/hole derivations near pos are a bounded cell walk.
-    private static boolean overlapsHazard(MinecraftServer server, Vec3 pos, float superRadius)
-    {
-        double starScan = superRadius + StarPositions.MAX_RADIUS + OVERLAP_CLEARANCE;
-        for (StarPositions.Star s : StarPositions.starsNear(server, pos, starScan))
-        {
-            double reach = superRadius + s.radius + OVERLAP_CLEARANCE;
-            if (pos.distanceToSqr(s.position) <= reach * reach)
-            {
-                return true;
-            }
-        }
-        double holeScan = superRadius + BlackHolePositions.MAX_RADIUS + OVERLAP_CLEARANCE;
-        for (BlackHolePositions.BlackHole hole : BlackHolePositions.blackHolesNear(server, pos, holeScan))
-        {
-            double reach = superRadius + hole.radius + OVERLAP_CLEARANCE;
-            if (pos.distanceToSqr(hole.position) <= reach * reach)
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    // last-ditch fallback for the sampler: the mid-radius ring point on the angle that maximises the minimum distance to
-    // the others. Scans a coarse set of angles; pure arithmetic, no allocation beyond the returned Vec3.
-    private static Vec3 furthestAngle(Vec3 earth, List<Vec3> others)
-    {
-        double dist = (MIN_FROM_EARTH + MAX_FROM_EARTH) * 0.5;
-        double y = (MIN_Y + MAX_Y) * 0.5;
-        double bestAngle = 0.0;
-        double bestMin = -1.0;
-        for (int i = 0; i < 360; ++i)
-        {
-            double angle = Math.toRadians(i);
-            double x = earth.x + Math.cos(angle) * dist;
-            double z = earth.z + Math.sin(angle) * dist;
-            Vec3 p = new Vec3(x, y, z);
-            double min = Double.MAX_VALUE;
-            for (Vec3 o : others)
-            {
-                if (o != null)
+                double clear = Math.max(Math.abs(dist[i] - r) - radialReach, Math.abs(height[i] - y) - vReach[i]);
+                if (clear < 0.0)
                 {
-                    min = Math.min(min, p.distanceTo(o));
+                    ++conflicts;
                 }
+                minClear = Math.min(minClear, clear);
             }
-            if (min > bestMin)
+            if (conflicts < bestConflicts || (conflicts == bestConflicts && minClear > bestClear))
             {
-                bestMin = min;
-                bestAngle = angle;
+                bestConflicts = conflicts;
+                bestClear = minClear;
+                bestR = r;
+                bestY = y;
+            }
+            if (conflicts == 0)
+            {
+                break;
             }
         }
-        return new Vec3(earth.x + Math.cos(bestAngle) * dist, y, earth.z + Math.sin(bestAngle) * dist);
+        double phase0 = random.nextDouble() * (Math.PI * 2.0);
+        return new Orbit(band, bestR, phase0, Orbits.periodMillis(bestR), bestY, bestConflicts);
+    }
+
+    // ===== live positions, for the hazard fields that yield to a super body =====
+
+    // SERVER memo: the seven live positions for the current tick, like SpaceLayout.fixedBodies. Only the server thread
+    // fills it. CLIENT memo: rebuilt at most every CLIENT_LIVE_CACHE_MS from the synced elements (a body moves well under
+    // a block in that window), so the per-cell hazard walks do not redo the trig per cell.
+    private static long serverTick = Long.MIN_VALUE;
+    private static double[] serverLive = new double[0];
+    private static final long CLIENT_LIVE_CACHE_MS = 50L;
+    private static long clientStamp = Long.MIN_VALUE;
+    private static List<PacketSpaceLayoutSync.SuperBody> clientSource = null;
+    private static double[] clientLive = new double[0];
+
+    /** Drop the server memo (a body just got a new orbit, or a new world started in this JVM). */
+    static void invalidateLive()
+    {
+        serverTick = Long.MIN_VALUE;
+        serverLive = new double[0];
+    }
+
+    // the live positions as a flat {x0,y0,z0,x1,...} array. Server: from SuperPlanetData; client: from the synced list.
+    private static double[] livePositions(MinecraftServer server)
+    {
+        if (server != null)
+        {
+            boolean cacheable = server.isSameThread();
+            if (cacheable && server.getTickCount() == serverTick)
+            {
+                return serverLive;
+            }
+            double[] out = SuperPlanetData.livePositionsOrEmpty(server);
+            if (cacheable)
+            {
+                serverLive = out;
+                serverTick = server.getTickCount();
+            }
+            return out;
+        }
+        List<PacketSpaceLayoutSync.SuperBody> src = SpaceLayout.clientSuperBodies();
+        long now = System.currentTimeMillis();
+        if (src == clientSource && now - clientStamp < CLIENT_LIVE_CACHE_MS)
+        {
+            return clientLive;
+        }
+        long epoch = OrbitClock.epochMillis();
+        double[] out = new double[src.size() * 3];
+        int i = 0;
+        for (PacketSpaceLayoutSync.SuperBody sb : src)
+        {
+            double[] xz = Orbits.positionXZ(sb.sunX(), sb.sunZ(), sb.radius(), sb.phase0(), epoch);
+            out[i++] = xz[0];
+            out[i++] = sb.y();
+            out[i++] = xz[1];
+        }
+        clientLive = out;
+        clientSource = src;
+        clientStamp = now;
+        return out;
+    }
+
+    /**
+     * True if a body centred at {@code pos} reaching {@code reach} blocks would overlap any super body's LIVE expanded
+     * bounding cube right now. Read by the lone-star and black-hole fields, which yield to a super body exactly the way
+     * they yield to an orbiting fixed planet. Both sides derive the same live positions from the same orbit elements.
+     */
+    public static boolean overlapsLive(MinecraftServer server, Vec3 pos, double reach)
+    {
+        double[] live = livePositions(server);
+        double half = radius() + OVERLAP_CLEARANCE + reach;
+        for (int i = 0; i + 2 < live.length; i += 3)
+        {
+            if (Math.abs(pos.x - live[i]) <= half
+                    && Math.abs(pos.y - live[i + 1]) <= half
+                    && Math.abs(pos.z - live[i + 2]) <= half)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 }

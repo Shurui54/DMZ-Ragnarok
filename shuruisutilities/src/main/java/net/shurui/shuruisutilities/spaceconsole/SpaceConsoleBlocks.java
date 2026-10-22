@@ -18,7 +18,9 @@ import net.minecraftforge.registries.RegistryObject;
 import net.shurui.shuruisutilities.core.ShuruisUtilities;
 
 /**
- * The four decorative space consoles: a full console, a compact console, a hologram projector and a module column.
+ * The four space consoles: a full console, a compact console, a hologram projector and a module column. The full
+ * console is also the vehicle workbench and the compact console the vehicle upgrade bench ({@code
+ * VehicleWorkbenchBlock}); the other two are purely decorative.
  *
  * <p>Each is a {@link SpaceConsoleBlock} (horizontal facing, metal, non full, drops itself). Their collision and
  * selection shapes are authored in the NORTH facing to match the visible model bounds and rotated per facing inside
@@ -68,10 +70,14 @@ public final class SpaceConsoleBlocks
     private static final VoxelShape MODULE =
             SpaceConsoleBlock.box16(-2, 0, -2, 18, 31.9D, 18);
 
+    // The full console is the vehicle workbench and the compact one the vehicle upgrade bench; the hologram projector
+    // and the module stay decor.
     public static final RegistryObject<Block> SPACE_CONSOLE_A =
-            block("space_console_a", CONSOLE_A);
+            block("space_console_a", () -> new net.shurui.shuruisutilities.vehicleworkbench.VehicleWorkbenchBlock(
+                    props(), CONSOLE_A, false));
     public static final RegistryObject<Block> SPACE_CONSOLE_B =
-            block("space_console_b", CONSOLE_B);
+            block("space_console_b", () -> new net.shurui.shuruisutilities.vehicleworkbench.VehicleWorkbenchBlock(
+                    props(), CONSOLE_B, true));
     public static final RegistryObject<Block> HOLOGRAM_PROJECTOR =
             block("hologram_projector", HOLOGRAM);
     public static final RegistryObject<Block> SPACE_MODULE =
@@ -79,7 +85,12 @@ public final class SpaceConsoleBlocks
 
     private static RegistryObject<Block> block(String name, VoxelShape northShape)
     {
-        RegistryObject<Block> b = BLOCKS.register(name, () -> new SpaceConsoleBlock(props(), northShape));
+        return block(name, () -> new SpaceConsoleBlock(props(), northShape));
+    }
+
+    private static RegistryObject<Block> block(String name, java.util.function.Supplier<Block> factory)
+    {
+        RegistryObject<Block> b = BLOCKS.register(name, factory);
         RegistryObject<Item> i = ITEMS.register(name, () -> new BlockItem(b.get(), new Item.Properties()));
         BLOCK_ITEMS.add(i);
         return b;

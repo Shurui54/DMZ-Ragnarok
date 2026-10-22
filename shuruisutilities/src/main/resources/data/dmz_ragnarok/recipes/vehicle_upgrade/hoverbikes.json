@@ -1,0 +1,28 @@
+{
+  "_comment": "One vehicle plus this many kits goes up one tier: entry i takes tier i+1 to i+2, doubling each step (merging copies is the kit-free route).",
+  "type": "dmz_ragnarok:vehicle_upgrade",
+  "vehicles": [
+    {
+      "item": "dmz_ragnarok:hoverbike_1"
+    },
+    {
+      "item": "dmz_ragnarok:hoverbike_2"
+    },
+    {
+      "item": "dmz_ragnarok:hoverbike_3"
+    },
+    {
+      "item": "dmz_ragnarok:hoverbike_4"
+    }
+  ],
+  "kit": {
+    "item": "dmz_ragnarok:hoverbike_upgrade"
+  },
+  "kits_per_tier": [
+    1,
+    2,
+    4,
+    8,
+    16
+  ]
+}

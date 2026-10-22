@@ -136,6 +136,36 @@ public final class TerrainRegenService
     // the pass ran and did its job (this climbs). Without it, "panes came back unconnected" is unfalsifiable.
     private static final int RECONNECTED = 3;
 
+    // Dimensions whose live debt changed since their TerrainRegenSaved was last marked dirty. The saved copy is built
+    // from the live queues at WRITE time (TerrainRegenSaved.save), so all it needs is to be marked dirty whenever there
+    // is something new to write; the level tick does that from here once per tick.
+    private static final Set<ResourceKey<Level>> DIRTY = new HashSet<>();
+
+    /** True once per change: the live debt of this level differs from what its saved copy last wrote. */
+    public static boolean consumeDirty(ServerLevel level)
+    {
+        return level != null && DIRTY.remove(level.dimension());
+    }
+
+    /**
+     * True when the block under {@code pos} is owed back by a repair that has not reached it yet.
+     *
+     * <p>Asked by the falling block tick ({@code MixinFallingBlockAnchored}). A blast that takes the ground from under
+     * sand or gravel leaves that sand standing over a hole the repair is about to fill; left to vanilla it falls two
+     * ticks later, lands on the crater floor, and then the repair finds sand where it owes the original block and
+     * declines it, while the sand's own position is now air that nothing owes. That is the "regen sometimes does not
+     * fully regen" crater: a ring of missing sand and gravel on top and stray sand inside. Holding the block while the
+     * position under it is owed keeps it where it was until its support comes back. One hash lookup, and only on a
+     * falling block's scheduled tick.
+     */
+    public static boolean owesBelow(Level level, BlockPos pos)
+    {
+        if (level == null || pos == null || level.isClientSide)
+            return false;
+        Set<BlockPos> seen = PENDING_POS.get(level.dimension());
+        return seen != null && !seen.isEmpty() && seen.contains(pos.below());
+    }
+
     private static long[] tally(ServerLevel level)
     {
         return TALLY.computeIfAbsent(level.dimension(), k -> new long[4]);
@@ -285,6 +315,7 @@ public final class TerrainRegenService
             BlockPos key = pos.immutable();
             queue.addLast(new Owed(key, state, beTag, level.getGameTime() + restoreDelayTicks));
             seen.add(key);
+            DIRTY.add(level.dimension());
             tally(level)[CAPTURED]++;
             // A double block is TWO positions that only exist as a pair, and only ever ONE of them is destroyed by
             // anything that calls this. Vanilla takes the other half away as a SHAPE REACTION to this one going:
@@ -414,8 +445,12 @@ public final class TerrainRegenService
         {
             // Nothing owed: this is exactly when the reconnect pass is safe to run, because everything that was coming
             // back has come back. Costs nothing on a server that has never had a crater, since that queue is empty too.
-            return reconnect(level);
+            int reconnected = reconnect(level);
+            if (reconnected > 0)
+                DIRTY.add(level.dimension());
+            return reconnected;
         }
+        DIRTY.add(level.dimension());
         // A rule flipped off mid life abandons the debt outright rather than leaving it to reappear if the rule is
         // flipped back on hours later, which would look like the world spontaneously healing old damage. Regions are
         // the exception: with any region defined, a block may be owed because ITS region says so rather than because
@@ -770,6 +805,7 @@ public final class TerrainRegenService
         {
             PENDING.remove(level.dimension());
             PENDING_POS.remove(level.dimension());
+            DIRTY.remove(level.dimension());
             RESTORED_THIS_BATCH.remove(level.dimension());
             RECONNECT.remove(level.dimension());
             REPAIRED_BOUNDS.remove(level.dimension());
@@ -826,6 +862,7 @@ public final class TerrainRegenService
 
     public static void forgetAll()
     {
+        DIRTY.clear();
         PENDING.clear();
         PENDING_POS.clear();
         RESTORED_THIS_BATCH.clear();

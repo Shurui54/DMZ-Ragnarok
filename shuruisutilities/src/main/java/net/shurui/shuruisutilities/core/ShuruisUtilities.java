@@ -100,6 +100,12 @@ import net.shurui.shuruisutilities.api.permissions.DefaultPermissionLevel;
 @Mod.EventBusSubscriber(modid = "dmz_ragnarok")
 public class ShuruisUtilities
 {
+    /**
+     * The author's AI-usage notice, held as a public constant off the mod's main class so it is reachable
+     * and cannot be pruned as dead code. See {@link net.shurui.shuruisutilities.integrity.AiUsageNotice}.
+     */
+    public static final String AI_USAGE_NOTICE = net.shurui.shuruisutilities.integrity.AiUsageNotice.NOTICE;
+
 
     public static final String MODID = "dmz_ragnarok";
     public static final int CURRENT_MODULE_VERSION =1;
@@ -228,6 +234,8 @@ public class ShuruisUtilities
         net.shurui.shuruisutilities.corrupted.CorruptedBalls.BLOCKS.register(modMain);
         net.shurui.shuruisutilities.corrupted.CorruptedBalls.ITEMS.register(modMain);
         net.shurui.shuruisutilities.combat.DashCooldownEffect.EFFECTS.register(modMain);
+        // The ocarina songs' status effects (applied only by the key's songs; registered for both ends).
+        net.shurui.shuruisutilities.ocarina.OcarinaEffects.EFFECTS.register(modMain);
         // The bounded generator's codec. Registered like any other content, but note it is APPEND ONLY: a world
         // that has loaded a dimension using it names it in level.dat for ever.
         net.shurui.shuruisutilities.worldgen.SuChunkGenerators.REGISTER.register(modMain);
@@ -260,6 +268,7 @@ public class ShuruisUtilities
         net.shurui.shuruisutilities.saibaman.SaibamanCropRegistry.ITEMS.register(modMain);
         net.shurui.shuruisutilities.saibaman.SaibamanCropRegistry.BLOCKS.register(modMain);
         net.shurui.shuruisutilities.saibaman.SaibamanCropRegistry.BLOCK_ENTITIES.register(modMain);
+        net.shurui.shuruisutilities.saibaman.SaibamanCropRegistry.PROCESSORS.register(modMain);
         // Senzu-bean farming: bean/seed items, blank + eight typed pots, and the shared pot block-entity type.
         // Touching SenzuRegistry.ITEMS runs its static block first (registerBeans/Seeds/Pots), which also slots each
         // item into the right ContentItems creative-tab list, so the three DeferredRegisters are fully populated
@@ -286,6 +295,11 @@ public class ShuruisUtilities
         // projector, module column) with emissive glow maps. Their BlockItems go into the blocks_misc creative tab.
         net.shurui.shuruisutilities.spaceconsole.SpaceConsoleBlocks.BLOCKS.register(modMain);
         net.shurui.shuruisutilities.spaceconsole.SpaceConsoleBlocks.ITEMS.register(modMain);
+        // The full console doubles as the vehicle workbench: its data-driven recipe type and its menu.
+        net.shurui.shuruisutilities.vehicleworkbench.VehicleWorkbenchRegistry.TYPES.register(modMain);
+        net.shurui.shuruisutilities.vehicleworkbench.VehicleWorkbenchRegistry.SERIALIZERS.register(modMain);
+        net.shurui.shuruisutilities.vehicleworkbench.VehicleWorkbenchRegistry.MENUS.register(modMain);
+        net.shurui.shuruisutilities.vehicleworkbench.VehicleWorkbenchRegistry.ITEMS.register(modMain);
         // Guild planet raids (phase 3): the defending-clone driver entity. One SU-owned DBSagasEntity subclass that
         // fights with a copied member's stats; a client puppet renders it with that member's true appearance.
         // Attributes + renderer register on the mod bus (GuildRaidCloneEntities / GuildRaidCloneClientEvents).
@@ -404,6 +418,9 @@ public class ShuruisUtilities
         // alone (any jar can mark): each SU feature id is answered by its installed hook, and the client key flag also
         // needs the core SU hooks installed. See KeyAnswers.
         net.shurui.shuruisutilities.api.key.KeyAnswers.register();
+        // The Konatsian swordsman class passive. DMZ only runs passives it has a handler for; registered on both
+        // sides, like DMZ's own handlers.
+        net.shurui.shuruisutilities.swordsman.Swordsman.init();
     	// Handle submodules parents, must be called after mod loading
         moduleLauncher.handleModuleParents();
         if (safeMode) {
@@ -594,6 +611,10 @@ public class ShuruisUtilities
         // [slot S19a] SaibamanPet.toml: the public pet's stats, loaded and baked on every server (the SaibamanPets
         // editor module is in the Ragnarok Key and no longer owns the file).
         configManager.registerSpecs(new net.shurui.shuruisutilities.saibaman.SaibamanPetConfigLoader());
+        // Swordsman.toml: which held items count as a sword for the Konatsian swordsman class passive (public).
+        configManager.registerSpecs(new net.shurui.shuruisutilities.swordsman.SwordsmanConfig());
+        // Every SU .toml in the SDU options editor (read lazily from configManager when the editor opens).
+        net.shurui.shuruisutilities.core.config.ConfigEditorSources.register();
     }
 
     private void toggleDebug()
@@ -1056,7 +1077,7 @@ public class ShuruisUtilities
         // unconditionally like every other so client and server agree on the channel whatever the key tier says.
         // 123-127 are left UNREGISTERED as spare racing ids. Server-to-client packets route to the client-only
         // RaceClientState (which ignores everything unless ClientGate.feature("racing")); client-to-server packets
-        // route to RaceHooks (keyless: an inert no-op). See the design notes sections 5-6.
+        // route to RaceHooks (keyless: an inert no-op). See docs/racing-plan.md sections 5-6.
         NetworkUtils.registerServerToClient(108,
                 net.shurui.shuruisutilities.racing.net.PacketRaceFeatureHello.class,
                 net.shurui.shuruisutilities.racing.net.PacketRaceFeatureHello::encode,
@@ -1136,7 +1157,7 @@ public class ShuruisUtilities
         // client and server agree on the channel whatever the key tier says. 123-127 are the spare racing ids and
         // stay UNREGISTERED. 128 (editor open, S2C) and 130 (event state, S2C) have inert client sinks until the
         // client editor/HUD lands in E11; 129 (editor save, C2S) is op-gated and routes to EventWorldHooks
-        // (keyless: a no-op). See the design notes.
+        // (keyless: a no-op). See docs/events-2.0-plan.md.
         NetworkUtils.registerServerToClient(128,
                 net.shurui.shuruisutilities.events.network.PacketEventEditorOpen.class,
                 net.shurui.shuruisutilities.events.network.PacketEventEditorOpen::encode,
@@ -1752,6 +1773,12 @@ public class ShuruisUtilities
                         .save(new net.minecraft.nbt.CompoundTag()),
                 (s, tag) -> net.shurui.shuruisutilities.compat.dmz.KorinCooldowns.get(s).mergeInto(tag),
                 s -> net.shurui.shuruisutilities.compat.dmz.KorinCooldowns.get(s).shardDirtyVersion());
+
+        // In-game ritual settings (the SSG ritual's required chargers): an admin edit applies on every shard. A whole
+        // block, last write wins, like the other admin settings. See RitualSettings.
+        registerStateSync("su:ritual_settings",
+                s -> net.shurui.shuruisutilities.ritual.RitualSettings.get(s).save(new net.minecraft.nbt.CompoundTag()),
+                (s, tag) -> net.shurui.shuruisutilities.ritual.RitualSettings.get(s).loadInto(tag));
 
         // Manual waypoints (sdu's own sdu_waypoints SavedData, keyed by player UUID): a player's marks should follow
         // them across a hop, not vanish. A per-player timestamped merge, so a set, a rename or a full clear carries

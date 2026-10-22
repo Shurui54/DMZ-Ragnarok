@@ -28,7 +28,7 @@ public class RacialAbilityScreen extends FieldEditScreen {
     private static final int UI_W = GuiTheme.SCREEN_W;
     private static final int UI_H = GuiTheme.SCREEN_H;
     private static final String[] SECTIONS =
-            {"gui.dmz_ragnarok.npc.racialability.tab.info", "gui.dmz_ragnarok.npc.racialability.tab.trigger", "gui.dmz_ragnarok.npc.racialability.tab.stats", "gui.dmz_ragnarok.npc.racialability.tab.regen", "gui.dmz_ragnarok.npc.racialability.tab.defense", "gui.dmz_ragnarok.npc.racialability.tab.ocarina"};
+            {"gui.dmz_ragnarok.npc.racialability.tab.info", "gui.dmz_ragnarok.npc.racialability.tab.trigger", "gui.dmz_ragnarok.npc.racialability.tab.stats", "gui.dmz_ragnarok.npc.racialability.tab.regen", "gui.dmz_ragnarok.npc.racialability.tab.defense"};
     private static final RacialSkillData.Trigger[] TRIGGERS = RacialSkillData.Trigger.values();
 
     private final RaceEditScreen owner;
@@ -52,12 +52,9 @@ public class RacialAbilityScreen extends FieldEditScreen {
         }
         int belowTabs = buildTabHeader(tr("gui.dmz_ragnarok.npc.racialability.subtitle"), trAll(sections), section, this::selectSection);
 
-        // The sections are wrapped in a scroll band because the Ocarina one does not come close to fitting: it is
-        // three songs' worth of rows (radius, cooldown, score, then Mending, Valour and Discord with their own
-        // levels, durations, per-level scaling and effect pickers) against a 250-tall panel, so its lower half was
-        // simply drawn past the bottom edge and could not be reached. The band is opened for EVERY section rather
-        // than just that one: the others fit today, but a screen that scrolls only sometimes is a worse thing to
-        // discover than one that always does, and finishScrollBand draws no bar at all when the content fits.
+        // The sections are wrapped in a scroll band (opened for every section): a screen that scrolls only sometimes
+        // is a worse thing to discover than one that always does, and finishScrollBand draws no bar at all when the
+        // content fits.
         int contentTop = belowTabs;
         // derived from the footer row rather than a hand-picked constant, so the band can never run under the Done
         // button whatever the runtime canvas height works out to be.
@@ -80,21 +77,17 @@ public class RacialAbilityScreen extends FieldEditScreen {
     }
 
     /**
-     * The tabs to show. The Ocarina tab (always last) is a Ragnarok Key feature: against a server without it the
-     * tab is hidden. The stored ocarina settings are untouched either way, so a keyed server still reads them.
+     * The tabs to show. The racial Ocarina tab is gone: the ocarina songs are DragonMineZ skills bought at Tapion now,
+     * tuned in the key's Ocarina.toml. A race's stored ocarina block is left as it is, but nothing reads it.
      */
     private static String[] sections() {
-        if (net.shurui.dev.sdu.api.ClientGate.feature("ocarina")) {
-            return SECTIONS;
-        }
-        return java.util.Arrays.copyOf(SECTIONS, SECTIONS.length - 1);
+        return SECTIONS;
     }
 
     private void selectSection(int i) {
         applyFields();
         section = i;
-        // back to the top of the new tab: carrying the Ocarina tab's scroll into the two-row Info tab would open it
-        // on blank space below its own content.
+        // back to the top of the new tab: carrying one tab's scroll into a shorter one would open it on blank space.
         scroll = 0;
         rebuildWidgets();
     }
@@ -163,76 +156,7 @@ public class RacialAbilityScreen extends FieldEditScreen {
                 dfMulti( tr("gui.dmz_ragnarok.npc.racialability.potion_effects"), DmzPotions.effectIds(), potionIds(), this::setPotionsFromIds);
                 tip( tr("gui.dmz_ragnarok.npc.racialability.t_vanilla_mod_effects"));
             }
-            case 5 -> {
-                net.shurui.dev.sdu.race.OcarinaData o = r.ocarina;
-                bf(tr("gui.dmz_ragnarok.npc.racialability.ocarina_enabled"), o.enabled, () -> o.enabled = !o.enabled);
-                tip(tr("gui.dmz_ragnarok.npc.racialability.t_ocarina_enabled"));
-                nonNegField(tr("gui.dmz_ragnarok.npc.racialability.ocarina_radius"), o.radius, v -> o.radius = v);
-                tip(tr("gui.dmz_ragnarok.npc.racialability.t_ocarina_radius"));
-                nonNegField(tr("gui.dmz_ragnarok.npc.racialability.ocarina_cooldown"), o.cooldownSeconds,
-                        v -> o.cooldownSeconds = v);
-                pctField(tr("gui.dmz_ragnarok.npc.racialability.ocarina_min_score"), o.minScorePercent,
-                        v -> o.minScorePercent = v);
-                tip(tr("gui.dmz_ragnarok.npc.racialability.t_ocarina_min_score"));
-
-                label(tr("gui.dmz_ragnarok.npc.racialability.ocarina_mending"), 14, rowY);
-                rowY += ROW_H;
-                pctField(tr("gui.dmz_ragnarok.npc.racialability.ocarina_heal"), o.healPercent, v -> o.healPercent = v);
-                pctField(tr("gui.dmz_ragnarok.npc.racialability.ocarina_heal_ki"), o.healKiPercent,
-                        v -> o.healKiPercent = v);
-                pctField(tr("gui.dmz_ragnarok.npc.racialability.ocarina_heal_stamina"), o.healStaminaPercent,
-                        v -> o.healStaminaPercent = v);
-
-                label(tr("gui.dmz_ragnarok.npc.racialability.ocarina_valour"), 14, rowY);
-                rowY += ROW_H;
-                nonNegField(tr("gui.dmz_ragnarok.npc.racialability.ocarina_valour_level"), o.valourLevel,
-                        v -> o.valourLevel = (int) Math.round(v));
-                tip(tr("gui.dmz_ragnarok.npc.racialability.t_ocarina_unlock_level"));
-                nonNegField(tr("gui.dmz_ragnarok.npc.racialability.ocarina_buff_seconds"), o.buffSeconds,
-                        v -> o.buffSeconds = v);
-                nonNegField(tr("gui.dmz_ragnarok.npc.racialability.ocarina_buff_amp_level"), o.buffAmplifierPerLevel,
-                        v -> o.buffAmplifierPerLevel = v);
-                tip(tr("gui.dmz_ragnarok.npc.racialability.t_ocarina_amp_per_level"));
-                nonNegField(tr("gui.dmz_ragnarok.npc.racialability.ocarina_buff_secs_level"), o.buffSecondsPerLevel,
-                        v -> o.buffSecondsPerLevel = v);
-                dfMulti(tr("gui.dmz_ragnarok.npc.racialability.ocarina_buff_effects"), DmzPotions.effectIds(),
-                        idsOf(o.buffEffects), ids -> replaceEffects(o.buffEffects, ids));
-
-                label(tr("gui.dmz_ragnarok.npc.racialability.ocarina_discord"), 14, rowY);
-                rowY += ROW_H;
-                nonNegField(tr("gui.dmz_ragnarok.npc.racialability.ocarina_discord_level"), o.discordLevel,
-                        v -> o.discordLevel = (int) Math.round(v));
-                nonNegField(tr("gui.dmz_ragnarok.npc.racialability.ocarina_debuff_seconds"), o.debuffSeconds,
-                        v -> o.debuffSeconds = v);
-                nonNegField(tr("gui.dmz_ragnarok.npc.racialability.ocarina_debuff_amp_level"),
-                        o.debuffAmplifierPerLevel, v -> o.debuffAmplifierPerLevel = v);
-                nonNegField(tr("gui.dmz_ragnarok.npc.racialability.ocarina_debuff_secs_level"),
-                        o.debuffSecondsPerLevel, v -> o.debuffSecondsPerLevel = v);
-                dfMulti(tr("gui.dmz_ragnarok.npc.racialability.ocarina_debuff_effects"), DmzPotions.effectIds(),
-                        idsOf(o.debuffEffects), ids -> replaceEffects(o.debuffEffects, ids));
-            }
             default -> { }
-        }
-    }
-
-    /** The effect-id half of each spec, for a dropdown that only picks ids. */
-    private static List<String> idsOf(List<String> specs) {
-        List<String> out = new ArrayList<>();
-        for (String s : specs) {
-            out.add(idPart(s));
-        }
-        return out;
-    }
-
-    /** Rebuild an effect list from picked ids, keeping any amplifier already written against that id. */
-    private static void replaceEffects(List<String> specs, List<String> ids) {
-        Map<String, String> ampById = new HashMap<>();
-        for (String s : specs) {
-            ampById.put(idPart(s), s);
-        }
-        specs.clear();
-        for (String id : ids) {
-            specs.add(ampById.getOrDefault(id, id + ":0"));
         }
     }
 

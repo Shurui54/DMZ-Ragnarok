@@ -631,6 +631,8 @@ public final class GuiTheme {
     public static final int COLOR_ROW = 0xFFE0E0E0;
     /** Disabled text. */
     public static final int COLOR_DISABLED = 0xFF808080;
+    /** A count the player is short of (a crafting part they do not have enough of). Soft red, readable on the panel. */
+    public static final int COLOR_SHORTFALL = 0xFFE87A6A;
     /** Panel-dark used for insets / borders drawn as fills. */
     public static final int COLOR_INSET = 0xFF10281A;
     /** Scroll thumb. */

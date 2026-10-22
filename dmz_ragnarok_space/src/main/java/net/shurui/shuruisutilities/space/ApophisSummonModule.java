@@ -81,6 +81,10 @@ public class ApophisSummonModule
     // Run the timer sweep on this slow interval (wall-clock driven, so a coarse cadence is plenty). 200 ticks = ~10s.
     private static final int SWEEP_INTERVAL = 200;
 
+    // Set when a scatter (first-ever seed or the post-wish re-seed) could not run; the sweep retries it. The persisted
+    // half is ApophisPlanetData's scatter-initialised flag, cleared on a failed re-seed, so a restart retries at start.
+    private boolean scatterOwed = false;
+
     @SubscribeEvent
     public void onServerStarted(ServerStartedEvent event)
     {
@@ -95,6 +99,10 @@ public class ApophisSummonModule
         if (scatter(server))
         {
             data.setScatterInitialized(true);
+        }
+        else
+        {
+            scatterOwed = ownsSurface(server);
         }
     }
 
@@ -176,7 +184,12 @@ public class ApophisSummonModule
             }
 
             // re-scatter seven fresh balls so they can be re-found within the week. This IS the cycle the timer measures.
-            scatter(server);
+            // If it cannot run now it is retried by the sweep, never placed anywhere but the generated planets.
+            if (!scatter(server) && ownsSurface(server))
+            {
+                scatterOwed = true;
+                data.setScatterInitialized(false); // persisted: a restart before the retry re-seeds at start
+            }
         }
         catch (Throwable t)
         {
@@ -225,6 +238,13 @@ public class ApophisSummonModule
     private void sweep(MinecraftServer server)
     {
         ApophisPlanetData data = ApophisPlanetData.get(server);
+        // A scatter that could not run (fewer than seven generated planets yet, or the surface not up) is retried here
+        // on the same slow cadence instead of being dropped. It never falls back to another dimension.
+        if (scatterOwed && scatter(server))
+        {
+            scatterOwed = false;
+            data.setScatterInitialized(true);
+        }
         if (!data.isArmed())
         {
             return;
@@ -277,6 +297,12 @@ public class ApophisSummonModule
     // persisting the star -> planet assignment. Returns false (and changes nothing) if the field cannot yield seven.
     private boolean scatter(MinecraftServer server)
     {
+        if (!ownsSurface(server))
+        {
+            // On the shard network only the server that owns the planet surface places the set; another server's
+            // copy of the dimension is empty and unvisited.
+            return false;
+        }
         ServerLevel surface = SurfaceDimension.level(server);
         if (surface == null)
         {
@@ -330,6 +356,19 @@ public class ApophisSummonModule
         SpaceLayoutSync.syncAll();
         LoggingHandler.sulog.info("[Apophis] Scattered seven Black Star balls across seven generated planets.");
         return true;
+    }
+
+    // True when this server owns world content on the planet surface (always off the shard network).
+    private static boolean ownsSurface(MinecraftServer server)
+    {
+        try
+        {
+            return net.shurui.shuruisutilities.shard.ShardDimensions.ownsContentIn(net.shurui.shuruisutilities.world.space.SpaceKeys.SURFACE_ID.toString());
+        }
+        catch (Throwable t)
+        {
+            return true;
+        }
     }
 
     // the stamped generated planet whose surface cell matches this planet_surface position, or "" if none. Mirrors

@@ -54,5 +54,33 @@ public final class VisualTestBootstrap
         }
         LOGGER.info("[VisualTest] Arming the visual test harness for scenarios: {}", scenarios);
         MinecraftForge.EVENT_BUS.register(new VisualTestRunner(scenarios.trim()));
+        // DMZ 2.2-alpha kicks any login not on its online beta whitelist, and offline its fallback never matches
+        // (it compares a lowercased name against a mixed-case list). Let the harness's own player in, before
+        // DMZ's login check runs.
+        MinecraftForge.EVENT_BUS.addListener(net.minecraftforge.eventbus.api.EventPriority.HIGHEST,
+                (net.minecraftforge.event.entity.player.PlayerEvent.PlayerLoggedInEvent e) -> allowOnDmzBeta(
+                        e.getEntity().getGameProfile().getName()));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void allowOnDmzBeta(String username)
+    {
+        try
+        {
+            Class<?> c = Class.forName("com.dragonminez.common.util.BetaWhitelist");
+            java.lang.reflect.Field f = c.getDeclaredField("activeList");
+            f.setAccessible(true);
+            java.util.List<String> list = new java.util.ArrayList<>((java.util.List<String>) f.get(null));
+            String key = username.toLowerCase(java.util.Locale.ROOT);
+            if (!list.contains(key))
+            {
+                list.add(key);
+                f.set(null, list);
+            }
+        }
+        catch (Throwable t)
+        {
+            LOGGER.debug("[VisualTest] DMZ beta whitelist not present: {}", t.toString());
+        }
     }
 }

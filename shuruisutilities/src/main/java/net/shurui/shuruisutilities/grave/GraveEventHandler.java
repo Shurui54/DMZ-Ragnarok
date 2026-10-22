@@ -25,6 +25,7 @@ import net.minecraftforge.event.entity.living.LivingExperienceDropEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.event.level.BlockEvent;
+import net.minecraftforge.event.server.ServerStartedEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -122,6 +123,25 @@ public final class GraveEventHandler
     // lifetime (KeepPartialInventory.graveDespawnMinutes(), read live) across every loaded level. Contents + XP
     // DISCARDED (despawn, not a break). Expired positions collected first, then removed, so the grave map isn't
     // mutated mid-iteration.
+    /**
+     * Drop the ball-holding grave records whose totem no longer stands (see
+     * {@link GraveManager#purgeOrphanedBallTotems}), so an earlier unfinished removal stops showing as a ball on the
+     * radar. Guarded so a failure never blocks the start.
+     */
+    @SubscribeEvent
+    public static void onServerStarted(ServerStartedEvent event)
+    {
+        try
+        {
+            GraveManager.purgeOrphanedBallTotems(event.getServer());
+        }
+        catch (Throwable t)
+        {
+            net.shurui.shuruisutilities.util.output.logger.LoggingHandler.sulog.warn(
+                    "[Grave] orphaned totem cleanup skipped: {}", t.toString());
+        }
+    }
+
     @SubscribeEvent
     public static void onServerTick(TickEvent.ServerTickEvent event)
     {

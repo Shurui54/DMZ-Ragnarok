@@ -109,7 +109,7 @@ public final class DisguiseRenderSwap
             s.re2 = ch.getRgbEye2Color();
             s.gender = ch.getGender();
             s.hairId = ch.getHairId();
-            s.hairBase = ch.getHairBase();
+            s.hairBase = ch.getOwnHairStyle(com.dragonminez.common.hair.HairStyleSlot.BASE);
             s.nose = ch.getNoseType();
             s.mouth = ch.getMouthType();
             s.tattoo = ch.getTattooType();
@@ -131,7 +131,7 @@ public final class DisguiseRenderSwap
             ch.setHairId(v.hairId);
             CustomHair hair = hairOf(v);
             if (hair != null)
-                ch.setHairBase(hair);
+                ch.setHairStyle(com.dragonminez.common.hair.HairStyleSlot.BASE, hair);
             // Render the disguise in the target's BASE appearance: drop the staff's own active form so no SSJ/etc.
             // overlay leaks through. Render-only; the real form state is stashed and restored, never touched on the
             // server.
@@ -170,7 +170,7 @@ public final class DisguiseRenderSwap
             ch.setRace(s.race);
             ch.setGender(s.gender);
             ch.setHairId(s.hairId);
-            ch.setHairBase(s.hairBase);
+            ch.setHairStyle(com.dragonminez.common.hair.HairStyleSlot.BASE, s.hairBase);
             ch.setNoseType(s.nose);
             ch.setMouthType(s.mouth);
             ch.setTattooType(s.tattoo);

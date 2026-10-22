@@ -20,7 +20,7 @@ import net.shurui.shuruisutilities.space.PlanetCourse;
  * space pod; if it is picked on foot (through our planet-select opener) it is refused, so DMZ never teleports the
  * player or spawns a fresh pod from an on-foot pick. All of that lives in {@link PlanetCourse#handleTravel}.
  *
- * <p>DMZ enqueues the actual travel as a lambda ({@code lambda$handle$1(Supplier)}); we inject at its HEAD and
+ * <p>DMZ enqueues the actual travel as a lambda ({@code lambda$handle$0(Supplier)} in 2.2); we inject at its HEAD and
  * cancel EARLY, before DMZ touches the pod at all. DMZ's real lambda would {@code stopRiding}, discard the
  * persistence-required pod and re-seat the player; cancelling at HEAD means none of that runs, so no orphan pod
  * is ever left behind and sdu's landing-snap redirects (which live INSIDE this same lambda) simply never fire for
@@ -62,7 +62,7 @@ public abstract class MixinDmzTravelToPlanet
 
     // HEAD of the enqueued travel lambda, before DMZ stops riding, discards the pod or re-seats the player.
     @Inject(
-        method = "lambda$handle$1(Ljava/util/function/Supplier;)V",
+        method = "lambda$handle$0(Ljava/util/function/Supplier;)V",
         at = @At("HEAD"),
         cancellable = true,
         require = 0,

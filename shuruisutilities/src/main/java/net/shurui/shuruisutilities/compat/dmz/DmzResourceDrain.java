@@ -5,7 +5,7 @@ import net.minecraftforge.fml.ModList;
 
 /**
  * Guard entry point for draining a victim's DMZ ki and stamina. Holds no DMZ imports itself; the sole class naming
- * DMZ types is {@link DmzResourceDrainImpl} (the optional-dependency pattern).
+ * DMZ types is {@link DmzResourceDrainImpl} (docs/compat-pattern.md).
  *
  * <p>A no-op without DMZ, and a no-op for anything with no DMZ character (a mob), so a drain effect used on an
  * ordinary entity simply does the rest of its job.

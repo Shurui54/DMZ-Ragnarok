@@ -1,5 +1,7 @@
 package net.shurui.shuruisutilities.dragonballbag;
 
+import net.shurui.shuruisutilities.commands.util.SeeablePlayerInventory;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -69,10 +71,20 @@ public final class DragonBallContainerEject
         {
             return;
         }
-        AbstractContainerMenu menu = event.getContainer();
-        if (menu == null || menu == player.inventoryMenu)
+        sweepMenu(player, event.getContainer());
+    }
+
+    /**
+     * Hand back every dragon ball / bag sitting in a slot of {@code menu} that is not an allowed home. Called when a
+     * menu opens and, through {@code MixinContainerMenuSweep}, after every click in it, so a ball that got into a slot
+     * whose own {@code mayPlace} override bypasses {@code MixinSlot} (a shulker box slot, a modded slot class) is
+     * returned the same click. Returns how many stacks were returned. Never throws.
+     */
+    public static int sweepMenu(ServerPlayer player, AbstractContainerMenu menu)
+    {
+        if (player == null || menu == null || menu == player.inventoryMenu)
         {
-            return; // never the player's own always-open inventory menu
+            return 0; // never the player's own always-open inventory menu
         }
         ServerLevel level = player.serverLevel();
         try
@@ -95,6 +107,12 @@ public final class DragonBallContainerEject
                 {
                     continue; // player inventory, the bag, the Curios slot, or a grave: this item belongs here
                 }
+                if (!slot.mayPickup(player))
+                {
+                    // A read-only view (the cross-shard inventory viewer shows a COPY of an offline player's items):
+                    // taking from it would hand the opener a second copy of a ball that still exists in the vault.
+                    continue;
+                }
                 boolean wasBag = DragonBallConfine.isBag(inSlot);
                 ItemStack taken = slot.remove(inSlot.getCount());
                 if (!taken.isEmpty())
@@ -106,7 +124,7 @@ public final class DragonBallContainerEject
             }
             if (ejected.isEmpty())
             {
-                return;
+                return 0;
             }
             for (ItemStack item : ejected)
             {
@@ -127,14 +145,16 @@ public final class DragonBallContainerEject
                 player.sendSystemMessage(
                         net.minecraft.network.chat.Component.translatable("message.dmz_ragnarok.dragonball.bag_returned"));
             }
-            LoggingHandler.sulog.info("[dragonball] Returned {} stray dragon ball / bag stack(s) to {} from an opened "
+            LoggingHandler.sulog.info("[dragonball] Returned {} stray dragon ball / bag stack(s) to {} from a "
                     + "container that is not an allowed home.", ejected.size(), player.getGameProfile().getName());
+            return ejected.size();
         }
         catch (Throwable t)
         {
-            // never let a backstop break opening a container.
-            LoggingHandler.sulog.warn("[dragonball] Could not return stray dragon balls from an opened container: {}",
+            // never let a backstop break opening or using a container.
+            LoggingHandler.sulog.warn("[dragonball] Could not return stray dragon balls from a container: {}",
                     t.toString());
+            return 0;
         }
     }
 
@@ -148,6 +168,13 @@ public final class DragonBallContainerEject
         if (container instanceof Inventory)
         {
             return true; // the player's own inventory
+        }
+        if (container instanceof SeeablePlayerInventory)
+        {
+            // /invsee shows ANOTHER player's live inventory. Their balls belong there; sweeping them out would move
+            // them into the staff member's inventory, which is how a ball "pulled out with /invsee" happened.
+            return DragonBallConfine.isBag(stack)
+                    || SeeablePlayerInventory.isInventorySection(slot.getContainerSlot());
         }
         if (GraveManager.isGraveContainer(level, container))
         {

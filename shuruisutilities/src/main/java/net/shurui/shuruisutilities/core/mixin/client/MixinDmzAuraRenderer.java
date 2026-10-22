@@ -14,6 +14,7 @@ import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.Vec3;
 
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
@@ -27,6 +28,11 @@ import net.shurui.shuruisutilities.util.output.logger.LoggingHandler;
  * autopilot, so the flame reads as thrust rather than a standing aura. {@link MixinDmzAuraLayer} already QUEUES the aura
  * for that pilot (and gates the same autopilot condition), but queueing cannot alter the draw; this mixin supplies the
  * geometry.
+ *
+ * <p>DragonMineZ 2.2 note: the draw now runs {@code translate(0, baseLift, 0)} (translate ordinal 1), then
+ * {@code applyAxisBillboard} (a basis matrix built from world vectors), then the main {@code scale} (scale ordinal 2),
+ * so both ordinals still name the same two instructions; the target gained a {@code Vec3 cameraOffset} parameter, and
+ * the billboard is undone by restoring the pose saved at the centre translate. The 2.1 description follows.
  *
  * <p>DMZ's {@code AuraRenderer.executeAuraShaderDraw} builds the third-person aura pose as
  * {@code pushPose; translate; mulPose(camera.rotation()); mulPose(YP 180); [mulPose(ZP) if over-shoulder];
@@ -86,6 +92,9 @@ public abstract class MixinDmzAuraRenderer
 
     private static final AtomicBoolean SU_AURA_CENTRE_BIND_LOGGED = new AtomicBoolean(false);
 
+    // The pose right after the centre translate (index 0: pose, 1: normal as a 4x4), read by the scale redirect.
+    private static final ThreadLocal<Matrix4f[]> SU_PRE_BILLBOARD = new ThreadLocal<>();
+
     // Redirect the aura-pose scale (ordinal 2). method = the DMZ-only name is kept literal (remap = false); the @At is
     // remap = true so PoseStack.scale is refmapped to m_85841_ against the obfuscated production jar. The full trailing
     // parameter list captures executeAuraShaderDraw's own args; the pilot is parameter 0. require = 0 keeps a missed
@@ -102,7 +111,8 @@ public abstract class MixinDmzAuraRenderer
                     remap = true))
     private static void su$reshapePodAura(PoseStack pose, float sx, float sy, float sz,
             Player player, @Coerce Object cachedAuraData, @Coerce Object auraLayer, PoseStack poseStack,
-            Minecraft minecraft, Matrix4f projection, float partialTick, float alpha, boolean overShoulder)
+            Minecraft minecraft, Matrix4f projection, Vec3 cameraOffset, float partialTick, float alpha,
+            boolean firstPerson)
     {
         // log-once on first weave/invocation. require = 0 fails SILENTLY, so this line appearing is the proof the
         // injector bound; its absence is the proof it did not. Guarded + latched so it prints exactly once.
@@ -163,11 +173,20 @@ public abstract class MixinDmzAuraRenderer
                 // shortest-arc rotation that carries the aura's long axis onto the pod's rear.
                 Quaternionf worldOrient = new Quaternionf().rotationTo(auraLongAxis, rearWorld.normalize());
 
-                // Undo DMZ's billboard pair and apply worldOrient as one appended rotation. Cancelling only DMZ's own
-                // multipliers leaves the pose's baked world->view (vanilla or shaderpack) untouched.
-                Quaternionf camRotInv = new Quaternionf(camera.rotation()).conjugate();
-                Quaternionf append = new Quaternionf().rotationY((float) Math.PI).mul(camRotInv).mul(worldOrient);
-                pose.mulPose(append);
+                // DragonMineZ 2.2 builds the billboard with applyAxisBillboard (a pivot translate plus a basis matrix
+                // made from WORLD vectors) between the centre translate and this scale. Rather than invert that, the
+                // pose is put back to what it was right after the centre translate (saved there) and worldOrient is
+                // applied in its place: the same base * T * worldOrient the 2.1 undo produced, and it keeps whatever
+                // world->view the pose baked (vanilla or a shaderpack view stack).
+                Matrix4f[] saved = SU_PRE_BILLBOARD.get();
+                if (saved == null)
+                {
+                    pose.scale(sx, sy, sz);
+                    return;
+                }
+                pose.last().pose().set(saved[0]);
+                pose.last().normal().set(new org.joml.Matrix3f(saved[1]));
+                pose.mulPose(worldOrient);
 
                 // enlarge into an exhaust plume.
                 pose.scale(sx * POD_AURA_ENLARGE, sy * POD_AURA_ENLARGE, sz);
@@ -204,7 +223,8 @@ public abstract class MixinDmzAuraRenderer
                     remap = true))
     private static void su$centrePodAura(PoseStack pose, double x, double y, double z,
             Player player, @Coerce Object cachedAuraData, @Coerce Object auraLayer, PoseStack poseStack,
-            Minecraft minecraft, Matrix4f projection, float partialTick, float alpha, boolean overShoulder)
+            Minecraft minecraft, Matrix4f projection, Vec3 cameraOffset, float partialTick, float alpha,
+            boolean firstPerson)
     {
         // log-once on first weave/invocation, latched independently of the scale redirect so this line appearing proves
         // THIS redirect bound on its own. require = 0 fails SILENTLY, so its presence/absence is the only runtime proof.
@@ -233,10 +253,13 @@ public abstract class MixinDmzAuraRenderer
                     double podCentre = POD_CENTRE_HEIGHT_FRACTION * pod.getBbHeight();
                     double podCentreDrop = rideOffsetY - podCentre;
                     pose.translate(x, y - podCentreDrop, z);
+                    SU_PRE_BILLBOARD.set(new Matrix4f[] { new Matrix4f(pose.last().pose()),
+                            new Matrix4f().set(pose.last().normal()) });
                     return;
                 }
             }
             // not a pilot: the exact vanilla translate, zero behaviour change for everyone else.
+            SU_PRE_BILLBOARD.remove();
             pose.translate(x, y, z);
         }
         catch (Throwable t)

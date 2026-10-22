@@ -239,7 +239,7 @@ public final class SpaceBodyRenderer
     private static final double SYSTEM_SUN_DRAW_DISTANCE = GeneratedSystems.UNIVERSE_HALF_EXTENT;
     // Hard cap on far suns added per refresh, nearest first, so an enormous universe can never make the cached list or the
     // per-frame draw loop unbounded. The nearest systems win; farther ones are simply off the beacon field.
-    private static final int MAX_FAR_SUNS = 220;
+    private static final int MAX_FAR_SUNS = 400;
     // A floor on a far body's DRAWN half-extent (on the ~256-unit shell), so a system tens of thousands of blocks away still
     // reads as a small point rather than shrinking to nothing. IMPORTANT (the "planets intersecting at distance" fix): the
     // floor never GROWS the drawn disc past the honest angular size and then reads as a big bright ball covering nearer
@@ -367,8 +367,8 @@ public final class SpaceBodyRenderer
             {
                 return pos;
             }
-            // inclined orbit (a generated system planet, tilted plane) or flat (a fixed main planet, inclination 0). The
-            // maths is exactly GeneratedSystems.planetPositionAt / PlanetPositions.orbitPositionAt, so the drawn body sits
+            // inclined orbit (a system planet on its own plane, a fixed main planet on its ring's plane, or a flat super
+            // body). The maths is exactly GeneratedSystems.planetPositionAt / PlanetPositions.orbitPositionAt, so the drawn body sits
             // where the server lands it.
             double[] xyz = Orbits.inclinedPosition(orbit.cx(), orbit.cy(), orbit.cz(), orbit.ring(), orbit.phase0(), epoch,
                     orbit.inclination(), orbit.nodeAngle());
@@ -376,11 +376,62 @@ public final class SpaceBodyRenderer
         }
     }
 
+
     // orbital constants for an orbiting body: the centre it orbits (a sun), the ring radius, the start phase, and the
     // orbital-plane tilt (inclination + line of nodes; both 0 for a flat fixed-planet ring).
     private record OrbitParams(double cx, double cy, double cz, double ring, double phase0, double inclination,
-                               double nodeAngle)
+                               double nodeAngle, double period)
     {
+        OrbitParams(double cx, double cy, double cz, double ring, double phase0, double inclination, double nodeAngle)
+        {
+            this(cx, cy, cz, ring, phase0, inclination, nodeAngle, Orbits.periodMillis(ring));
+        }
+    }
+
+    // the live position computed by liveInto, render thread only (so the per-frame loop allocates no Vec3 per body).
+    private static double liveX;
+    private static double liveY;
+    private static double liveZ;
+
+    // a body's position right now into liveX/Y/Z: exactly Body.livePos (Orbits.inclinedPosition inlined, same formula),
+    // without allocating.
+    private static void liveInto(Body body, long epoch)
+    {
+        OrbitParams o = body.orbit;
+        if (o == null)
+        {
+            liveX = body.pos.x;
+            liveY = body.pos.y;
+            liveZ = body.pos.z;
+            return;
+        }
+        double revs = epoch / o.period();
+        double u = o.phase0() + Math.PI * 2.0 * (revs - Math.floor(revs));
+        double ci = Math.cos(o.inclination());
+        double si = Math.sin(o.inclination());
+        double cN = Math.cos(o.nodeAngle());
+        double sN = Math.sin(o.nodeAngle());
+        double k = (1.0 - ci) * Math.cos(u - o.nodeAngle());
+        liveX = o.cx() + o.ring() * (Math.cos(u) * ci + cN * k);
+        liveY = o.cy() + o.ring() * (Math.sin(u - o.nodeAngle()) * si);
+        liveZ = o.cz() + o.ring() * (Math.sin(u) * ci + sN * k);
+    }
+
+    // DISTANT LOD. A planet (or the sun / a near-range star) whose on-screen radius drops under this many pixels is no
+    // longer drawn as its model (which at that size is a one-pixel cube) but handed to SpaceImpostors as a lit disc. Read
+    // by SpaceImpostors too, so its far size gain ramps in from exactly this hand-over size.
+    static final float IMPOSTOR_HANDOVER_PX = 5.0F;
+
+    // per-frame scratch for the body pass: live positions and the sort keys, grown only when the cached set grows.
+    private static double[] frameX = new double[0];
+    private static double[] frameY = new double[0];
+    private static double[] frameZ = new double[0];
+    private static long[] frameOrder = new long[0];
+
+    /** The shell depth map, for SpaceImpostors (see shellDrawScale). */
+    static double shellScale(double dist)
+    {
+        return shellDrawScale(dist);
     }
 
     @SubscribeEvent
@@ -463,15 +514,93 @@ public final class SpaceBodyRenderer
             // the shared orbit clock, read ONCE per frame: every orbiting body's live position is computed from it, so a
             // frame is internally consistent and orbits advance every frame (not once per ~1s cache rebuild).
             long epoch = OrbitClock.epochMillis();
-            List<Body> ordered = new ArrayList<>(cache);
-            ordered.sort((a, b) -> Double.compare(b.livePos(epoch).distanceToSqr(cam), a.livePos(epoch).distanceToSqr(cam)));
-            logDepthBand(ordered, cam);
-            for (Body body : ordered)
+            // back-to-front order by live distance. Each body's live position is computed ONCE per frame into reused
+            // arrays and the sort runs on packed (distance, index) keys, so this pass allocates nothing per body. A body
+            // too small on screen for its model is handed to the impostor batch instead (DISTANT LOD).
+            boolean distant = SpaceVisualsConfig.get().distantBodies;
+            SpaceImpostors.beginFrame(camera, event.getProjectionMatrix());
+            int count = cache.size();
+            if (frameX.length < count)
             {
-                drawBody(poseStack, buffer, body, cam, tickCount, epoch);
+                int n = Math.max(count, frameX.length * 2);
+                frameX = new double[n];
+                frameY = new double[n];
+                frameZ = new double[n];
+                frameOrder = new long[n];
+            }
+            Vec3 sunPos = PlanetPositions.sunPosition();
+            double nearRange = SpaceLayout.clientDrawDistance();
+            org.joml.Vector3f look = camera.getLookVector();
+            int drawn = 0;
+            for (int i = 0; i < count; ++i)
+            {
+                Body body = cache.get(i);
+                liveInto(body, epoch);
+                double dx = liveX - cam.x;
+                double dy = liveY - cam.y;
+                double dz = liveZ - cam.z;
+                double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+                if (distant && handToImpostor(body, dist, sunPos, tickCount))
+                {
+                    continue;
+                }
+                if (body.kind == Kind.PLANET && dist > nearRange && !farPlanetVisible(body, dx, dy, dz, dist, look))
+                {
+                    continue;
+                }
+                frameX[i] = liveX;
+                frameY[i] = liveY;
+                frameZ[i] = liveZ;
+                // float bits of a non-negative float sort like the value; the index rides in the low word.
+                frameOrder[drawn++] = ((long) Float.floatToIntBits((float) (dist * dist)) << 32) | i;
+            }
+            java.util.Arrays.sort(frameOrder, 0, drawn);
+            logDepthBand(cache, cam);
+            boolean farPending = false;
+            for (int n = drawn - 1; n >= 0; --n)
+            {
+                int i = (int) (frameOrder[n] & 0xFFFFFFFFL);
+                Body body = cache.get(i);
+                double fdx = frameX[i] - cam.x;
+                double fdy = frameY[i] - cam.y;
+                double fdz = frameZ[i] - cam.z;
+                boolean far = body.kind == Kind.PLANET && fdx * fdx + fdy * fdy + fdz * fdz > nearRange * nearRange;
+                if (!far && farPending)
+                {
+                    buffer.endBatch();   // the far planets go down first, in one batch, before any near body.
+                    farPending = false;
+                }
+                drawingFar = far;
+                try
+                {
+                    drawBody(poseStack, buffer, body, frameX[i], frameY[i], frameZ[i], cam, tickCount);
+                }
+                finally
+                {
+                    drawingFar = false;
+                }
+                if (far)
+                {
+                    // far planets are a few pixels each and never overlap a near body's shells, so they share one flush
+                    // (one draw per texture) instead of one each: hundreds of distant planets stay cheap.
+                    farPending = true;
+                    continue;
+                }
                 // flush AFTER EACH body so the BufferSource cannot reorder a nearer body's shells behind a farther body:
                 // each body (opaque core then translucent shells) is fully drawn, back to front, before the next.
                 buffer.endBatch();
+            }
+            if (farPending)
+            {
+                buffer.endBatch();
+            }
+
+            // DISTANT SYSTEMS + the bodies handed over above: one sorted batch of lit discs (and the optional orbit
+            // lines under them), depth tested against the bodies just drawn so a nearer body still hides them.
+            if (distant)
+            {
+                SpaceImpostors.addSources(epoch);
+                SpaceImpostors.draw(poseStack, buffer, camera, sunPos.x, sunPos.y, sunPos.z, epoch);
             }
 
             // SHATTER: debris of a just-destroyed planet. From the doom state, NOT the body list, because the destroy
@@ -806,7 +935,7 @@ public final class SpaceBodyRenderer
         Vec3 pos = new Vec3(dir.x * SKY_BODY_SHELL_DIST, dir.y * SKY_BODY_SHELL_DIST, dir.z * SKY_BODY_SHELL_DIST);
         Body body = new Body(kind, pos, radius, tint, key);
         // a sky body is placed by direction and never orbits (orbit == null), so the epoch is irrelevant here.
-        drawBody(poseStack, buffer, body, Vec3.ZERO, tickCount, 0L);
+        drawBody(poseStack, buffer, body, body.pos.x, body.pos.y, body.pos.z, Vec3.ZERO, tickCount);
         buffer.endBatch();
     }
 
@@ -1041,11 +1170,14 @@ public final class SpaceBodyRenderer
             return;
         }
         depthBandLogged = true;
-        // ordered is back to front: last entry nearest, first farthest.
-        Body far = ordered.get(0);
-        Body near = ordered.get(ordered.size() - 1);
-        double farDist = Math.sqrt(far.pos.distanceToSqr(cam));
-        double nearDist = Math.sqrt(near.pos.distanceToSqr(cam));
+        double farDist = 0.0;
+        double nearDist = Double.MAX_VALUE;
+        for (Body body : ordered)
+        {
+            double d = Math.sqrt(body.pos.distanceToSqr(cam));
+            farDist = Math.max(farDist, d);
+            nearDist = Math.min(nearDist, d);
+        }
         LOGGER.info("[SU] space depth band: {} bodies, map=SHELL*d/(d+SHELL) with SHELL={}. nearest true={} -> drawn={}, "
                         + "farthest true={} -> drawn={}. Drawn depth rises with true distance, so nearer bodies occlude "
                         + "farther ones and cannot intersect.",
@@ -1265,7 +1397,8 @@ public final class SpaceBodyRenderer
                 // a fixed main planet ORBITS the central sun: carry its orbital constants so it is redrawn smoothly every
                 // frame from the shared clock, not snapped to the ~1s cache snapshot.
                 OrbitParams orbit = new OrbitParams(sunPos.x, sunPos.y, sunPos.z,
-                        PlanetPositions.orbitRadiusOf(fb.key), PlanetPositions.orbitPhase0Of(fb.key), 0.0, 0.0);
+                        PlanetPositions.orbitRadiusOf(fb.key), PlanetPositions.orbitPhase0Of(fb.key),
+                        PlanetPositions.orbitInclinationOf(fb.key), PlanetPositions.orbitNodeOf(fb.key));
                 out.add(new Body(Kind.PLANET, fb.position, fb.radius, PlanetPositions.tint(fb.key), fb.key, orbit));
             }
         }
@@ -1285,18 +1418,39 @@ public final class SpaceBodyRenderer
         long epochNow = OrbitClock.epochMillis();
         double rangeSq = range * range;
         java.util.Set<String> systemPlanetIds = new java.util.HashSet<>();
+        // the impostor sources are rebuilt alongside: near systems contribute the planets that are outside the near
+        // range (which the loop below skips), far systems their sun and every planet.
+        boolean distantOn = SpaceVisualsConfig.get().distantBodies;
+        SpaceImpostors.beginSources(distantOn ? GeneratedSystems.allSystems(null).size() * 10 + 16 : 0,
+                distantOn ? GeneratedSystems.allSystems(null).size() + 4 : 0, range);
+        if (distantOn)
+        {
+            for (FixedBody fb : SpaceLayout.fixedBodies(null))
+            {
+                SpaceImpostors.addMainRing(PlanetPositions.orbitRadiusOf(fb.key),
+                        PlanetPositions.orbitInclinationOf(fb.key), PlanetPositions.orbitNodeOf(fb.key));
+            }
+        }
         for (GeneratedSystems.System sys : GeneratedSystems.systemsNear(null, cam, range))
         {
+            if (distantOn && sys.starPos.distanceToSqr(cam) <= rangeSq)
+            {
+                addImpostorSystem(sys, true);   // its sun is drawn here; its planets beyond the near range go to impostors.
+            }
             for (GeneratedSystems.SystemPlanet p : sys.planets)
             {
                 Vec3 pos = sys.planetPositionAt(p, epochNow);
-                if (pos.distanceToSqr(cam) > rangeSq)
+                if (!distantOn && pos.distanceToSqr(cam) > rangeSq)
+                {
+                    continue;
+                }
+                if (SpaceLayout.isDestroyed(null, p.id))
                 {
                     continue;
                 }
                 systemPlanetIds.add(p.id);
                 OrbitParams orbit = new OrbitParams(sys.starPos.x, sys.starPos.y, sys.starPos.z, p.ringRadius, p.phase0,
-                        sys.inclination, sys.nodeAngle);
+                        p.inclination, p.nodeAngle);
                 out.add(new Body(Kind.PLANET, pos, p.radius, p.tint, p.id, orbit));
             }
         }
@@ -1321,10 +1475,11 @@ public final class SpaceBodyRenderer
             out.add(new Body(Kind.STAR, s.position, s.radius, s.tint, null));
         }
 
-        // DISTANT SYSTEM SUNS: every OTHER system's sun, drawn as a cheap far beacon so space is never empty. Enumerate the
-        // cached deterministic system grid (no per-frame cell walking), take suns beyond the near range (the ones above are
-        // already full-drawn) and within the universe limit, skip destroyed ones, then keep the nearest MAX_FAR_SUNS. This
-        // is a client-only visual: it spawns nothing and touches no server state.
+        // DISTANT SYSTEMS: every OTHER system, from the cached deterministic system grid (no per-frame cell walking).
+        // Take suns beyond the near range (the ones above are already full-drawn) and within the universe limit, skip
+        // destroyed ones, nearest first, capped. With distant bodies on (the default) each becomes impostor SOURCES: its
+        // sun and every planet at its live orbit, drawn as lit discs by SpaceImpostors. With it off they fall back to the
+        // old sun beacons. A client-only visual: it spawns nothing and touches no server state.
         double farLimitSq = SYSTEM_SUN_DRAW_DISTANCE * SYSTEM_SUN_DRAW_DISTANCE;
         List<GeneratedSystems.System> farSystems = new ArrayList<>();
         for (GeneratedSystems.System sys : GeneratedSystems.allSystems(null))
@@ -1336,45 +1491,41 @@ public final class SpaceBodyRenderer
             }
             if (SpaceLayout.isDestroyed(null, sys.starKey))
             {
-                continue;   // a destroyed sun is off the beacon field, exactly as it is off the near draw and the map.
+                continue;   // a destroyed sun is off the field, exactly as it is off the near draw and the map.
             }
             farSystems.add(sys);
         }
-        // nearest first, so the sun cap and the "which systems get planets" tier both keep the closest, most legible
-        // systems. One sort over the far set (a few hundred at most), not per frame (deriveNear runs on the ~1s refresh).
         farSystems.sort((a, b) -> Double.compare(a.starPos.distanceToSqr(cam), b.starPos.distanceToSqr(cam)));
-        long epochFar = OrbitClock.epochMillis();
-        int sunCount = 0;
-        for (GeneratedSystems.System sys : farSystems)
+        if (farSystems.size() > MAX_FAR_SUNS)
         {
-            if (sunCount >= MAX_FAR_SUNS)
+            farSystems = farSystems.subList(0, MAX_FAR_SUNS);
+        }
+        if (distantOn)
+        {
+            for (GeneratedSystems.System sys : farSystems)
             {
-                break;
-            }
-            out.add(new Body(Kind.FAR_SUN, sys.starPos, sys.starRadius, sys.starTint, sys.starKey));
-            // the nearest few far systems also draw their PLANETS as small lit points at their live orbital positions, so
-            // a distant system reads as a sun WITH planets, not a lone glowing ball. A destroyed planet is suppressed at
-            // the source (the same synced set the near draw and the map use).
-            if (sunCount < MAX_FAR_SYSTEMS_WITH_PLANETS)
-            {
+                addImpostorSystem(sys, false);
+                // its planets are REAL bodies, drawn by the same planet model and textures as a near planet (owner: "the
+                // distant planets should render the same as any other planets"); only the sun stays a glowing disc.
                 for (GeneratedSystems.SystemPlanet p : sys.planets)
                 {
                     if (SpaceLayout.isDestroyed(null, p.id))
                     {
                         continue;
                     }
-                    Vec3 pp = sys.planetPositionAt(p, epochFar);
-                    // a far system's sun is beyond the near range, but a planet on its near side can still fall INSIDE it,
-                    // where the near pass above already drew it as a full cube. Skip those, so a planet is never drawn as
-                    // both a near cube and a far dot.
-                    if (pp.distanceToSqr(cam) <= nearSq)
-                    {
-                        continue;
-                    }
-                    out.add(new Body(Kind.FAR_PLANET, pp, p.radius, p.tint, p.id));
+                    systemPlanetIds.add(p.id);
+                    OrbitParams orbit = new OrbitParams(sys.starPos.x, sys.starPos.y, sys.starPos.z, p.ringRadius,
+                            p.phase0, p.inclination, p.nodeAngle);
+                    out.add(new Body(Kind.PLANET, sys.planetPositionAt(p, epochNow), p.radius, p.tint, p.id, orbit));
                 }
             }
-            sunCount++;
+        }
+        else
+        {
+            for (GeneratedSystems.System sys : farSystems)
+            {
+                out.add(new Body(Kind.FAR_SUN, sys.starPos, sys.starRadius, sys.starTint, sys.starKey));
+            }
         }
 
         // black holes: no tint (the disc texture carries its own black/rim).
@@ -1392,12 +1543,117 @@ public final class SpaceBodyRenderer
         float superRadius = SuperPlanetPositions.radius();
         for (net.shurui.shuruisutilities.space.PacketSpaceLayoutSync.SuperBody sb : SpaceLayout.clientSuperBodies())
         {
-            if (sb.pos().distanceToSqr(cam) <= superRangeSq)
+            Vec3 now = sb.pos();
+            if (now.distanceToSqr(cam) <= superRangeSq)
             {
-                out.add(new Body(Kind.SUPER, sb.pos(), superRadius, sb.claimed() ? 1 : 0, sb.id()));
+                // a super body ORBITS the sun: carry its orbit so it is redrawn smoothly every frame from the shared
+                // clock rather than stepping once per cache refresh. Flat orbit (inclination 0) on its own plane height,
+                // exactly SuperBody.pos.
+                OrbitParams orbit = new OrbitParams(sb.sunX(), sb.y(), sb.sunZ(), sb.radius(), sb.phase0(), 0.0, 0.0);
+                out.add(new Body(Kind.SUPER, now, superRadius, sb.claimed() ? 1 : 0, sb.id(), orbit));
             }
         }
         return out;
+    }
+
+    // one system's impostor sources: its sun (far systems only) and its optional dust belt.
+    private static void addImpostorSystem(GeneratedSystems.System sys, boolean near)
+    {
+        double belt = SpaceImpostors.beltRingFor(sys.starKey, GeneratedSystems.innerRing(), GeneratedSystems.ringStep(),
+                sys.planets.size());
+        SpaceImpostors.addSystem(sys.starPos, sys.starRadius, sys.starTint, sys.inclination, sys.nodeAngle,
+                GeneratedSystems.maxOuterRing(), belt, near);
+        // its planets are not impostors any more: they are real bodies in the body pass (see the distant systems above).
+    }
+
+    // DISTANT LOD hand-over: a star too small on screen for its model goes to the impostor batch as a glowing disc. Returns true when handed over, so the caller skips the model draw. liveX/Y/Z hold
+    // the body's live position (set by liveInto just before). Supers, black holes and anything near never hand over.
+    // FAR PLANETS. Beyond the near draw range a planet is still drawn with its own model and textures, exactly like a near
+    // one. Two things keep a whole universe of them readable and cheap: below FAR_PLANET_MIN_PX on screen the drawn size is
+    // raised toward that floor (by at most FAR_PLANET_MAX_GAIN, so neighbours never merge), and one that would still be
+    // under FAR_PLANET_SKIP_PX, or is outside a wide view cone, is not drawn at all.
+    private static final double FAR_PLANET_MIN_PX = 2.5;
+    private static final double FAR_PLANET_MAX_GAIN = 3.0;
+    private static final double FAR_PLANET_SKIP_PX = 0.6;
+    // cos of the view cone half angle: generous (about 80 degrees) so a planet at the screen edge or corner is never cut.
+    private static final double FAR_PLANET_CONE_COS = 0.17;
+
+    private static double farPlanetGain(Body body, double dist)
+    {
+        if (body.kind != Kind.PLANET || dist <= SpaceLayout.clientDrawDistance())
+        {
+            return 1.0;
+        }
+        double px = SpaceImpostors.pixels(body.radius, dist);
+        if (px >= FAR_PLANET_MIN_PX || px <= 0.0)
+        {
+            return 1.0;
+        }
+        return Math.min(FAR_PLANET_MAX_GAIN, FAR_PLANET_MIN_PX / px);
+    }
+
+    private static boolean farPlanetVisible(Body body, double dx, double dy, double dz, double dist,
+                                            org.joml.Vector3f look)
+    {
+        if ((dx * look.x() + dy * look.y() + dz * look.z()) / dist < FAR_PLANET_CONE_COS)
+        {
+            return false;
+        }
+        return SpaceImpostors.pixels(body.radius, dist) * FAR_PLANET_MAX_GAIN >= FAR_PLANET_SKIP_PX;
+    }
+
+    private static boolean handToImpostor(Body body, double dist, Vec3 sun, double tickCount)
+    {
+        // planets never hand over: a planet at any distance is drawn with its own model (see FAR_PLANET_* below).
+        if (body.kind == Kind.STAR && SpaceImpostors.pixels(body.radius * STAR_DRAW_SCALE, dist) < IMPOSTOR_HANDOVER_PX)
+        {
+            SpaceImpostors.addBody(SpaceImpostors.K_SUN, liveX, liveY, liveZ, body.radius, body.tint, 0, 0.0, 0.0, 0.0);
+            return true;
+        }
+        return false;
+    }
+
+    // the colour a body's impostor is tinted: the same base colour its model is multiplied by (packBaseTint), with Earth,
+    // whose model wears untinted colour art, given its ocean blue-green.
+    private static int impostorTint(Body body)
+    {
+        if (body.planetKey != null && isEarthStyle(body.planetKey))
+        {
+            return 0x5A86B8;
+        }
+        return packBaseTint(body);
+    }
+
+    // the impostor surface style matching the model a body draws: Earth-style worlds and Namek are ocean worlds, the gas
+    // giant sheet is banded, the Neptune sheet icy, the rest rocky. A pure function of the key, like the model pick.
+    static int impostorStyle(String key)
+    {
+        if (key == null)
+        {
+            return SpaceImpostors.STYLE_ROCKY;
+        }
+        ResourceLocation model;
+        if (key.startsWith(GeneratedPlanets.ID_PREFIX))
+        {
+            model = PACK_GENERATED_POOL[Math.floorMod(packHash(key, "planet"), PACK_GENERATED_POOL.length)];
+        }
+        else
+        {
+            if (isEarthStyle(key) || key.endsWith(":namek") || key.endsWith(":namekow"))
+            {
+                return SpaceImpostors.STYLE_OCEAN;
+            }
+            model = mainPlanetModel(key);
+        }
+        if (model == PACK_JUPITER_GRAYSCALE)
+        {
+            return SpaceImpostors.STYLE_BANDED;
+        }
+        if (model == PACK_NEPTUNE_GRAYSCALE)
+        {
+            return SpaceImpostors.STYLE_ICE;
+        }
+        return SpaceImpostors.STYLE_ROCKY;
     }
 
     // The one map from a body's TRUE camera distance to the single scale applied to BOTH its drawn position and its drawn
@@ -1422,13 +1678,12 @@ public final class SpaceBodyRenderer
     // draw one body at its camera-relative position, applying the shell depth map so a distant body is never clipped and
     // nearer bodies sit genuinely nearer in the depth buffer. Direction is always the true direction to the body; only the
     // drawn distance and size are scaled (by the same factor), which preserves angular size and screen position.
-    private static void drawBody(PoseStack poseStack, MultiBufferSource buffer, Body body, Vec3 cam, double tickCount,
-                                 long epoch)
+    private static void drawBody(PoseStack poseStack, MultiBufferSource buffer, Body body, double liveBodyX,
+                                 double liveBodyY, double liveBodyZ, Vec3 cam, double tickCount)
     {
-        Vec3 live = body.livePos(epoch);
-        double dx = live.x - cam.x;
-        double dy = live.y - cam.y;
-        double dz = live.z - cam.z;
+        double dx = liveBodyX - cam.x;
+        double dy = liveBodyY - cam.y;
+        double dz = liveBodyZ - cam.z;
         double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
         if (dist < 1.0E-4)
         {
@@ -1446,7 +1701,7 @@ public final class SpaceBodyRenderer
         double drawX = dx * drawScale;
         double drawY = dy * drawScale;
         double drawZ = dz * drawScale;
-        float drawRadius = (float) (body.radius * drawScale);
+        float drawRadius = (float) (body.radius * drawScale * farPlanetGain(body, dist));
 
         // gate the nameplate on distance to the body's SURFACE (true centre distance minus its true radius), so a label
         // only shows once the player is genuinely near, and appears at the same visual closeness for a big or small body.
@@ -2254,8 +2509,16 @@ public final class SpaceBodyRenderer
     // ring's near/far split) would not be there yet. Under the pass depth policy (see onRenderLevel) each render type owns
     // its own write mask: the opaque body (entityCutout) writes depth, the translucent shells (COLOR_WRITE) do not, so
     // this just ends the batch in order and leaves the mask to the next render type's own setup.
+    // set while a FAR planet is drawn: its layers then go into the shared far batch instead of flushing one by one (a
+    // planet a few pixels across has no visible layer order, and per-layer flushes were most of the far pass's cost).
+    private static boolean drawingFar;
+
     private static void flushInOrder(MultiBufferSource buffer)
     {
+        if (drawingFar)
+        {
+            return;
+        }
         if (buffer instanceof MultiBufferSource.BufferSource bs)
         {
             bs.endBatch();

@@ -33,8 +33,8 @@ import net.shurui.shuruisutilities.util.output.logger.LoggingHandler;
  * flight most of all, falls straight through untouched: the guard requires the pod's controlling passenger to be the
  * local player AND an active, dimension-matched SU autopilot.
  *
- * <p>Interaction with {@code space.mixin.dmz.MixinDmzSpacePodVerticalSpeed}: that mixin's {@code @ModifyArg} rewrites the
- * vertical arg of a {@code setDeltaMovement} call INSIDE DMZ's {@code travel}. When this HEAD inject cancels, that call
+ * <p>Interaction with {@code space.mixin.dmz.MixinDmzSpacePodVerticalSpeed}: that mixin rewrites the
+ * {@code setDeltaMovement} call INSIDE DMZ's travel (2.2: {@code VehicleEntity.travelDriven}). When this HEAD inject cancels, that call
  * is never reached, so the two never fight; when autopilot is off this inject does nothing and the vertical mixin drives
  * manual flight exactly as before.
  *
@@ -45,7 +45,9 @@ import net.shurui.shuruisutilities.util.output.logger.LoggingHandler;
  * SILENTLY, the handler logs once when it first weaves; the ABSENCE of that line in the log is how we know it did not
  * bind.
  */
-@Mixin(targets = "com.dragonminez.common.init.entities.SpacePodEntity", remap = false)
+// DragonMineZ 2.2 moved the pod onto its generic vehicle base: travel() is now VehicleEntity's (SpacePodEntity no
+// longer declares it), so this targets VehicleEntity and acts only for a SpacePodEntity.
+@Mixin(targets = "com.dragonminez.common.init.entities.vehicle.VehicleEntity", remap = false)
 public abstract class MixinDmzSpacePodTravel
 {
     private static final AtomicBoolean SU_TRAVEL_BIND_LOGGED = new AtomicBoolean(false);
@@ -68,6 +70,10 @@ public abstract class MixinDmzSpacePodTravel
 
         try
         {
+            if (!((Object) this instanceof com.dragonminez.common.init.entities.SpacePodEntity))
+            {
+                return; // every other DMZ 2.2 vehicle runs its own travel untouched
+            }
             LivingEntity self = (LivingEntity) (Object) this;
             Level level = self.level();
             // client only: the server drives the pod through SpaceTravelModule's own integration, never this mixin.

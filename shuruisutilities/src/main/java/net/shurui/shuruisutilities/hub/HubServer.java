@@ -45,6 +45,7 @@ public final class HubServer
             {"shrines", "su.gui.shrines", "gui.dmz_ragnarok.core.hub.shrines"},
             {"tasks", "su.gui.tasks", "gui.dmz_ragnarok.core.hub.tasks"},
             {"hoverbikes", "su.gui.hoverbikes", "gui.dmz_ragnarok.core.hub.hoverbikes"},
+            {"rituals", "su.gui.rituals", "gui.dmz_ragnarok.core.hub.rituals"},
             {"saibamanpets", "su.gui.saibamanpets", "gui.dmz_ragnarok.core.hub.saibamanpets"},
             {"sparringsettings", "su.gui.sparringsettings", "gui.dmz_ragnarok.core.hub.sparringsettings"},
             {"shadowdragons", GUI_SHADOWDRAGONS, "gui.dmz_ragnarok.core.hub.shadowdragons"},
@@ -78,13 +79,13 @@ public final class HubServer
     private static final java.util.Set<String> KEYLESS_PUBLIC = java.util.Set.of(
             "menu", "menu:admin",
             "cosmetics", "formcosmetics", "wardrobe", "cosmetic_mounts", "cosmetic_animations", "shop",
-            "hoverbikes");
+            "hoverbikes", "rituals");
 
     /**
      * Admin editors this class opens itself (see {@link #tryOpen}) rather than through a registered {@link HubRows}
      * row. Every other admin row is listed only when its feature registered a row.
      */
-    private static final java.util.Set<String> SELF_OPENED = java.util.Set.of("events", "hoverbikes");
+    private static final java.util.Set<String> SELF_OPENED = java.util.Set.of("events", "hoverbikes", "rituals");
 
     /** Whether this hub key may be listed or opened here: always with the key, the public set without it. */
     private static boolean offered(String which)
@@ -124,33 +125,47 @@ public final class HubServer
         List<String> labels = new ArrayList<>();
         for (String[] e : ADMIN)
         {
-            // keyless: only the public editors are listed (see KEYLESS_PUBLIC)
-            if (!offered(e[0]))
-                continue;
-            // only rows something will actually open: a feature row the key (or core) registered, or an editor this
-            // class opens itself. A jar that merely claims to be the key registers no rows, so it lists nothing extra.
-            if (!SELF_OPENED.contains(e[0]) && !HubRows.has(e[0]))
-                continue;
-            // hide prestige when the prestige feature is disabled
-            if (e[0].equals("prestige") && !net.shurui.shuruisutilities.core.config.Features.enabled(
-                    net.shurui.shuruisutilities.core.config.Features.PRESTIGE))
-                continue;
-            // hide the event editor unless the private event engine (Ragnarok Key) is installed: a row that opens
-            // a screen the keyless server never populates is worse than no row.
-            if (e[0].equals("events") && !net.shurui.shuruisutilities.api.key.EventWorldHooks.available())
-                continue;
-            // hide the cosmetic catalogue, crate and shop editors when the module is off or the key tier is not
-            // entitled to it: a row that opens a screen refusing to do anything is worse than no row.
-            if ((e[0].equals("cosmetics_admin") || e[0].equals("cosmetic_crates") || e[0].equals("cosmetic_shop"))
-                    && !HubRows.available(e[0]))
-                continue;
-            if (adminEditor(p, e[1]))
+            if (offersAdminRow(p, e))
             {
                 which.add(e[0]);
                 labels.add(e[2]);
             }
         }
         NetworkUtils.sendTo(new PacketOpenHub(true, which, labels), p);
+    }
+
+    /** Would the admin hub list row {@code which} for this player (the options editor's Editors tab asks too). */
+    public static boolean offersAdminRow(ServerPlayer p, String which)
+    {
+        for (String[] e : ADMIN)
+            if (e[0].equals(which))
+                return isAdmin(p) && offersAdminRow(p, e);
+        return false;
+    }
+
+    private static boolean offersAdminRow(ServerPlayer p, String[] e)
+    {
+        // keyless: only the public editors are listed (see KEYLESS_PUBLIC)
+        if (!offered(e[0]))
+            return false;
+        // only rows something will actually open: a feature row the key (or core) registered, or an editor this
+        // class opens itself. A jar that merely claims to be the key registers no rows, so it lists nothing extra.
+        if (!SELF_OPENED.contains(e[0]) && !HubRows.has(e[0]))
+            return false;
+        // hide prestige when the prestige feature is disabled
+        if (e[0].equals("prestige") && !net.shurui.shuruisutilities.core.config.Features.enabled(
+                net.shurui.shuruisutilities.core.config.Features.PRESTIGE))
+            return false;
+        // hide the event editor unless the private event engine (Ragnarok Key) is installed: a row that opens
+        // a screen the keyless server never populates is worse than no row.
+        if (e[0].equals("events") && !net.shurui.shuruisutilities.api.key.EventWorldHooks.available())
+            return false;
+        // hide the cosmetic catalogue, crate and shop editors when the module is off or the key tier is not
+        // entitled to it: a row that opens a screen refusing to do anything is worse than no row.
+        if ((e[0].equals("cosmetics_admin") || e[0].equals("cosmetic_crates") || e[0].equals("cosmetic_shop"))
+                && !HubRows.available(e[0]))
+            return false;
+        return adminEditor(p, e[1]);
     }
 
     public static void openPlayer(ServerPlayer p)
@@ -200,6 +215,8 @@ public final class HubServer
                     EditorServer.open(p, "events");
             }
             case "hoverbikes" -> { if (adminEditor(p, "su.gui.hoverbikes")) EditorServer.open(p, "hoverbikes"); }
+            // The rituals are public (the SSG charge ritual is core), so this row is offered keyless too.
+            case "rituals" -> { if (adminEditor(p, "su.gui.rituals")) EditorServer.open(p, "rituals"); }
             // player tools
             case "cosmetics" -> openCosmetics(p);
             case "formcosmetics" -> openFormCosmetics(p);

@@ -11,6 +11,10 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraftforge.client.gui.overlay.IGuiOverlay;
 import net.shurui.dev.sdu.client.ClientWaypoints;
+import net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHud;
+import net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHudElement;
+import net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHudFrame;
+import net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHudSlot;
 import net.shurui.dev.sdu.waypoint.Waypoint;
 
 import java.util.ArrayList;
@@ -18,7 +22,8 @@ import java.util.List;
 
 /**
  * Top-centre compass bar HUD: a scrolling ruler with a marker per active waypoint by bearing, and the nearest
- * waypoint's name and distance below.
+ * waypoint's name and distance below. Placed, scaled and hidden through DragonMineZ's HUD editor (an extra,
+ * {@link RagnarokHudSlot#COMPASS}), top-centre by default.
  *
  * <p>A MANUAL pin only draws in the dimension it was dropped in. A QUEST waypoint follows the player, so when
  * its objective is in another dimension the label names the dimension to travel to rather than a meaningless
@@ -68,124 +73,183 @@ public final class CompassOverlay {
 
     private static void render(net.minecraftforge.client.gui.overlay.ForgeGui gui, GuiGraphics g,
                                float partialTick, int screenW, int screenH) {
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null || mc.options.hideGui) {
-            return;
-        }
-        // The waypoint compass is private (OWNER-SPECS section 4): not drawn at all unless the connected server
-        // reported the key. The quest tracker keeps the objective's location public.
-        if (!net.shurui.dev.sdu.api.ClientGate.key()) {
-            return;
+        RagnarokHud.draw(RagnarokHudSlot.COMPASS, g, partialTick, screenW, screenH);
+    }
+
+    /** Bind the compass to its slot in DMZ's HUD layout (an extra, so every style shows it). */
+    public static void registerElement() {
+        RagnarokHud.register(new Element());
+    }
+
+    // the box: the bar plus the three label lines that can hang under it (nearest, travel, objective)
+    private static final int LABEL_GAP = 3;
+    private static final int BOX_HEIGHT = BAR_HEIGHT + LABEL_GAP + 3 * 9;
+
+    /** The compass as a DMZ layout element: drawn in its own box, top-centre by default. */
+    private static final class Element extends RagnarokHudElement {
+        // the last frame's waypoints, kept so the bar can fade out after the last one goes
+        private final List<Waypoint> here = new ArrayList<>();
+        private Waypoint away;
+
+        Element() {
+            super(RagnarokHudSlot.COMPASS);
         }
 
-        String dim = mc.player.level().dimension().location().toString();
-        List<Waypoint> here = new ArrayList<>();
-        // First quest waypoint in another dimension. Only one kept: the label names a single destination.
-        Waypoint away = null;
-        for (Waypoint w : ClientWaypoints.all()) {
-            // A notice has no position AND no dim (a tracker row only); its blank dim would falsely read as
-            // "objective in another world" and send the compass nowhere.
-            if (w.isNotice()) {
-                continue;
+        @Override
+        public float width() {
+            return BAR_WIDTH;
+        }
+
+        @Override
+        public float height() {
+            return BOX_HEIGHT;
+        }
+
+        @Override
+        public float[] defaultPlacement() {
+            return new float[] {0.5f, 0.0f, 0.0f, TOP_MARGIN, 1.0f};
+        }
+
+        @Override
+        public boolean listed() {
+            // The waypoint compass is private (OWNER-SPECS section 4): not drawn at all unless the connected server
+            // reported the key. The quest tracker keeps the objective's location public.
+            return net.shurui.dev.sdu.api.ClientGate.key();
+        }
+
+        @Override
+        public boolean update(boolean preview, float partialTick) {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc.player == null) {
+                return false;
             }
-            if (dim.equals(w.dim)) {
-                // A travel marker has no position (Waypoint.travel), so nothing to draw once you are in its dim.
-                if (!w.travel) {
-                    here.add(w);
+            String dim = mc.player.level().dimension().location().toString();
+            List<Waypoint> found = new ArrayList<>();
+            // First quest waypoint in another dimension. Only one kept: the label names a single destination.
+            Waypoint foundAway = null;
+            for (Waypoint w : ClientWaypoints.all()) {
+                // A notice has no position AND no dim (a tracker row only); its blank dim would falsely read as
+                // "objective in another world" and send the compass nowhere.
+                if (w.isNotice()) {
+                    continue;
                 }
-            } else if (w.quest && away == null) {
-                away = w;
+                if (dim.equals(w.dim)) {
+                    // A travel marker has no position (Waypoint.travel), so nothing to draw once you are in its dim.
+                    if (!w.travel) {
+                        found.add(w);
+                    }
+                } else if (w.quest && foundAway == null) {
+                    foundAway = w;
+                }
             }
-        }
-        if (here.isEmpty() && away == null) {
-            return;
-        }
-
-        Font font = mc.font;
-        double px = mc.player.getX();
-        double py = mc.player.getEyeY();
-        double pz = mc.player.getZ();
-        float playerYaw = mc.player.getYRot();
-
-        int cx = screenW / 2;
-        int barLeft = cx - BAR_WIDTH / 2;
-        int barTop = TOP_MARGIN;
-        int barBottom = barTop + BAR_HEIGHT;
-        int interiorLeft = barLeft + FRAME_INSET;
-        int interiorRight = barLeft + BAR_WIDTH - FRAME_INSET;
-
-        // Fill first, frame over it: the frame is an outline with a hole, so a later fill would cover the border.
-        g.fill(interiorLeft, barTop + FRAME_INSET, interiorRight, barBottom - FRAME_INSET, BG_COLOR);
-        g.blit(FRAME, barLeft, barTop, 0, 0, BAR_WIDTH, BAR_HEIGHT, BAR_WIDTH, BAR_HEIGHT);
-
-        // Clip the ruler to the hole so a label rolling off the end is cut by the border, not spilled.
-        g.enableScissor(interiorLeft, barTop + FRAME_INSET, interiorRight, barBottom - FRAME_INSET);
-
-        // Put the faced bearing's u under the centre mark, then lay copies a period apart across the hole.
-        float anchor = ANCHOR_U + Mth.wrapDegrees(playerYaw - ANCHOR_BEARING) * PX_PER_DEGREE;
-        float first = cx - anchor;
-        while (first > interiorLeft) {
-            first -= STRIP_PERIOD;
-        }
-        for (float sx = first; sx < interiorRight; sx += STRIP_PERIOD) {
-            g.blit(STRIP, Math.round(sx), barTop, 0, 0, BAR_WIDTH, BAR_HEIGHT, BAR_WIDTH, BAR_HEIGHT);
-        }
-        g.disableScissor();
-
-        // Centre "facing" marker, drawn BEFORE the markers so a line over them cannot hide the icon at the moment
-        // the player lines up with an objective. Outside every scissor, so its overhang survives.
-        g.fill(cx, barTop - 2, cx + 1, barBottom + 2, 0xFFFFFFFF);
-
-        // Markers share the ruler's clip: they sit inside the frame, so a marker near the end is cut like a label.
-        g.enableScissor(interiorLeft, barTop + FRAME_INSET, interiorRight, barBottom - FRAME_INSET);
-
-        Waypoint nearest = null;
-        double nearestDistSq = Double.MAX_VALUE;
-        for (Waypoint w : here) {
-            double dx = w.x - px;
-            double dy = w.y - py;
-            double dz = w.z - pz;
-            double distSq = dx * dx + dy * dy + dz * dz;
-            if (distSq < nearestDistSq) {
-                nearestDistSq = distSq;
-                nearest = w;
+            if (found.isEmpty() && foundAway == null) {
+                if (!preview) {
+                    return false;
+                }
+                // the editor needs a marker to show: one ahead and to the right of the player
+                found.add(new Waypoint(dim, mc.player.getX() + 60.0, mc.player.getEyeY(), mc.player.getZ() + 100.0,
+                        I18n.get("hud.dmz_ragnarok.npc.compass.waypoint"), Waypoint.COLOR_QUEST, true));
             }
-            float targetYaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
-            // No clamping or edge arrows: the ruler covers the whole circle, so a target behind sits near an end.
-            float delta = Mth.wrapDegrees(targetYaw - playerYaw);
-            int mx = cx + Math.round(delta * PX_PER_DEGREE);
-            ItemStack iconStack = iconStack(w.icon);
-            if (w.mark.hasPin()) {
-                drawPinMarker(g, w.mark, mx, barTop);
-            } else if (iconStack != null) {
-                drawIconMarker(g, iconStack, mx, barTop);
-            } else {
-                drawMarker(g, mx, barTop, w.color);
+            here.clear();
+            here.addAll(found);
+            away = foundAway;
+            return true;
+        }
+
+        @Override
+        public void render(GuiGraphics g, float partialTick, RagnarokHudFrame frame) {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc.player == null) {
+                return;
             }
-        }
-        g.disableScissor();
+            Font font = mc.font;
+            double px = mc.player.getX();
+            double py = mc.player.getEyeY();
+            double pz = mc.player.getZ();
+            float playerYaw = mc.player.getYRot();
 
-        int labelY = barBottom + 3;
-        if (nearest != null) {
-            double hdx = nearest.x - px;
-            double hdz = nearest.z - pz;
-            int dist = (int) Math.round(Math.sqrt(hdx * hdx + hdz * hdz));
-            String name = nearest.name.isBlank() ? I18n.get("hud.dmz_ragnarok.npc.compass.waypoint") : nearest.name;
-            String label = I18n.get("hud.dmz_ragnarok.npc.compass.distance", name, dist);
-            g.drawCenteredString(font, label, cx, labelY, nearest.color);
-            labelY += font.lineHeight;
-        }
+            // local space: the bar is the top of the box, centred on it
+            int cx = BAR_WIDTH / 2;
+            int barLeft = 0;
+            int barTop = 0;
+            int barBottom = barTop + BAR_HEIGHT;
+            int interiorLeft = barLeft + FRAME_INSET;
+            int interiorRight = barLeft + BAR_WIDTH - FRAME_INSET;
 
-        // Mission elsewhere: name the dimension, UNDER any local line (both are true when pins are here and a
-        // quest is elsewhere, and the bearing line answers "what is nearest").
-        if (away != null) {
-            String objective = away.name.isBlank()
-                    ? I18n.get("hud.dmz_ragnarok.npc.compass.waypoint") : away.name;
-            g.drawCenteredString(font, I18n.get("hud.dmz_ragnarok.npc.compass.travel", dimensionName(away.dim)),
-                    cx, labelY, away.color);
-            labelY += font.lineHeight;
-            // the objective's own text below the destination, so "go to the Nether" still says WHY.
-            g.drawCenteredString(font, objective, cx, labelY, 0xFFBFC7D5);
+            // Fill first, frame over it: the frame is an outline with a hole, so a later fill would cover the border.
+            g.fill(interiorLeft, barTop + FRAME_INSET, interiorRight, barBottom - FRAME_INSET, BG_COLOR);
+            g.blit(FRAME, barLeft, barTop, 0, 0, BAR_WIDTH, BAR_HEIGHT, BAR_WIDTH, BAR_HEIGHT);
+
+            // Clip the ruler to the hole so a label rolling off the end is cut by the border, not spilled. The clip is
+            // given in local space and transformed, because the box is placed and scaled by DMZ's layout.
+            RagnarokHud.enableScissor(g, interiorLeft, barTop + FRAME_INSET, interiorRight, barBottom - FRAME_INSET);
+
+            // Put the faced bearing's u under the centre mark, then lay copies a period apart across the hole.
+            float anchor = ANCHOR_U + Mth.wrapDegrees(playerYaw - ANCHOR_BEARING) * PX_PER_DEGREE;
+            float first = cx - anchor;
+            while (first > interiorLeft) {
+                first -= STRIP_PERIOD;
+            }
+            for (float sx = first; sx < interiorRight; sx += STRIP_PERIOD) {
+                g.blit(STRIP, Math.round(sx), barTop, 0, 0, BAR_WIDTH, BAR_HEIGHT, BAR_WIDTH, BAR_HEIGHT);
+            }
+            g.disableScissor();
+
+            // Centre "facing" marker, drawn BEFORE the markers so a line over them cannot hide the icon at the moment
+            // the player lines up with an objective. Outside every scissor, so its overhang survives.
+            g.fill(cx, barTop - 2, cx + 1, barBottom + 2, 0xFFFFFFFF);
+
+            // Markers share the ruler's clip: they sit inside the frame, so a marker near the end is cut like a label.
+            RagnarokHud.enableScissor(g, interiorLeft, barTop + FRAME_INSET, interiorRight, barBottom - FRAME_INSET);
+
+            Waypoint nearest = null;
+            double nearestDistSq = Double.MAX_VALUE;
+            for (Waypoint w : here) {
+                double dx = w.x - px;
+                double dy = w.y - py;
+                double dz = w.z - pz;
+                double distSq = dx * dx + dy * dy + dz * dz;
+                if (distSq < nearestDistSq) {
+                    nearestDistSq = distSq;
+                    nearest = w;
+                }
+                float targetYaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
+                // No clamping or edge arrows: the ruler covers the whole circle, so a target behind sits near an end.
+                float delta = Mth.wrapDegrees(targetYaw - playerYaw);
+                int mx = cx + Math.round(delta * PX_PER_DEGREE);
+                ItemStack iconStack = iconStack(w.icon);
+                if (w.mark.hasPin()) {
+                    drawPinMarker(g, w.mark, mx, barTop);
+                } else if (iconStack != null) {
+                    drawIconMarker(g, iconStack, mx, barTop);
+                } else {
+                    drawMarker(g, mx, barTop, w.color);
+                }
+            }
+            g.disableScissor();
+
+            int labelY = barBottom + LABEL_GAP;
+            if (nearest != null) {
+                double hdx = nearest.x - px;
+                double hdz = nearest.z - pz;
+                int dist = (int) Math.round(Math.sqrt(hdx * hdx + hdz * hdz));
+                String name = nearest.name.isBlank() ? I18n.get("hud.dmz_ragnarok.npc.compass.waypoint") : nearest.name;
+                String label = I18n.get("hud.dmz_ragnarok.npc.compass.distance", name, dist);
+                g.drawCenteredString(font, label, cx, labelY, nearest.color);
+                labelY += font.lineHeight;
+            }
+
+            // Mission elsewhere: name the dimension, UNDER any local line (both are true when pins are here and a
+            // quest is elsewhere, and the bearing line answers "what is nearest").
+            if (away != null) {
+                String objective = away.name.isBlank()
+                        ? I18n.get("hud.dmz_ragnarok.npc.compass.waypoint") : away.name;
+                g.drawCenteredString(font, I18n.get("hud.dmz_ragnarok.npc.compass.travel", dimensionName(away.dim)),
+                        cx, labelY, away.color);
+                labelY += font.lineHeight;
+                // the objective's own text below the destination, so "go to the Nether" still says WHY.
+                g.drawCenteredString(font, objective, cx, labelY, 0xFFBFC7D5);
+            }
         }
     }
 

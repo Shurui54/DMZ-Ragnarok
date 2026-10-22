@@ -13,7 +13,7 @@ import net.shurui.shuruisutilities.util.output.logger.LoggingHandler;
  * reimplementing any of it.
  *
  * <p>Names DMZ types directly, so only {@link DragonTechniqueBridge} may call it, and only with DMZ present
- * (the optional-dependency pattern).
+ * (docs/compat-pattern.md).
  *
  * <p>WHAT DMZ PROVIDES AND WHAT WE PROVIDE. The registry entry supplies the menu row, the projectile shape, the
  * colours, the cast time, the cooldown and the race gate. It CANNOT express any of the actual signature effects, so

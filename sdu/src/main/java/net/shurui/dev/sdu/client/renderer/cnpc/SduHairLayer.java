@@ -1,6 +1,6 @@
 package net.shurui.dev.sdu.client.renderer.cnpc;
 
-import com.dragonminez.client.render.hair.HairRenderer;
+import net.shurui.dev.sdu.client.renderer.DmzStaticHair;
 import com.dragonminez.common.hair.CustomHair;
 import com.goodbird.cnpcgeckoaddon.entity.EntityCustomModel;
 import com.mojang.blaze3d.vertex.PoseStack;
@@ -20,9 +20,8 @@ import software.bernie.geckolib.util.RenderUtils;
 /**
  * Renders a DMZ hairstyle on a Custom NPC that carries a hair code, by mirroring DMZ's own
  * {@code DMZHairLayer}: a GeckoLib render layer that, at the {@code head} bone, translates to the bone pivot
- * and calls {@link HairRenderer#render}. The hair code lives on the NPC's display (see {@link SduHairHolder});
- * we decode it to a {@link CustomHair} and draw it statically - passing {@code null} for DMZ's
- * character/stats/player context (all null-guarded in {@code HairRenderer}, which only skips hair physics).
+ * and draws the hair there ({@link DmzStaticHair}, DMZ 2.2's mesh builder). The hair code lives on the NPC's display
+ * (see {@link SduHairHolder}); we decode it to a {@link CustomHair} and draw it statically, with no hair physics.
  *
  * <p>Attached to the addon's {@code RenderCustomModel} by {@code RenderCustomModelMixin}. Client-only.</p>
  */
@@ -59,10 +58,8 @@ public class SduHairLayer extends GeoRenderLayer<EntityCustomModel> {
         poseStack.pushPose();
         try {
             RenderUtils.translateToPivotPoint(poseStack, (CoreGeoBone) bone);
-            // Static hair (no physics): null character/stats/player, physicsLodMultiplier 0. HairRenderer
-            // null-guards all three, so only the physics pass is skipped; the strands still draw.
-            HairRenderer.render(poseStack, bufferSource, hair, hair, 0f, null, null, null, rgb, rgb,
-                    force, force, partialTick, packedLight, OverlayTexture.NO_OVERLAY, 1f, 0f, 0f);
+            // Static hair (no physics), drawn the way DMZ 2.2 draws a player's hair with physics off.
+            DmzStaticHair.render(poseStack, bufferSource, hair, rgb, force, packedLight, OverlayTexture.NO_OVERLAY);
             // Re-select the body's render type as the active buffer. The hair drew into its own
             // (hair-texture) RenderType; without this, the rest of the model's geometry keeps writing into
             // the hair buffer, corrupting the body texture. Mirrors DMZ's own DMZHairLayer.

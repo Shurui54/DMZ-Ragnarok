@@ -376,6 +376,8 @@ public class AdvancedSpawnerBlockEntity extends BlockEntity {
             // roll per-spawn ki damage + per-move cooldowns off the level RNG so each mob varies
             config.writeNpcNbt(tag, level.random);
         }
+        // the ki damage this mob rolled (level 1 terms), kept in place inside the max-level range when scaled
+        float rolledKi = tag.contains("KiPower") ? tag.getFloat("KiPower") : 0f;
         Entity entity = EntityType.loadEntityRecursive(tag, level, e -> {
             e.moveTo(x, y, z, yaw, 0.0f);
             return e;
@@ -405,13 +407,19 @@ public class AdvancedSpawnerBlockEntity extends BlockEntity {
         net.shurui.shuruisutilities.ragnarok.RgNpcLook.apply(entity, config.rgModelId);
         if (entity instanceof net.minecraft.world.entity.LivingEntity living) {
             config.applyTo(living); // health/damage/speed/armor + name
+            // level scaling: stats for the weakest player in range, raised by a stronger attacker (core
+            // LevelScaledStats). The boss roll never scales.
+            if (config.levelScaling) {
+                config.applyLevelStats(living, spawnLevel(level, pos), rolledKi);
+            }
             // opt out of DMZ's onEntityJoinWorld config-stat overwrite so our stats survive (DMZ 2.1.3)
             living.getPersistentData().putBoolean("dmz_stats_configured", true);
             // sdu transform chain as raw NBT (sdu-agnostic): engine reads "sdu_tf" / "dmz_quest_no_transform"
             stampTransform(living, config.mainTransform, config.mainUseDefaultTransform);
         }
-        // kill rewards (TP/balance ranges, custom drops) for any entity type; see SpawnerRewardEvents
-        stampRewards(entity);
+        // kill rewards (TP/balance ranges, custom drops) for any entity type; see SpawnerRewardEvents. The ordinary
+        // mobs scale with the killer's level; the boss roll below does not.
+        stampRewards(entity, config.levelScaling);
         // on Mohist a Bukkit CreatureSpawnEvent (mob-limit plugins etc.) can silently cancel this Forge spawn;
         // logging the rejection is the only way admins ever see the otherwise-invisible no-spawn
         boolean added = level.addFreshEntity(entity);
@@ -474,7 +482,7 @@ public class AdvancedSpawnerBlockEntity extends BlockEntity {
             living.getPersistentData().putBoolean("dmz_stats_configured", true);
             stampTransform(living, config.bossTransform, config.bossUseDefaultTransform);
         }
-        stampRewards(entity);
+        stampRewards(entity, false);
         boolean added = level.addFreshEntity(entity);
         if (added && entity instanceof Mob) {
             bossId = entity.getUUID(); // track the single live boss by id
@@ -484,6 +492,23 @@ public class AdvancedSpawnerBlockEntity extends BlockEntity {
                     Shuruis_dmz_dungeons.MODID, pos, entity.getType());
         }
         return added;
+    }
+
+    /**
+     * The level a new mob is scaled for: the LOWEST DMZ level among the players within the activation range (the
+     * ones that woke the spawner), so a fresh spawn never one-shots the weakest of them. 1 when none is found.
+     */
+    private static int spawnLevel(ServerLevel level, BlockPos pos) {
+        double r = activationRange(level);
+        double r2 = r * r;
+        int lowest = Integer.MAX_VALUE;
+        for (net.minecraft.server.level.ServerPlayer p : level.players()) {
+            if (p.isSpectator() || p.distanceToSqr(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5) > r2) {
+                continue;
+            }
+            lowest = Math.min(lowest, net.shurui.shuruisutilities.guilds.integration.DmzBridge.level(p));
+        }
+        return lowest == Integer.MAX_VALUE ? 1 : Math.max(1, lowest);
     }
 
     // stamp an sdu transform chain via plain persistent-data NBT (no sdu classes). non-empty chain (has a
@@ -502,9 +527,29 @@ public class AdvancedSpawnerBlockEntity extends BlockEntity {
         }
     }
 
-    // copy the config's kill rewards onto a freshly spawned entity's persistent data
-    private void stampRewards(Entity entity) {
+    // copy the config's kill rewards onto a freshly spawned entity's persistent data. scaled: also the max-level
+    // anchors and the level they apply at, so SpawnerRewardEvents interpolates on the killer's level.
+    private void stampRewards(Entity entity, boolean scaled) {
         var pd = entity.getPersistentData();
+        if (scaled) {
+            int tpLoM = config.tpMinAtMax(), tpHiM = config.tpMaxAtMax();
+            int balLoM = config.balMinAtMax(), balHiM = config.balMaxAtMax();
+            pd.putInt(net.shurui.dev.shuruis_dmz_dungeons.event.SpawnerRewardEvents.SCALE_MAX_TAG, config.scaleMaxLevel);
+            // the TP range tags are what make the range the kill TP (MixinDmzSpawnerKillTp); a range that is zero at
+            // level 1 but pays at higher levels must still carry them
+            if (config.tpMin > 0 || config.tpMax > 0 || tpLoM > 0 || tpHiM > 0) {
+                pd.putInt(net.shurui.dev.shuruis_dmz_dungeons.event.SpawnerRewardEvents.TP_MIN_TAG, config.tpMin);
+                pd.putInt(net.shurui.dev.shuruis_dmz_dungeons.event.SpawnerRewardEvents.TP_MAX_TAG, config.tpMax);
+                pd.putInt(net.shurui.dev.shuruis_dmz_dungeons.event.SpawnerRewardEvents.TP_MIN_M_TAG, tpLoM);
+                pd.putInt(net.shurui.dev.shuruis_dmz_dungeons.event.SpawnerRewardEvents.TP_MAX_M_TAG, tpHiM);
+            }
+            if (config.balMin > 0 || config.balMax > 0 || balLoM > 0 || balHiM > 0) {
+                pd.putInt(net.shurui.dev.shuruis_dmz_dungeons.event.SpawnerRewardEvents.BAL_MIN_TAG, config.balMin);
+                pd.putInt(net.shurui.dev.shuruis_dmz_dungeons.event.SpawnerRewardEvents.BAL_MAX_TAG, config.balMax);
+                pd.putInt(net.shurui.dev.shuruis_dmz_dungeons.event.SpawnerRewardEvents.BAL_MIN_M_TAG, balLoM);
+                pd.putInt(net.shurui.dev.shuruis_dmz_dungeons.event.SpawnerRewardEvents.BAL_MAX_M_TAG, balHiM);
+            }
+        }
         if (!config.vanillaDrops) {
             pd.putBoolean(net.shurui.dev.shuruis_dmz_dungeons.event.SpawnerRewardEvents.NO_VANILLA_DROPS_TAG, true);
         }

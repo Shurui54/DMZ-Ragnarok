@@ -8,7 +8,7 @@ import net.shurui.shuruisutilities.core.moduleLauncher.ModuleLauncher;
 
 /**
  * The supporter crown in plain game chat when the private Chat module is not running (no Ragnarok Key, or Chat
- * switched off): {@code <crown> | Name} on every server running the mods.
+ * switched off), owner decision Q5 (S-phase batch S17p): {@code <crown> | Name} on every server running the mods.
  *
  * <h2>Never doubled, keyed output unchanged</h2>
  * With the Chat module up, its own header draws the crown ({@code ModuleChat.getChatHeader}) and the line never

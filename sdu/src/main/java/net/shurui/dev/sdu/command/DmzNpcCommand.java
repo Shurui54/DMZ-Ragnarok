@@ -58,6 +58,17 @@ public final class DmzNpcCommand {
                             ctx.getSource().sendFailure(Component.translatable("command.dmz_ragnarok.npc.edit.player_only"));
                             return 0;
                         }))
+                // /rg options: the options editor itself, for operators and holders of su.gui.options.
+                .then(Commands.literal("options")
+                        .requires(source -> source.getEntity() instanceof net.minecraft.server.level.ServerPlayer p
+                                && net.shurui.dev.sdu.config.editor.ConfigEditorRegistry.canEdit(p))
+                        .executes(ctx -> {
+                            if (ctx.getSource().getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
+                                net.shurui.dev.sdu.network.DmzNet.openOptions(player);
+                                return 1;
+                            }
+                            return 0;
+                        }))
                 .then(Commands.literal("npc")
                 .requires(source -> source.hasPermission(2))
                 .then(Commands.literal("reload")

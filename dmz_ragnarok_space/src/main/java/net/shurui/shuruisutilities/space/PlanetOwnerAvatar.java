@@ -456,7 +456,7 @@ public final class PlanetOwnerAvatar
         }
         try
         {
-            avatar.setAiTierById(DBSagasEntity.AiTier.ADVANCED.ordinal() + 1);
+            avatar.setAiTierById(com.dragonminez.common.init.entities.ai.AiTier.ELITE.getId());
             avatar.getSkillPool().clear();
             avatar.addKiSkill(DBSagasEntity.KiSkillType.GENERIC_KI_WAVE, 60, 1.0F);
             avatar.addKiSkill(DBSagasEntity.KiSkillType.KI_LASER, 40, 1.0F);

@@ -14,6 +14,10 @@ import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
+import net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHud;
+import net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHudElement;
+import net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHudFrame;
+import net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHudSlot;
 import net.shurui.shuruisutilities.client.gui.DmzTextures;
 import net.shurui.shuruisutilities.commons.network.NetworkUtils;
 import net.shurui.shuruisutilities.core.ShuruisUtilities;
@@ -240,40 +244,103 @@ public final class PlanetInfoOverlay
      */
     public static void render(ForgeGui gui, GuiGraphics g, float partialTick, int screenWidth, int screenHeight)
     {
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null || mc.level == null || mc.options.hideGui || mc.options.renderDebug)
+        RagnarokHud.draw(RagnarokHudSlot.PLANET_INFO, g, partialTick, screenWidth, screenHeight);
+    }
+
+    /** Bind the panel to its slot in DMZ's HUD layout (a Ragnarok HUD extra, top-right by default). */
+    public static void registerElement()
+    {
+        RagnarokHud.register(new Element());
+    }
+
+    // nominal editor box: the widest panel and its usual dozen lines
+    private static final int BOX_W = MAX_W + 2 * PAD;
+    private static final int BOX_H = 12 * LINE + 4 * SECTION_GAP + 2 * PAD;
+
+    private static final class Element extends RagnarokHudElement
+    {
+        // the last view drawn, kept so the panel can slide out after the player looks away
+        private PlanetInfoView view;
+
+        Element()
         {
-            return;
+            super(RagnarokHudSlot.PLANET_INFO);
         }
-        if (!PlanetInfoConfig.get().overlayEnabled || !SpaceDimension.isSpace(mc.level))
+
+        @Override
+        public float width()
         {
-            return;
+            return BOX_W;
         }
-        // read the volatiles once so the tick thread cannot swap them out mid-draw.
-        String id = targetId;
-        PlanetInfoView v = cachedView;
-        if (id == null || v == null)
+
+        @Override
+        public float height()
         {
-            return;
+            return BOX_H;
         }
-        try
+
+        @Override
+        public float[] defaultPlacement()
         {
-            drawPanel(g, mc.font, v, screenWidth, screenHeight);
+            return new float[] {1.0f, 0.0f, -MARGIN, MARGIN, 1.0f};
         }
-        catch (Throwable t)
+
+        @Override
+        public boolean update(boolean preview, float partialTick)
         {
-            if (!drawWarned)
+            Minecraft mc = Minecraft.getInstance();
+            // read the volatiles once so the tick thread cannot swap them out mid-draw.
+            String id = targetId;
+            PlanetInfoView v = cachedView;
+            boolean live = mc.level != null && PlanetInfoConfig.get().overlayEnabled && SpaceDimension.isSpace(mc.level)
+                    && id != null && v != null;
+            if (live)
             {
-                drawWarned = true;
-                LoggingHandler.sulog.warn("[PlanetInfo] Overlay draw failed; hiding the panel this run.", t);
+                view = v;
+                return true;
+            }
+            if (!preview)
+                return false;
+            PlanetInfoView sample = new PlanetInfoView();
+            sample.planetName = "Planet";
+            sample.surfaceSize = 512;
+            sample.toughness = 1_000_000;
+            view = sample;
+            return true;
+        }
+
+        @Override
+        public void render(GuiGraphics g, float partialTick, RagnarokHudFrame frame)
+        {
+            if (view == null)
+                return;
+            try
+            {
+                drawPanel(g, Minecraft.getInstance().font, view,
+                        (w, h) -> new int[] {Math.round(frame.alignX(w)), Math.round(frame.alignY(h))});
+            }
+            catch (Throwable t)
+            {
+                if (!drawWarned)
+                {
+                    drawWarned = true;
+                    LoggingHandler.sulog.warn("[PlanetInfo] Overlay draw failed; hiding the panel this run.", t);
+                }
+                view = null;
             }
         }
     }
 
-    // build the lines, size the panel to them, and draw it flush to the top-right corner. Content is a 1:1 copy of the
+    /** Where a panel of a given size goes: {x, y} in the coordinates it is drawn in. */
+    private interface Placer
+    {
+        int[] place(int w, int h);
+    }
+
+    // build the lines, size the panel to them, and draw it where the placer puts it (hugging its box's anchor). Content is a 1:1 copy of the
     // old screen's sections (name + destroyed banner, environment, strength, defenders, guild), with every one of its
     // "unknown/none/not explored/unclaimed" fallbacks preserved.
-    private static void drawPanel(GuiGraphics g, Font font, PlanetInfoView v, int screenWidth, int screenHeight)
+    private static void drawPanel(GuiGraphics g, Font font, PlanetInfoView v, Placer placer)
     {
         List<Line> lines = buildLines(v);
 
@@ -296,8 +363,9 @@ public final class PlanetInfoOverlay
         }
         int h = contentH + 2 * PAD;
 
-        int x = screenWidth - w - MARGIN;
-        int y = MARGIN;
+        int[] at = placer.place(w, h);
+        int x = at[0];
+        int y = at[1];
 
         // same nine-sliced DMZ menu texture every other SU panel uses, so the overlay matches the suite look.
         DmzTextures.panel(g, x, y, w, h);

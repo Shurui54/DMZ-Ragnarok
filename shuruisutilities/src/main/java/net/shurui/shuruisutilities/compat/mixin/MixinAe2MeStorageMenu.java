@@ -2,14 +2,12 @@ package net.shurui.shuruisutilities.compat.mixin;
 
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Pseudo;
-import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 
 import net.shurui.shuruisutilities.dragonballbag.DragonBallConfine;
@@ -47,16 +45,14 @@ import net.shurui.shuruisutilities.dragonballbag.DragonBallConfine;
  * {@code transferStackToMenu} / {@code putCarriedItemIntoNetwork} names are AE2 names, not obfuscated; the vanilla
  * parameter TYPES in each descriptor are Mojmap class names, valid verbatim in production. The handler bodies touch only
  * vanilla and SU code. {@code require = 0} so an AE2 rename degrades to "no guard" rather than crashing mod load.
- * {@code getPlayer()} is {@code appeng.menu.AEBaseMenu}'s public accessor (the superclass of the target), shadowed for
- * the refusal message; {@code getCarried()} is vanilla {@code AbstractContainerMenu}.
+ * {@code getPlayer()} is {@code appeng.menu.AEBaseMenu}'s public accessor (the superclass of the target). It is called
+ * reflectively for the refusal message, not shadowed: a {@code @Shadow} must name a member of the target class itself,
+ * and an inherited one fails the whole mixin apply. {@code getCarried()} is vanilla {@code AbstractContainerMenu}.
  */
 @Pseudo
 @Mixin(targets = "appeng.menu.me.common.MEStorageMenu", remap = false)
 public abstract class MixinAe2MeStorageMenu
 {
-    @Shadow(remap = false)
-    public abstract Player getPlayer();
-
     @Inject(
         method = "transferStackToMenu(Lnet/minecraft/world/item/ItemStack;)Lnet/minecraft/world/item/ItemStack;",
         at = @At("HEAD"), cancellable = true, remap = false, require = 0)
@@ -94,7 +90,7 @@ public abstract class MixinAe2MeStorageMenu
     {
         try
         {
-            if (getPlayer() instanceof ServerPlayer server)
+            if (getClass().getMethod("getPlayer").invoke(this) instanceof ServerPlayer server)
             {
                 String key = DragonBallConfine.isBag(stack)
                         ? "message.dmz_ragnarok.dragonball.bag_refused"

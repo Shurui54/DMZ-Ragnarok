@@ -125,6 +125,11 @@ public final class Config {
         if (event.getConfig().getSpec() != SPEC) {
             return;
         }
+        bake();
+    }
+
+    /** Copy the spec into the live fields; run on (re)load and after an edit in the SDU options editor. */
+    public static void bake() {
         requireOpToEdit = REQUIRE_OP_TO_EDIT.get();
         maxHighlightRadius = MAX_HIGHLIGHT_RADIUS.get();
         dungeonPvp = DUNGEON_PVP.get();

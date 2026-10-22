@@ -69,9 +69,9 @@ public final class DragonMoveOceanus
 
     static boolean cast(LivingEntity caster, ServerLevel level)
     {
-        // THE VISUAL IS BURTER'S HURRICANE, RECOLOURED. DMZ's SPBlueHurricaneEntity is a modelled, animated funnel
-        // with its own wind-up; MixinDmzHurricaneTexture swaps its texture for a pale water blue when the owner is a
-        // player, so this move gets flowing water and Burter keeps his electric blue. The funnel is the whole visual
+        // THE VISUAL IS BURTER'S HURRICANE, RECOLOURED. DMZ's SPBlueHurricaneEntity is an animated funnel with its
+        // own wind-up; DmzVisuals.hurricane gives this cast a pale water palette, so this move gets flowing water and
+        // Burter keeps his electric blue. The funnel is the whole visual
         // now: the ring of particles that used to stand in for it is gone, and so is the ball, since neither adds
         // anything next to the model.
         // Zero damage: the tornado below deals every point this move is worth. The cast time is still handed over

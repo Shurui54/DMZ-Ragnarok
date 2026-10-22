@@ -33,6 +33,14 @@ public final class SpawnerRewardEvents {
     public static final String KILL_COMMANDS_TAG = "sdd_cmds";
     // suppress the entity's own loot-table drops so only the configured drops appear
     public static final String NO_VANILLA_DROPS_TAG = "sdd_novanilla";
+    // level scaling (core LevelScale, the Z orb model): the level the max-level anchors apply at, present only on a
+    // mob whose spawner scales. Its TP/balance then interpolate between the level 1 range (the tags above) and the
+    // max-level range (below) on the KILLER's DMZ level. Mobs spawned before this carry none and pay as before.
+    public static final String SCALE_MAX_TAG = "sdd_lvl_max";
+    public static final String TP_MIN_M_TAG = "sdd_tp_min_m";
+    public static final String TP_MAX_M_TAG = "sdd_tp_max_m";
+    public static final String BAL_MIN_M_TAG = "sdd_bal_min_m";
+    public static final String BAL_MAX_M_TAG = "sdd_bal_max_m";
 
     private SpawnerRewardEvents() {
     }
@@ -58,7 +66,7 @@ public final class SpawnerRewardEvents {
         RandomSource random = entity.level().getRandom();
 
         if (killer != null) {
-            int tp = rollTp(data, random);
+            int tp = rollTp(data, random, killer);
             if (tp > 0 && DmzTpCompat.awardTp(killer, tp)) {
                 Shuruis_dmz_dungeons.LOGGER.debug("[{}] Awarded {} TP to {} for a spawner kill.",
                         Shuruis_dmz_dungeons.MODID, tp, killer.getGameProfile().getName());
@@ -119,12 +127,44 @@ public final class SpawnerRewardEvents {
         }
     }
 
-    // TP for this kill: random in [min, max], falling back to the legacy single value
-    private static int rollTp(CompoundTag data, RandomSource random) {
+    /**
+     * True when this mob's kill TP comes from its spawner's TP range rather than DragonMineZ's health based kill TP
+     * (see {@code mixin.MixinDmzSpawnerKillTp}). Server side, spawner stamped mobs only, floor bosses excluded (they
+     * pay by damage share elsewhere and keep DragonMineZ's grant as before).
+     */
+    public static boolean replacesDmzKillTp(Entity entity) {
+        if (entity == null || entity.level().isClientSide) {
+            return false;
+        }
+        CompoundTag data = entity.getPersistentData();
+        if (data.contains(net.shurui.dev.shuruis_dmz_dungeons.dungeon.DungeonFloorManager.TAG_FLOOR_BOSS)) {
+            return false;
+        }
+        return data.contains(TP_MIN_TAG) || data.contains(TP_MAX_TAG) || data.getInt(TP_TAG) > 0;
+    }
+
+    // TP for this kill: random in [min, max] (interpolated on the killer's level for a scaled mob), falling back to
+    // the legacy single value
+    private static int rollTp(CompoundTag data, RandomSource random, Player killer) {
         if (data.contains(TP_MIN_TAG) || data.contains(TP_MAX_TAG)) {
-            return rollRange(data, TP_MIN_TAG, TP_MAX_TAG, random);
+            return rollScaled(data, TP_MIN_TAG, TP_MAX_TAG, TP_MIN_M_TAG, TP_MAX_M_TAG, killer, random);
         }
         return Math.max(0, data.getInt(TP_TAG));
+    }
+
+    /**
+     * A kill reward range, level scaled when the mob carries {@link #SCALE_MAX_TAG}: both ends interpolate between the
+     * level 1 range and the max-level range on the killer's DMZ level, then a value between them is rolled, as the
+     * unscaled roll does. Without the tag this is exactly {@link #rollRange}. Shared with the key's zeni half.
+     */
+    public static int rollScaled(CompoundTag data, String minKey, String maxKey, String minMaxKey, String maxMaxKey,
+                                 Player killer, RandomSource random) {
+        if (!data.contains(SCALE_MAX_TAG)) {
+            return rollRange(data, minKey, maxKey, random);
+        }
+        int level = net.shurui.shuruisutilities.guilds.integration.DmzBridge.level(killer);
+        return net.shurui.shuruisutilities.npcregion.LevelScale.roll(data.getInt(minKey), data.getInt(maxKey),
+                data.getInt(minMaxKey), data.getInt(maxMaxKey), level, data.getInt(SCALE_MAX_TAG), random);
     }
 
     // random in [min, max] (order-agnostic); 0 when both bounds are absent/non-positive

@@ -1489,6 +1489,153 @@ public final class SurfaceStamp
         // hundred full-chunk packets. Later phases keep flag 2, so their sparse dressing streams in live over it.
         private final Map<Long, Integer> pendingChunks = new HashMap<>();
 
+        // === Chunk hold (performance, pacing only) ===
+        // The column sweep writes through Level.setBlock, which LOADS a missing chunk synchronously on the server thread
+        // (from disk, or generating it). With nobody standing on the planet nothing else holds those chunks, so each one
+        // got only the one-tick ticket a synchronous load leaves behind: it unloaded (and was re-saved) right after the
+        // tick and the next ring's columns in the same chunk loaded it again. That load-save-reload churn was most of a
+        // stamp's server cost. Instead the stamp now holds the chunks of a band of rings just ahead of its cursor with its
+        // own ticket (level 33: loaded FULL, never ticked, so no random or fluid ticks run that would not have run
+        // before), lets the chunk system load them off the server thread, and yields the tick when the next column's
+        // chunk is not loaded yet. The band trails far enough behind the cursor that the interleaved vegetation wave
+        // also finds its chunks loaded. Only WHEN a column is written changes, never which blocks, so the terrain is
+        // byte-identical.
+        private static final net.minecraft.server.level.TicketType<ChunkPos> HOLD_TICKET =
+                net.minecraft.server.level.TicketType.create("dmzr_surface_stamp",
+                        java.util.Comparator.comparingLong(ChunkPos::toLong));
+        // columns ahead of the cursor whose chunks are requested early, and columns behind it that stay held.
+        private static final int HOLD_AHEAD_COLUMNS = 32;
+        private static final int HOLD_BEHIND_COLUMNS = 40;
+        private final it.unimi.dsi.fastutil.longs.LongOpenHashSet heldChunks =
+                new it.unimi.dsi.fastutil.longs.LongOpenHashSet();
+        private int heldForRing = Integer.MIN_VALUE;
+        private Phase heldForPhase = null;
+
+        // whether the current phase writes column by column on the shared ring cursor (TERRAIN, and the v3 sea fill).
+        private boolean columnPhase()
+        {
+            return phase == Phase.TERRAIN || (phase == Phase.WATER && seaMode);
+        }
+
+        // nearest and farthest Chebyshev distance, in columns from the centre, of any column of chunk (ckx, ckz).
+        private int chunkMinCheb(int ckx, int ckz)
+        {
+            int x0 = (ckx << 4) - cx;
+            int z0 = (ckz << 4) - cz;
+            int ax = x0 > 0 ? x0 : (x0 + 15 < 0 ? -(x0 + 15) : 0);
+            int az = z0 > 0 ? z0 : (z0 + 15 < 0 ? -(z0 + 15) : 0);
+            return Math.max(ax, az);
+        }
+
+        private int chunkMaxCheb(int ckx, int ckz)
+        {
+            int x0 = (ckx << 4) - cx;
+            int z0 = (ckz << 4) - cz;
+            return Math.max(Math.max(Math.abs(x0), Math.abs(x0 + 15)), Math.max(Math.abs(z0), Math.abs(z0 + 15)));
+        }
+
+        // refresh the held band for the cursor's current ring: request every chunk of the rings just ahead, drop the ones
+        // left far behind (or, after a phase restarts its sweep at the centre, far ahead). Runs only when the ring moves.
+        private void refreshHold()
+        {
+            if (!columnPhase())
+            {
+                releaseHold();
+                return;
+            }
+            if (rRing == heldForRing && phase == heldForPhase)
+            {
+                return;
+            }
+            heldForRing = rRing;
+            heldForPhase = phase;
+            int reach = Math.min(rRing + HOLD_AHEAD_COLUMNS, Math.max(rMax, 0));
+            int low = rRing - HOLD_BEHIND_COLUMNS;
+            net.minecraft.server.level.ServerChunkCache source = surface.getChunkSource();
+            it.unimi.dsi.fastutil.longs.LongIterator it = heldChunks.iterator();
+            while (it.hasNext())
+            {
+                long k = it.nextLong();
+                int kx = ChunkPos.getX(k);
+                int kz = ChunkPos.getZ(k);
+                if (chunkMaxCheb(kx, kz) < low || chunkMinCheb(kx, kz) > reach)
+                {
+                    ChunkPos cp = new ChunkPos(k);
+                    source.removeRegionTicket(HOLD_TICKET, cp, 0, cp);
+                    it.remove();
+                }
+            }
+            int minCkx = (cx - reach) >> 4;
+            int maxCkx = (cx + reach) >> 4;
+            int minCkz = (cz - reach) >> 4;
+            int maxCkz = (cz + reach) >> 4;
+            for (int kx = minCkx; kx <= maxCkx; ++kx)
+            {
+                for (int kz = minCkz; kz <= maxCkz; ++kz)
+                {
+                    if (chunkMaxCheb(kx, kz) < rRing || chunkMinCheb(kx, kz) > reach)
+                    {
+                        continue;
+                    }
+                    hold(kx, kz);
+                }
+            }
+        }
+
+        private void hold(int ckx, int ckz)
+        {
+            long k = ChunkPos.asLong(ckx, ckz);
+            if (heldChunks.add(k))
+            {
+                ChunkPos cp = new ChunkPos(ckx, ckz);
+                surface.getChunkSource().addRegionTicket(HOLD_TICKET, cp, 0, cp);
+            }
+        }
+
+        // drop every hold this stamp placed (phase without a column sweep, completion, abort).
+        void releaseHold()
+        {
+            if (heldChunks.isEmpty())
+            {
+                return;
+            }
+            net.minecraft.server.level.ServerChunkCache source = surface.getChunkSource();
+            it.unimi.dsi.fastutil.longs.LongIterator it = heldChunks.iterator();
+            while (it.hasNext())
+            {
+                ChunkPos cp = new ChunkPos(it.nextLong());
+                source.removeRegionTicket(HOLD_TICKET, cp, 0, cp);
+            }
+            heldChunks.clear();
+            heldForRing = Integer.MIN_VALUE;
+            heldForPhase = null;
+        }
+
+        // true when the column (dx, dz) about to be written has its chunk loaded; otherwise it is held (so it loads off
+        // the server thread) and the caller yields this tick instead of loading it synchronously.
+        private boolean columnChunkReady(int dx, int dz)
+        {
+            int ckx = (cx + dx) >> 4;
+            int ckz = (cz + dz) >> 4;
+            if (surface.getChunkSource().getChunkNow(ckx, ckz) != null)
+            {
+                return true;
+            }
+            hold(ckx, ckz);
+            return false;
+        }
+
+        // whether a column at (dx, dz) would write any block in the current column phase (the cheap geometric gates the
+        // column methods test first), so a column that writes nothing never waits on, or loads, its chunk.
+        private boolean columnWrites(int dx, int dz)
+        {
+            if (tileable)
+            {
+                return Math.abs(dx) <= stampExtent && Math.abs(dz) <= stampExtent;
+            }
+            return (double) dx * dx + (double) dz * dz <= radiusSq;
+        }
+
         private StampTask(StampConfig cfg)
         {
             this.server = cfg.server;
@@ -1653,6 +1800,13 @@ public final class SurfaceStamp
                     LoggingHandler.sulog.warn("[SurfaceStamp] Surface stamp for {} failed; it will re-stamp on the "
                             + "next visit.", key, t);
                 }
+                try
+                {
+                    releaseHold();
+                }
+                catch (Throwable ignored)
+                {
+                }
                 ACTIVE.remove(key, this);
                 return true;
             }
@@ -1675,7 +1829,11 @@ public final class SurfaceStamp
                 sharedBlocksLeft = Math.max(1, adaptiveBudget(budgetSupplier.getAsInt()));
                 tickDeadlineNanos = System.nanoTime() + STAMP_TICK_NANOS;
             }
-            int sinceClockCheck = 0;
+            // start one short of the stride so the deadline is tested before this stamp's FIRST column: with several
+            // stamps running, each later one used to place a full stride of columns after the shared deadline had
+            // already passed. Pacing only, never which blocks.
+            int sinceClockCheck = CLOCK_CHECK_STRIDE - 1;
+            refreshHold();
             while (sharedBlocksLeft > 0)
             {
                 // time is the hard cap: even a cheap block count can run long if a burst of edge columns forces neighbour
@@ -1719,6 +1877,11 @@ public final class SurfaceStamp
                         // charge a stamped column its block count and a skipped column a single unit, so a tick's work is
                         // bounded even across the empty corners of the bounding square.
                         ringCurrent();
+                        refreshHold();
+                        if (columnWrites(cell[0], cell[1]) && !columnChunkReady(cell[0], cell[1]))
+                        {
+                            return false;
+                        }
                         worked = Math.max(1, stampColumn(cell[0], cell[1]));
                         // advancing past the last cell of a ring means that whole ring is done, so every chunk the sweep
                         // has now fully passed can be resent as one full-chunk packet: the outward reveal, cheaply.
@@ -1743,6 +1906,11 @@ public final class SurfaceStamp
                                 continue;
                             }
                             ringCurrent();
+                            refreshHold();
+                            if (columnWrites(cell[0], cell[1]) && !columnChunkReady(cell[0], cell[1]))
+                            {
+                                return false;
+                            }
                             worked = Math.max(1, fillSeaColumn(cell[0], cell[1]));
                             ringAdvance();
                             break;
@@ -2979,6 +3147,7 @@ public final class SurfaceStamp
             // belt and braces: resend any chunk still pending (a rim chunk the ring sweep never fully covered, plus any
             // chunk a later phase re-touched with flag 0), so the client's copy is complete before we mark it generated.
             flushAllPendingChunks();
+            releaseHold();
             ACTIVE.remove(key, this);
             store.markGenerated();
             if (profileThis())

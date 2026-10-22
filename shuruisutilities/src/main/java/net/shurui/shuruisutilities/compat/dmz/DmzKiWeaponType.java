@@ -7,7 +7,7 @@ import net.minecraftforge.fml.ModList;
  * Which ki weapon a player currently has summoned, as its raw DragonMineZ type string.
  *
  * <p>Guard half of the usual pair; {@link DmzKiWeaponTypeImpl} is the only class naming a DMZ type
- * (the optional-dependency pattern). Returns null when there is no DMZ, no character, or nothing summoned.
+ * (docs/compat-pattern.md). Returns null when there is no DMZ, no character, or nothing summoned.
  */
 public final class DmzKiWeaponType
 {

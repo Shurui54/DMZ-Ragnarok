@@ -112,7 +112,7 @@ public final class BallSetCommands
         for (String setId : ids)
         {
             source.sendSuccess(() -> Component.literal(setId + ": ").withStyle(ChatFormatting.GRAY)
-                    .append(BallDormancy.radarStatus(server, setId)), false);
+                    .append(RadarDormancyMessage.timerLine(server, setId)), false);
         }
         return Command.SINGLE_SUCCESS;
     }

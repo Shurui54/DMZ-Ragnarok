@@ -37,6 +37,14 @@ public final class SaibamanCropRegistry
     public static final DeferredRegister<BlockEntityType<?>> BLOCK_ENTITIES =
             DeferredRegister.create(ForgeRegistries.BLOCK_ENTITY_TYPES, ShuruisUtilities.MODID);
 
+    public static final DeferredRegister<net.minecraft.world.level.levelgen.structure.templatesystem.StructureProcessorType<?>>
+            PROCESSORS = DeferredRegister.create(net.minecraft.core.registries.Registries.STRUCTURE_PROCESSOR,
+                    ShuruisUtilities.MODID);
+
+    // grows saibaman crops in a template-placed Saibamen hut (Vegeta), see HutSaibamanCropProcessor.
+    public static final RegistryObject<net.minecraft.world.level.levelgen.structure.templatesystem.StructureProcessorType<HutSaibamanCropProcessor>>
+            HUT_CROPS_PROCESSOR = PROCESSORS.register("hut_saibaman_crops", () -> () -> HutSaibamanCropProcessor.CODEC);
+
     // the ground crop. A cross-shaped, walk-through plant with four growth stages, placeable only on
     // dragonminez:rocky_dirt (enforced by the block's canSurvive).
     public static final RegistryObject<Block> SAIBAMAN_CROP =

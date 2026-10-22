@@ -76,7 +76,7 @@ public class StaffTaskScreen extends SagaBaseScreen
         // alongside it and the two can be placed against each other in one go.
         btn(6, footerY(), 74, footerBtnHeight(),
                 Component.translatable("gui.dmz_ragnarok.core.stafftasks.move_hud"),
-                () -> minecraft.setScreen(new net.shurui.shuruisutilities.client.hud.HudMoveScreen()));
+                () -> net.shurui.shuruisutilities.client.hud.HudMoveScreen.open());
         if (canAssign)
         {
             int newW = 62;

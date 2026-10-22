@@ -25,7 +25,7 @@ import java.util.Map;
  *
  * <p>The two survivors are real, functional items:
  * <ul>
- *   <li>{@code ocarina_of_wind}, the wind racial's instrument (handed out by the Ragnarok Key's
+ *   <li>{@code ocarina_of_wind}, the ocarina songs' instrument (handed out by the Ragnarok Key's
  *       {@code OcarinaService} and taken back when the song ends), so it is
  *       registered but NOT listed in a creative tab: a second inert copy in the menu is exactly the placeholder
  *       this replaced.</li>

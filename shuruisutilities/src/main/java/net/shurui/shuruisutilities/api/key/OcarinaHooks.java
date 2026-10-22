@@ -5,13 +5,13 @@ import net.minecraft.server.level.ServerPlayer;
 import net.shurui.dev.sdu.api.KeyFeatures;
 
 /**
- * Core-side hook for the PRIVATE racial ocarina (logic in the Ragnarok Key, {@code dmz_ragnarok_key}). Core keeps
- * the song list, the ocarina settings on the race data, both packets (86 and 87), the item and the client screens;
- * this hook is how the key answers a {@code PacketOcarina}, and only when the key is installed.
+ * Core-side hook for the PRIVATE ocarina (logic in the Ragnarok Key, {@code dmz_ragnarok_key}). Core keeps the song
+ * list, the tuning holder, the effects, both packets (86 and 87), the item, the client screen and the pose, and puts
+ * the songs into DragonMineZ's skill shop ({@code OcarinaSkills}) only while this hook is available.
  *
  * <p>The {@link Impl} DEFAULTS are the keyless behaviour: {@link #available()} is false and every request is
- * ignored, so no menu opens and nothing is held or played. The stored practice level ({@code su_ocarina_xp} in the
- * player's persisted tag) is left untouched, so a keyed server reads it again.
+ * ignored, so no menu opens, no song is sold and Tapion is not let into the world. A player's bought song levels are
+ * DMZ skill levels and stay on the character untouched, so a keyed server reads them again.
  *
  * <p>Read LAZILY at the point of use (mod construction is parallel; the key may install after a reader loads).
  */

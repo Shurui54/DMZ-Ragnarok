@@ -406,6 +406,19 @@ public abstract class QuestTreeScreenMixin {
     // currentSagaIndex indexes availableSagas, not navigatorEntries, so pruning render rows here can't desync
     // the selection; no clamp needed. remap=false, require=0. any reflection mismatch trips sdu$navPruneFailed
     // and leaves DMZ's list untouched.
+    //
+    // DMZ 2.2 builds the DRAWN rows (navRows, via mergeNavigatorRows) inside rebuildNavigatorEntries, before
+    // it returns, so a TAIL prune alone trimmed navigatorEntries after the drawn rows already held the teasers
+    // and the "Coming Soon" rows came back. The prune now runs right before mergeNavigatorRows; the TAIL pass is
+    // kept for DMZ builds without that step (a second pass finds nothing left to remove).
+    @Inject(method = "rebuildNavigatorEntries",
+            at = @At(value = "INVOKE",
+                    target = "Lcom/dragonminez/client/gui/character/QuestTreeScreen;mergeNavigatorRows()V"),
+            require = 0, remap = false)
+    private void sdu$pruneRemovedSagaRowsBeforeMerge(CallbackInfo ci) {
+        sdu$pruneRemovedSagaRows(ci);
+    }
+
     @Inject(method = "rebuildNavigatorEntries", at = @At("TAIL"), require = 0, remap = false)
     private void sdu$pruneRemovedSagaRows(CallbackInfo ci) {
         if (sdu$navPruneFailed || this.navigatorEntries == null || this.navigatorEntries.isEmpty()) {

@@ -5,6 +5,7 @@
   "compatibilityLevel": "JAVA_8",
   "refmap": "shuruis_raid_bosses.refmap.json",
   "mixins": [
+    "MixinEntityRaidLeash"
   ],
   "client": [
     "ZSoulStatsScreenMixin"

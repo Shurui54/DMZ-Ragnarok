@@ -35,6 +35,7 @@ public abstract class FieldEditScreen extends SagaBaseScreen {
     private final List<TextEntry> textEntries = new ArrayList<>();
     private final List<ColorRow> colorRows = new ArrayList<>();
     private final Map<DmzDropdown, Runnable> dropdownSync = new HashMap<>();
+    private final java.util.Set<DmzDropdown> rebuildOnPick = new java.util.HashSet<>();
     private DmzColorPicker openPicker;
     private Consumer<String> pickerSetter;
     protected int rowY;
@@ -53,6 +54,7 @@ public abstract class FieldEditScreen extends SagaBaseScreen {
         textEntries.clear();
         colorRows.clear();
         dropdownSync.clear();
+        rebuildOnPick.clear();
     }
 
     /**
@@ -131,6 +133,27 @@ public abstract class FieldEditScreen extends SagaBaseScreen {
         DmzDropdown d = dropdown(150, rowY, Math.max(32, 132 - Math.max(0, reserve)), opts, idx).searchable();
         dropdownSync.put(d, () -> setter.accept(values.get(Math.max(0, Math.min(d.getIndex(), values.size() - 1)))));
         rowY += ROW_H;
+    }
+
+    /**
+     * Plain positioned selector (no "(none)" row, no search; the same contract as core's FieldEditScreen.choiceAt):
+     * {@code labels.get(i)} is shown, the setter gets the picked index, and picking applies the fields and rebuilds
+     * the screen so anything that depends on the choice redraws at once. Does not advance {@code rowY}.
+     */
+    protected DmzDropdown choiceAt(int x, int y, int w, List<String> labels, int index,
+                                   java.util.function.IntConsumer setter) {
+        List<Component> opts = new ArrayList<>();
+        for (String s : labels) {
+            opts.add(Component.literal(s));
+        }
+        int idx = Math.max(0, Math.min(index, Math.max(0, opts.size() - 1)));
+        DmzDropdown d = dropdown(x, y, w, opts, idx);
+        if (labels.size() > 8) {
+            d.searchable();
+        }
+        dropdownSync.put(d, () -> setter.accept(Math.max(0, Math.min(d.getIndex(), labels.size() - 1))));
+        rebuildOnPick.add(d);
+        return d;
     }
 
     /** Multi-select searchable dropdown writing the checked options into a list. */
@@ -282,6 +305,10 @@ public abstract class FieldEditScreen extends SagaBaseScreen {
         Runnable sync = dropdownSync.get(dropdown);
         if (sync != null) {
             sync.run();
+            if (rebuildOnPick.contains(dropdown)) {
+                applyFields();
+                rebuildWidgets();
+            }
         } else {
             onExtraDropdown(dropdown, row);
         }

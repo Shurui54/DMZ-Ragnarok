@@ -7,7 +7,6 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.ModifyArg;
 import org.spongepowered.asm.mixin.injection.Redirect;
-import org.spongepowered.asm.mixin.injection.Slice;
 
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
@@ -37,7 +36,8 @@ public abstract class MixinDmzTpMultiplierTooltip
             method = "renderTpMultiplierInfo",
             at = @At(value = "INVOKE",
                     target = "Lcom/dragonminez/client/util/TextUtil;renderAdvancedTooltip(Lnet/minecraft/client/gui/GuiGraphics;Lnet/minecraft/client/gui/Font;IIIILnet/minecraft/network/chat/Component;Ljava/util/List;Ljava/util/List;I)V"),
-            index = 7,
+            // DragonMineZ 2.2: index 8 is the breakdown list (General, Class, ... Progression); 7 is the Total line.
+            index = 8,
             remap = false,
             require = 0)
     private List<Component> su$appendTpLine(List<Component> body)
@@ -55,15 +55,15 @@ public abstract class MixinDmzTpMultiplierTooltip
      * {@code Math.max} result by the SU factor updates both. The slice pins this to the total's
      * {@code Math.max} (right after the Progression line), not any other max in the method.
      */
+    // DragonMineZ 2.2 reads the total from StatsData.getTpTotalMultiplier() (one call), which both the tooltip Total line
+    // and the on-screen label use.
     @Redirect(
             method = "renderTpMultiplierInfo",
-            at = @At(value = "INVOKE", target = "Ljava/lang/Math;max(DD)D"),
-            slice = @Slice(from = @At(value = "CONSTANT",
-                    args = "stringValue=gui.dragonminez.character_stats.tp_multiplier.tooltip.progression")),
+            at = @At(value = "INVOKE", target = "Lcom/dragonminez/common/stats/StatsData;getTpTotalMultiplier()D"),
             remap = false,
             require = 0)
-    private double su$foldTotal(double a, double b)
+    private double su$foldTotal(com.dragonminez.common.stats.StatsData stats)
     {
-        return Math.max(a, b) * SuTpClient.multiplier();
+        return stats.getTpTotalMultiplier() * SuTpClient.multiplier();
     }
 }

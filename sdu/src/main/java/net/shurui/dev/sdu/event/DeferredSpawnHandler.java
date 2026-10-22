@@ -261,10 +261,14 @@ public final class DeferredSpawnHandler {
         }
     }
 
-    /** Controller (party leader, or the player if solo/leader). Falls back to the player on any failure. */
+    /**
+     * Controller (party leader, or the player if solo/leader). Falls back to the player on any failure. DragonMineZ
+     * 2.2 dropped resolveQuestController (every member now owns their own quest state), so the online party leader
+     * is the one stable holder of the shared deferral, exactly who 2.1 resolved as the controller.
+     */
     private static ServerPlayer resolveController(ServerPlayer player) {
         try {
-            ServerPlayer controller = PartyManager.resolveQuestController(player);
+            ServerPlayer controller = PartyManager.getPartyLeader(player);
             return controller != null ? controller : player;
         } catch (Throwable t) {
             return player;
@@ -713,7 +717,12 @@ public final class DeferredSpawnHandler {
         }
         bypass = true;
         try {
-            QuestService.spawnKillObjectivesForQuest(player, questId, count, difficulty);
+            // DragonMineZ 2.2 removed the public spawnKillObjectivesForQuest; its private spawnKillObjectives (the
+            // one the deferral cancelled) is replayed through an invoker. count is the party size it scales by.
+            QuestService.ResolvedQuest resolved = QuestService.resolveQuest(questId);
+            if (resolved != null) {
+                net.shurui.dev.sdu.mixin.QuestServiceInvoker.sdu$spawnKillObjectives(player, resolved, count, difficulty);
+            }
         } catch (Throwable t) {
             DmzNpc.LOGGER.debug("[{}] deferred spawn replay failed for {}: {}", DmzNpc.MODID, questId, t.toString());
         } finally {

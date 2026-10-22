@@ -7,12 +7,21 @@
   "minVersion": "0.8",
   "client": [
     "client.MixinDmzClashCamera",
-    "client.MixinDmzSpaceRadarDraw"
+    "client.MixinDmzSpaceRadarDraw",
+    "client.MixinPodPilotTickInSpace",
+    "client.MixinSpaceEntityRenderInVoid"
   ],
   "mixins": [
+    "MixinSpacePodAlwaysTicking",
     "dmz.MixinDmzClashParticipant",
     "dmz.MixinDmzSpacePodVerticalSpeed",
-    "dmz.MixinDmzTravelToPlanet"
+    "dmz.MixinDmzTravelToPlanet",
+    "server.MixinPodVehicleMove",
+    "server.MixinSpaceChunkEmptyFlag",
+    "server.MixinSpaceChunkSpawn",
+    "server.MixinSpaceChunkTick",
+    "server.MixinSpaceEmptyChunkSave",
+    "server.MixinSpaceSimulationDistance"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -6,7 +6,7 @@ import net.minecraftforge.fml.ModList;
 /**
  * Guard entry point for re-applying Shurui's dragon wishes from code. Holds no DMZ imports of its own: it only
  * checks that DMZ is present before registering {@link SuDragonWishBridge}, which is the class that references DMZ
- * types (via {@link SuDragonBallDefinitions}). Follows the optional-dependency pattern.
+ * types (via {@link SuDragonBallDefinitions}). Follows docs/compat-pattern.md.
  *
  * <p>Separate from {@link WishTrackingCompat} on purpose: that class is the corrupted-dragon-ball feature (it
  * toggles DMZ's ball generation flag), whereas this one only keeps our three hardcoded dragons' wish lists alive.

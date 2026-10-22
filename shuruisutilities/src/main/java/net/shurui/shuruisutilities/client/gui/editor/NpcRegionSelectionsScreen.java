@@ -49,7 +49,10 @@ public class NpcRegionSelectionsScreen extends FieldEditScreen
             final int index = i;
             int ry = listTop + (i - scroll) * LIST_ROW_H;
             int w = b[3] - b[0] + 1, l = b[5] - b[2] + 1;
-            label("§f#" + (i + 1) + " §7(" + b[0] + ", " + b[2] + ") - (" + b[3] + ", " + b[5] + ")  §8" + w + "x" + l,
+            // a freeform outline shows its point count; the bounds are then its bounding box
+            String size = b.length > 6 && b[6] > 0
+                    ? tr("gui.dmz_ragnarok.core.npcdraw.selection_points", b[6]) : w + "x" + l;
+            label("§f#" + (i + 1) + " §7(" + b[0] + ", " + b[2] + ") - (" + b[3] + ", " + b[5] + ")  §8" + size,
                     14, ry + 3);
             if (boxes.size() > 1)
                 btn(rowControlRight() - 40, ry, 40, LIST_ROW_H - 2, Component.literal("§c").append(Component.translatable("gui.dmz_ragnarok.core.npcsel.remove")), () -> removeBox(index));

@@ -10,7 +10,8 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.players.PlayerList;
 
 /**
- * The supporter crown in vanilla-delivered player chat, for a server where the private Chat module is not running. All the deciding is in {@code PatreonChatCrown}; this only swaps the chat type binding of
+ * The supporter crown in vanilla-delivered player chat, for a server where the private Chat module is not running
+ * (S-phase batch S17p). All the deciding is in {@code PatreonChatCrown}; this only swaps the chat type binding of
  * a player's chat line for the decorated one.
  *
  * <p>Hooked on {@code PlayerList} rather than {@code ServerGamePacketListenerImpl} because a Bukkit hybrid rewrites

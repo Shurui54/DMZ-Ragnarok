@@ -9,7 +9,7 @@ import net.shurui.shuruisutilities.util.output.logger.LoggingHandler;
 /**
  * Builds the {@code su_mini_clone} technique and puts it in DMZ's predefined registry, so it appears in the skill
  * menu, equips to a slot and gets DMZ's charge, overcharge and cooldown handling for free. Names DMZ types directly,
- * so only {@link DragonTechniqueBridge} may call it, and only with DMZ present (the optional-dependency pattern).
+ * so only {@link DragonTechniqueBridge} may call it, and only with DMZ present (docs/compat-pattern.md).
  *
  * <p>The move charges but launches nothing: its effect is spawning miniature clones, applied by
  * {@code MixinDmzTechniqueDispatcher} when the cast is intercepted. It is therefore given an invisible, stationary

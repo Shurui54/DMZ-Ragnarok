@@ -6,6 +6,7 @@ import java.util.List;
 import net.shurui.shuruisutilities.client.gui.DmzDropdown;
 import net.shurui.shuruisutilities.client.gui.FieldEditScreen;
 import net.shurui.shuruisutilities.npcregion.CustomDrop;
+import net.shurui.shuruisutilities.npcregion.LevelScale;
 import net.shurui.shuruisutilities.npcregion.NpcSpawnConfig;
 
 import net.shurui.dev.sdu.client.gui.theme.GuiTheme;
@@ -137,12 +138,35 @@ public class NpcConfigEditScreen extends FieldEditScreen
         tip(tr("gui.dmz_ragnarok.core.npc.scale_tip"));
         tf(tr("gui.dmz_ragnarok.core.npc.aggro_range"), fmt(config.aggroRange), v -> config.aggroRange = Math.max(0.0, parseDouble(v, config.aggroRange)));
         tip(tr("gui.dmz_ragnarok.core.npc.aggro_range_tip"));
+        // max-level stats (region NPCs that scale; the switch and the max level are on the Rewards tab)
+        if (npcIndex >= 0 && config.scales())
+        {
+            anchorFieldF("max_health_at_max", config.maxHealthAtMax(), v -> config.maxHealthAtMax = v);
+            anchorFieldF("melee_damage_at_max", config.attackDamageAtMax(), v -> config.attackDamageAtMax = v);
+            anchorFieldF("defense_at_max", config.defenseAtMax(), v -> config.defenseAtMax = v);
+        }
+    }
+
+    // as anchorField, for a float stat
+    private void anchorFieldF(String key, float effective, java.util.function.Consumer<Float> set)
+    {
+        String shown = fmt(effective);
+        tf(tr("gui.dmz_ragnarok.core.npc." + key), shown, v -> {
+            String t = v.trim();
+            if (t.isEmpty() || t.equalsIgnoreCase("auto"))
+                set.accept(null);
+            else if (!t.equals(shown))
+                set.accept(Math.max(0f, parseFloat(t, effective)));
+        });
+        tip(tr("gui.dmz_ragnarok.core.npc.stat_anchor_tip", LevelScale.DEFAULT_MULTIPLE));
     }
 
     private void kiTab()
     {
         tf(tr("gui.dmz_ragnarok.core.npc.ki_power"), fmt(config.kiPower), v -> config.kiPower = parseFloat(v, config.kiPower));
         tip(tr("gui.dmz_ragnarok.core.npc.ki_power_tip"));
+        if (npcIndex >= 0 && config.scales())
+            anchorFieldF("ki_power_at_max", config.kiPowerAtMax(), v -> config.kiPowerAtMax = v);
         label(tr("gui.dmz_ragnarok.core.npc.moveset"), 14, rowY + 5);
         movesetDropdown = dropdown(150, rowY, 132, options(trAll(MOVESET_KEYS)), clampIndex(config.moveset, MOVESET_KEYS));
         rowY += ROW_H;
@@ -182,6 +206,41 @@ public class NpcConfigEditScreen extends FieldEditScreen
         tip(tr("gui.dmz_ragnarok.core.npc.bal_max_tip"));
         tf(tr("gui.dmz_ragnarok.core.npc.kill_commands"), config.killCommands, v -> config.killCommands = v);
         tip(tr("gui.dmz_ragnarok.core.npc.kill_commands_tip"));
+        // level scaling (region NPCs only; the crate boss never scales)
+        if (npcIndex < 0)
+            return;
+        bf(tr("gui.dmz_ragnarok.core.npc.level_scaling"), config.scales(),
+                () -> config.levelScaling = config.scales() ? Boolean.FALSE : null);
+        tip(tr("gui.dmz_ragnarok.core.npc.level_scaling_tip", LevelScale.DEFAULT_MULTIPLE));
+        if (!config.scales())
+            return;
+        String maxShown = intStr(config.scaleMaxLevel());
+        tf(tr("gui.dmz_ragnarok.core.npc.scale_max_level"), maxShown, v -> {
+            if (!v.trim().equals(maxShown))
+                config.scaleMaxLevel = Math.max(2, parseI(v, config.scaleMaxLevel()));
+        });
+        tip(tr("gui.dmz_ragnarok.core.npc.scale_max_level_tip"));
+        anchorField("tp_min_at_max", config.tpMinAtMax(), v -> config.tpMinAtMax = v);
+        anchorField("tp_max_at_max", config.tpMaxAtMax(), v -> config.tpMaxAtMax = v);
+        anchorField("bal_min_at_max", config.balMinAtMax(), v -> config.balMinAtMax = v);
+        anchorField("bal_max_at_max", config.balMaxAtMax(), v -> config.balMaxAtMax = v);
+    }
+
+    /**
+     * A max-level anchor field showing its effective value. Left as shown, an AUTO anchor stays auto (it keeps
+     * following the level 1 value); a typed number pins it; "auto" or blank returns it to auto.
+     */
+    private void anchorField(String key, int effective, java.util.function.Consumer<Integer> set)
+    {
+        String shown = intStr(effective);
+        tf(tr("gui.dmz_ragnarok.core.npc." + key), shown, v -> {
+            String t = v.trim();
+            if (t.isEmpty() || t.equalsIgnoreCase("auto"))
+                set.accept(null);
+            else if (!t.equals(shown))
+                set.accept(Math.max(0, parseI(t, effective)));
+        });
+        tip(tr("gui.dmz_ragnarok.core.npc.anchor_tip", LevelScale.DEFAULT_MULTIPLE));
     }
 
     private void dropsTab()

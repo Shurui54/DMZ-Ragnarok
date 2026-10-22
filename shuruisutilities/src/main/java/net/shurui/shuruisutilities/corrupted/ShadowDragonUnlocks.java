@@ -192,6 +192,6 @@ public final class ShadowDragonUnlocks
     private static void announceShadowDragonRace(ServerPlayer player)
     {
         send(player, "&8&l>> &5You have earned the &dShadow Dragon &5race.");
-        send(player, "&7The corruption you unleashed now answers to you. Reset your character to walk its path.");
+        send(player, "&7The corruption you unleashed now answers to you. Reset at Dende and pick it: your level, stats and progress come with you.");
     }
 }

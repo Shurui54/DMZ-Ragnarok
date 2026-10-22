@@ -21,7 +21,7 @@ import net.shurui.shuruisutilities.util.output.logger.LoggingHandler;
 
 /**
  * The Patreon wardrobe: the wardrobe cosmetics a supporter is entitled to through Patreon, and the PUBLIC path that
- * lets them wear those on every server running the mods, keyless included.
+ * lets them wear those on every server running the mods, keyless included (owner decision Q5, S-phase batch S17p).
  *
  * <h2>Where an entitlement comes from</h2>
  * Two sources, unioned:

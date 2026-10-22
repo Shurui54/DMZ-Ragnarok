@@ -169,6 +169,27 @@ public final class DragonBallShell
     }
 
     /**
+     * Draw a placed ball of a DORMANT set as a solid stone sphere: exactly the sphere {@link #render} draws (same
+     * radius, centre and tilt, in the same block-local space), but opaque, textured with {@code texture} (vanilla
+     * stone), with no inner stars, no glass and no emissive rim. It does not spin: a petrified ball is still. The UVs
+     * tile the texture {@link #STONE_UV_TILES} times around the ball so the stone grain stays block-sized.
+     */
+    public static void renderStone(PoseStack poseStack, MultiBufferSource buffer, int packedLight, float radius,
+                                   float centerY, ResourceLocation texture)
+    {
+        poseStack.pushPose();
+        poseStack.translate(0.5D, centerY, 0.5D);
+        poseStack.mulPose(Axis.ZP.rotationDegrees(12.0F));
+        // entityCutout: an opaque, CULLING type, so only the outward faces of the closed sphere draw.
+        VertexConsumer vc = buffer.getBuffer(RenderType.entityCutout(texture));
+        drawSphere(poseStack.last(), vc, radius, 1.0F, 1.0F, 1.0F, 1.0F, packedLight, false, STONE_UV_TILES);
+        poseStack.popPose();
+    }
+
+    /** How many times the stone texture repeats around a dormant ball (and half as many from pole to pole). */
+    public static final float STONE_UV_TILES = 4.0F;
+
+    /**
      * Draw a Z orb: the SAME translucent culled shell and reverse-wound rim a placed dragon ball uses, but centred on
      * the current pose origin (no block-corner offset and no star billboard) and at a caller-chosen radius, colour and
      * alpha. It reuses the existing private {@link #drawSphere} primitive and the {@link BallRenderTypes#rim} pass, so a
@@ -424,6 +445,16 @@ public final class DragonBallShell
     private static void drawSphere(Pose pose, VertexConsumer vc, float s, float r, float g, float b, float alpha,
                                    int light, boolean reverse)
     {
+        drawSphere(pose, vc, s, r, g, b, alpha, light, reverse, 1.0F);
+    }
+
+    // As above, with the lat/long UVs multiplied by uvScale around the ball (and uvScale / 2 pole to pole), for a
+    // tiling texture such as the dormant ball's stone. uvScale 1 is the original mapping.
+    private static void drawSphere(Pose pose, VertexConsumer vc, float s, float r, float g, float b, float alpha,
+                                   int light, boolean reverse, float uvScale)
+    {
+        float us = uvScale;
+        float vs = Math.max(1.0F, uvScale / 2.0F);
         for (int i = 0; i < SPHERE_RINGS; ++i)
         {
             float v0 = (float) i / SPHERE_RINGS;
@@ -442,17 +473,17 @@ public final class DragonBallShell
                 float[] p10 = spherePoint(s, phi1, th0);
                 if (reverse)
                 {
-                    sphereVertex(pose, vc, p00, u0, v0, r, g, b, alpha, light, true);
-                    sphereVertex(pose, vc, p10, u0, v1, r, g, b, alpha, light, true);
-                    sphereVertex(pose, vc, p11, u1, v1, r, g, b, alpha, light, true);
-                    sphereVertex(pose, vc, p01, u1, v0, r, g, b, alpha, light, true);
+                    sphereVertex(pose, vc, p00, u0 * us, v0 * vs, r, g, b, alpha, light, true);
+                    sphereVertex(pose, vc, p10, u0 * us, v1 * vs, r, g, b, alpha, light, true);
+                    sphereVertex(pose, vc, p11, u1 * us, v1 * vs, r, g, b, alpha, light, true);
+                    sphereVertex(pose, vc, p01, u1 * us, v0 * vs, r, g, b, alpha, light, true);
                 }
                 else
                 {
-                    sphereVertex(pose, vc, p00, u0, v0, r, g, b, alpha, light, false);
-                    sphereVertex(pose, vc, p01, u1, v0, r, g, b, alpha, light, false);
-                    sphereVertex(pose, vc, p11, u1, v1, r, g, b, alpha, light, false);
-                    sphereVertex(pose, vc, p10, u0, v1, r, g, b, alpha, light, false);
+                    sphereVertex(pose, vc, p00, u0 * us, v0 * vs, r, g, b, alpha, light, false);
+                    sphereVertex(pose, vc, p01, u1 * us, v0 * vs, r, g, b, alpha, light, false);
+                    sphereVertex(pose, vc, p11, u1 * us, v1 * vs, r, g, b, alpha, light, false);
+                    sphereVertex(pose, vc, p10, u0 * us, v1 * vs, r, g, b, alpha, light, false);
                 }
             }
         }

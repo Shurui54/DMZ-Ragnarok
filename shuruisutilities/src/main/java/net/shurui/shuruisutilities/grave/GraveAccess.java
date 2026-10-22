@@ -16,11 +16,12 @@ import net.shurui.shuruisutilities.dragonballbag.DragonBallTotem;
  * {@link GraveEventHandler#onRightClick} at NORMAL priority, which is skipped if a higher-priority protection handler
  * has already cancelled the click (a cancelled {@code RightClickBlock} does not reach a NORMAL, non-receiveCanceled
  * listener). The guild handler cancels outright, and the region / world-zone handlers deny the interaction, so without
- * this exception a totem inside protected land could not be opened by anyone but the land's own members. Two cases are
+ * this exception a totem inside protected land could not be opened by anyone but the land's own members. Three cases are
  * let through:
  * <ul>
  *   <li><b>The grave's owner.</b> Dying in someone else's protected land must not cost a player their own items, which
  *       the grave sweep discards after its timer.</li>
+ *   <li><b>Staff</b> (permission level 2), so a moderator can always reach a totem.</li>
  *   <li><b>Anyone, when the totem holds a dragon ball.</b> Balls are exempt from claim and region rules as world
  *       events ({@code RegionEventHandler.isDragonBall}), and a ball totem is what the radar leads other players to.
  *       Without this, logging out inside your own claim would lock a set away from every hunter for good, because a
@@ -36,6 +37,9 @@ public final class GraveAccess
 {
     private GraveAccess() {}
 
+    /** Staff (operator permission level 2) may open any totem, wherever it stands. */
+    public static final int STAFF_PERMISSION_LEVEL = 2;
+
     /** Whether a right click at {@code pos} is on a grave totem this {@code player} may open despite the protection. */
     public static boolean mayOpen(Player player, Level level, BlockPos pos)
     {
@@ -46,6 +50,7 @@ public final class GraveAccess
                 : (graves.has(pos.below()) ? graves.get(pos.below()) : null);
         if (grave == null)
             return false;
-        return player.getUUID().equals(grave.ownerId()) || DragonBallTotem.holdsDragonBall(grave.container());
+        return player.getUUID().equals(grave.ownerId()) || DragonBallTotem.holdsDragonBall(grave.container())
+                || player.hasPermissions(STAFF_PERMISSION_LEVEL);
     }
 }

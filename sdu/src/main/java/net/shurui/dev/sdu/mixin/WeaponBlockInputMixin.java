@@ -33,7 +33,10 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 public abstract class WeaponBlockInputMixin {
 
     @Redirect(
-            method = "lambda$onClientTick$3",
+            // DragonMineZ 2.2: the block gate lives in lambda$onClientTick$4(Minecraft, LocalPlayer, StatsData) (2.1:
+            // lambda$onClientTick$3(StatsData)); its four getItemInHand reads are still exactly the two handsEmpty
+            // reads and the two start-branch reads, and the only ones in the class.
+            method = "lambda$onClientTick$4",
             at = @At(value = "INVOKE",
                     target = "Lnet/minecraft/client/player/LocalPlayer;getItemInHand(Lnet/minecraft/world/InteractionHand;)Lnet/minecraft/world/item/ItemStack;"),
             remap = true,

@@ -22,7 +22,8 @@ import java.util.function.Supplier;
 
 // Ground-snap for the saiyan space pod so you never arrive buried.
 //
-// DMZ runs arrival inside the enqueueWork lambda (synthetic lambda$handle$1(Supplier)), NOT handle itself.
+// DMZ runs arrival inside the enqueueWork lambda (synthetic lambda$handle$0(Supplier) in DMZ 2.2,
+// lambda$handle$1 in 2.1), NOT handle itself.
 // resolvePosition hands back the destination's fixed y verbatim (namekow 36, otherworld 210, time_chamber
 // 130) or, for coordless destinations, your raw source-dim y, with no heightmap check. Pod has noGravity so
 // a y at/below the surface buries the rider. namekow y=36 buries every time.
@@ -64,7 +65,7 @@ public abstract class TravelToPlanetC2SMixin {
     // crash. That means a broken binding silently drops the gate, so this MUST be launch-tested, not trusted to
     // a green build.
     @Inject(
-        method = "lambda$handle$1(Ljava/util/function/Supplier;)V",
+        method = "lambda$handle$0(Ljava/util/function/Supplier;)V",
         at = @At("HEAD"),
         require = 0,
         cancellable = true,
@@ -84,7 +85,7 @@ public abstract class TravelToPlanetC2SMixin {
 
     // clamp player teleport y up to the surface in the arrival lambda
     @Redirect(
-        method = "lambda$handle$1(Ljava/util/function/Supplier;)V",
+        method = "lambda$handle$0(Ljava/util/function/Supplier;)V",
         at = @At(
             value = "INVOKE",
             target = "Lnet/minecraft/server/level/ServerPlayer;teleportTo(Lnet/minecraft/server/level/ServerLevel;DDDFF)V",
@@ -121,7 +122,7 @@ public abstract class TravelToPlanetC2SMixin {
     // won't fall). DMZ uses Entity.setPos(DDD) (SRG m_6034_), not moveTo (m_6027_); same (DDD)V descriptor
     // so the SRG number disambiguates.
     @Redirect(
-        method = "lambda$handle$1(Ljava/util/function/Supplier;)V",
+        method = "lambda$handle$0(Ljava/util/function/Supplier;)V",
         at = @At(
             value = "INVOKE",
             // owner must be SpacePodEntity: bytecode is invokevirtual SpacePodEntity.m_6034_(DDD)V. naming

@@ -1,0 +1,30 @@
+{
+  "_comment": "The compact space console is the vehicle upgrade bench: the big console's deck with an anvil for the upgrade work.",
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "G": {
+      "item": "minecraft:glass_pane"
+    },
+    "R": {
+      "item": "minecraft:redstone"
+    },
+    "A": {
+      "item": "minecraft:anvil"
+    },
+    "P": {
+      "item": "dragonminez:vehicle_plating"
+    },
+    "I": {
+      "item": "minecraft:iron_ingot"
+    }
+  },
+  "pattern": [
+    "GRG",
+    "PAP",
+    "III"
+  ],
+  "result": {
+    "item": "dmz_ragnarok:space_console_b"
+  }
+}

@@ -2,7 +2,8 @@ package net.shurui.dev.sdu.client.gui.preview;
 
 import com.dragonminez.client.render.effects.AuraRenderer;
 import com.dragonminez.common.hair.CustomHair;
-import com.dragonminez.common.hair.HairManager;
+import com.dragonminez.common.hair.HairCodec;
+import com.dragonminez.common.hair.HairStyleSlot;
 import com.dragonminez.common.stats.StatsCapability;
 import com.dragonminez.common.stats.StatsData;
 import com.dragonminez.common.stats.StatsProvider;
@@ -162,7 +163,7 @@ public final class FormPreview {
 
     /**
      * Decode the form's forced hair code and apply it to every hair slot of the dummy, so it shows regardless
-     * of which slot (base/ssj/…) the active form selects. Uses DMZ's {@link HairManager} decoder (single and
+     * of which slot (base/ssj/…) the active form selects. Uses DMZ's {@link HairCodec} decoder (single and
      * full-set codes). Returns true on success.
      */
     public boolean applyHairCode(String code) {
@@ -175,30 +176,29 @@ public final class FormPreview {
         }
         try {
             Character c = stats.getCharacter();
-            // DMZHairLayer renders HairManager.getEffectiveHair(c), which uses the CUSTOM hairBase slot only
+            // DMZHairLayer renders Character.getHairStyle(slot), which uses the CUSTOM hair styles only
             // when hairId == 0 (any non-zero id = a preset). copyFrom seeded the player's preset id, so our
             // custom hair was ignored until we force the custom sentinel here.
             c.setHairId(0);
             c.setRenderHairBase(true);
-            if (HairManager.isFullSetCode(code)) {
-                CustomHair[] set = HairManager.fromFullSetCode(code);
-                if (set != null && set.length >= 4) {
-                    c.setHairBase(set[0]);
-                    c.setHairSSJ(set[1]);
-                    c.setHairSSJ2(set[2]);
-                    c.setHairSSJ3(set[3]);
+            if (HairCodec.isFullSetCode(code)) {
+                java.util.EnumMap<HairStyleSlot, CustomHair> set = HairCodec.fromFullSetCode(code);
+                if (set != null) {
+                    for (java.util.Map.Entry<HairStyleSlot, CustomHair> e : set.entrySet()) {
+                        c.setHairStyle(e.getKey(), e.getValue());
+                    }
                     return true;
                 }
                 return false;
             }
-            CustomHair h = HairManager.fromCode(code);
+            CustomHair h = HairCodec.fromCode(code);
             if (h == null || h.isEmpty()) {
                 return false;
             }
-            c.setHairBase(h);
-            c.setHairSSJ(h.copy());
-            c.setHairSSJ2(h.copy());
-            c.setHairSSJ3(h.copy());
+            c.setHairStyle(HairStyleSlot.BASE, h);
+            c.setHairStyle(HairStyleSlot.SSJ, h.copy());
+            c.setHairStyle(HairStyleSlot.SSJ2, h.copy());
+            c.setHairStyle(HairStyleSlot.SSJ3, h.copy());
             return true;
         } catch (Throwable t) {
             return false;
@@ -531,18 +531,17 @@ public final class FormPreview {
         com.mojang.blaze3d.vertex.BufferUploader.drawWithShader(bb.end());
     }
 
-    /** Reflect DMZ's private getModelScale/getAuraScale for the vertical aura scale (per-form), default 1. */
+    /** Reflect DMZ's private getAuraScale for the vertical aura scale (per-form), default 1. */
     private static float reflectAuraScaleY(StatsData st) {
         if (st == null) {
             return 1.0F;
         }
         try {
-            java.lang.reflect.Method gms = AuraRenderer.class.getDeclaredMethod("getModelScale", StatsData.class);
-            gms.setAccessible(true);
-            Object ms = gms.invoke(null, st);
-            java.lang.reflect.Method gas = AuraRenderer.class.getDeclaredMethod("getAuraScale", StatsData.class, float[].class);
+            // DragonMineZ 2.2: getAuraScale(Player, StatsData) reads the body scale itself (2.1 took it as an argument).
+            java.lang.reflect.Method gas = AuraRenderer.class.getDeclaredMethod("getAuraScale",
+                    net.minecraft.world.entity.player.Player.class, StatsData.class);
             gas.setAccessible(true);
-            float[] as = (float[]) gas.invoke(null, st, ms);
+            float[] as = (float[]) gas.invoke(null, st.getPlayer(), st);
             if (as != null && as.length >= 2 && as[1] > 0.01F) {
                 return as[1];
             }

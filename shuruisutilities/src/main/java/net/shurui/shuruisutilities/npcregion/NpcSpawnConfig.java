@@ -92,6 +92,85 @@ public class NpcSpawnConfig
     public int balMin = 0;
     public int balMax = 0;
     /**
+     * Level scaling (owner 2026-10, the Z orb model, see {@link LevelScale}). NULL means ON: Gson omits a null, so a
+     * config saved before this keeps its JSON and scales by default, and sanitize() folds an explicit true back to
+     * null. Only an explicit false turns it off for this NPC. Region NPCs only; the airdrop crate boss never scales.
+     */
+    public Boolean levelScaling;
+    /** Level at which the max-level anchors apply; NULL = {@link LevelScale#DEFAULT_MAX_LEVEL}. */
+    public Integer scaleMaxLevel;
+    /**
+     * Kill rewards at the max level. The plain tpMin/tpMax/balMin/balMax above are the LEVEL 1 anchors (so every
+     * existing value is what a level 1 player still gets). NULL = auto, {@link LevelScale#DEFAULT_MULTIPLE} times the
+     * level 1 value.
+     */
+    public Integer tpMinAtMax, tpMaxAtMax, balMinAtMax, balMaxAtMax;
+
+    /**
+     * Stats at the max level (see {@link LevelScaledStats}); maxHealth, attackDamage, kiPower and defense above are the
+     * LEVEL 1 anchors. NULL = auto, {@link LevelScale#DEFAULT_MULTIPLE} times the level 1 value. Speed and aggro range
+     * never scale.
+     */
+    public Float maxHealthAtMax, attackDamageAtMax, kiPowerAtMax, defenseAtMax;
+
+    public float maxHealthAtMax()
+    {
+        return maxHealthAtMax != null ? maxHealthAtMax : LevelScale.autoMax(maxHealth);
+    }
+
+    public float attackDamageAtMax()
+    {
+        return attackDamageAtMax != null ? attackDamageAtMax : LevelScale.autoMax(attackDamage);
+    }
+
+    public float kiPowerAtMax()
+    {
+        return kiPowerAtMax != null ? kiPowerAtMax : LevelScale.autoMax(kiPower);
+    }
+
+    public float defenseAtMax()
+    {
+        return defenseAtMax != null ? defenseAtMax : LevelScale.autoMax(defense);
+    }
+
+    /** Scale a freshly built region NPC's stats for a level (stamps the anchors so it can be raised later). */
+    public void applyLevelStats(LivingEntity entity, int level)
+    {
+        LevelScaledStats.stampAndApply(entity, scaleMaxLevel(), maxHealth, maxHealthAtMax(), attackDamage,
+                attackDamageAtMax(), defense, defenseAtMax(), kiPower, kiPowerAtMax(), level);
+    }
+
+    public boolean scales()
+    {
+        return !Boolean.FALSE.equals(levelScaling);
+    }
+
+    public int scaleMaxLevel()
+    {
+        return scaleMaxLevel == null ? LevelScale.DEFAULT_MAX_LEVEL : Math.max(2, scaleMaxLevel);
+    }
+
+    public int tpMinAtMax()
+    {
+        return tpMinAtMax != null ? tpMinAtMax : LevelScale.autoMax(tpMin);
+    }
+
+    public int tpMaxAtMax()
+    {
+        return tpMaxAtMax != null ? tpMaxAtMax : LevelScale.autoMax(tpMax);
+    }
+
+    public int balMinAtMax()
+    {
+        return balMinAtMax != null ? balMinAtMax : LevelScale.autoMax(balMin);
+    }
+
+    public int balMaxAtMax()
+    {
+        return balMaxAtMax != null ? balMaxAtMax : LevelScale.autoMax(balMax);
+    }
+
+    /**
      * Commands run by the server console when a player kills this NPC (semicolon-separated;
      * {@code %player%} = the killer's name). Blank = none.
      */
@@ -135,6 +214,16 @@ public class NpcSpawnConfig
         c.balMax = balMax;
         c.killCommands = killCommands;
         c.vanillaDrops = vanillaDrops;
+        c.levelScaling = levelScaling;
+        c.scaleMaxLevel = scaleMaxLevel;
+        c.tpMinAtMax = tpMinAtMax;
+        c.tpMaxAtMax = tpMaxAtMax;
+        c.balMinAtMax = balMinAtMax;
+        c.balMaxAtMax = balMaxAtMax;
+        c.maxHealthAtMax = maxHealthAtMax;
+        c.attackDamageAtMax = attackDamageAtMax;
+        c.kiPowerAtMax = kiPowerAtMax;
+        c.defenseAtMax = defenseAtMax;
         c.drops = new ArrayList<>();
         if (drops != null)
             for (CustomDrop d : drops)
@@ -199,7 +288,7 @@ public class NpcSpawnConfig
         saga.setFlying(false);
         // Each of these is "may it, and on what cooldown". False is what disables the ability; the cooldown is
         // then irrelevant, and is left at DMZ's own default rather than invented here.
-        saga.setZanzoken(false, 0);
+        saga.setZanzoken(DBSagasEntity.ZANZOKEN_TIER_NONE, 0);
         saga.setWildSense(false, 0);
         saga.setEvade(false, 0);
     }
@@ -311,6 +400,41 @@ public class NpcSpawnConfig
         // APPENDED: this format is positional, so a field slotted in beside its relatives would shift every
         // field after it and the far side would read garbage.
         buf.writeUtf(rgModelId == null ? "" : rgModelId);
+        // APPENDED: level scaling. A nullable anchor is a presence flag then the value, so "auto" survives the trip.
+        buf.writeBoolean(scales());
+        writeOpt(buf, scaleMaxLevel);
+        writeOpt(buf, tpMinAtMax);
+        writeOpt(buf, tpMaxAtMax);
+        writeOpt(buf, balMinAtMax);
+        writeOpt(buf, balMaxAtMax);
+        writeOptF(buf, maxHealthAtMax);
+        writeOptF(buf, attackDamageAtMax);
+        writeOptF(buf, kiPowerAtMax);
+        writeOptF(buf, defenseAtMax);
+    }
+
+    private static void writeOptF(FriendlyByteBuf buf, Float v)
+    {
+        buf.writeBoolean(v != null);
+        if (v != null)
+            buf.writeFloat(v);
+    }
+
+    private static Float readOptF(FriendlyByteBuf buf)
+    {
+        return buf.readBoolean() ? buf.readFloat() : null;
+    }
+
+    private static void writeOpt(FriendlyByteBuf buf, Integer v)
+    {
+        buf.writeBoolean(v != null);
+        if (v != null)
+            buf.writeVarInt(v);
+    }
+
+    private static Integer readOpt(FriendlyByteBuf buf)
+    {
+        return buf.readBoolean() ? buf.readVarInt() : null;
     }
 
     public static NpcSpawnConfig decode(FriendlyByteBuf buf)
@@ -344,6 +468,16 @@ public class NpcSpawnConfig
         c.vanillaDrops = buf.readBoolean();
         c.aggroRange = buf.readDouble();
         c.rgModelId = buf.readUtf();
+        c.levelScaling = buf.readBoolean() ? null : Boolean.FALSE;
+        c.scaleMaxLevel = readOpt(buf);
+        c.tpMinAtMax = readOpt(buf);
+        c.tpMaxAtMax = readOpt(buf);
+        c.balMinAtMax = readOpt(buf);
+        c.balMaxAtMax = readOpt(buf);
+        c.maxHealthAtMax = readOptF(buf);
+        c.attackDamageAtMax = readOptF(buf);
+        c.kiPowerAtMax = readOptF(buf);
+        c.defenseAtMax = readOptF(buf);
         return c;
     }
 
@@ -377,5 +511,30 @@ public class NpcSpawnConfig
         // "unset" and fall back to the 4-block default. Existing saves therefore load with a 4-block aggro range.
         if (aggroRange <= 0.0)
             aggroRange = DEFAULT_AGGRO_RANGE;
+        // Level scaling: the defaults are stored as null so an untouched config's JSON never changes.
+        if (Boolean.TRUE.equals(levelScaling))
+            levelScaling = null;
+        if (scaleMaxLevel != null && (scaleMaxLevel == LevelScale.DEFAULT_MAX_LEVEL))
+            scaleMaxLevel = null;
+        if (scaleMaxLevel != null && scaleMaxLevel < 2)
+            scaleMaxLevel = 2;
+        tpMinAtMax = nonNegative(tpMinAtMax);
+        tpMaxAtMax = nonNegative(tpMaxAtMax);
+        balMinAtMax = nonNegative(balMinAtMax);
+        balMaxAtMax = nonNegative(balMaxAtMax);
+        maxHealthAtMax = nonNegative(maxHealthAtMax);
+        attackDamageAtMax = nonNegative(attackDamageAtMax);
+        kiPowerAtMax = nonNegative(kiPowerAtMax);
+        defenseAtMax = nonNegative(defenseAtMax);
+    }
+
+    private static Float nonNegative(Float v)
+    {
+        return v == null || !Float.isFinite(v) ? null : Math.max(0f, v);
+    }
+
+    private static Integer nonNegative(Integer v)
+    {
+        return v == null ? null : Math.max(0, v);
     }
 }

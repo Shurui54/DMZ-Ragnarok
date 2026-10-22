@@ -163,6 +163,94 @@ public final class CharacterSlots
      */
     private static final String FLOOR_RESET = "floorReset";
 
+    /** A parked slot's prestige before the floor raised it (sibling of {@link #FLOOR_RESET}). */
+    private static final String FLOOR_PREV_PRESTIGE = "floorPrevPrestige";
+
+    /**
+     * Player persisted NBT: per slot index, the DMZ character as it was just before the prestige floor wiped it, with
+     * the prestige it had. Written only by a floor wipe, so it is absent for everybody else. It travels in the vault
+     * with the rest of the persisted data, and {@code /prestige floorrestore} puts it back.
+     */
+    public static final String FLOOR_BACKUP_KEY = "su_prestige_floor_backup";
+
+    /**
+     * Keep a copy of the ACTIVE character's DMZ data and banked Z-Soul, and its prestige before the floor, under
+     * {@link #FLOOR_BACKUP_KEY}, right before the floor resets it. One per slot; a later floor replaces it.
+     *
+     * @param prestigeBefore the prestige the character had before the floor, or -1 when unknown
+     * @return true if a copy was written
+     */
+    public static boolean backupBeforeFloorWipe(ServerPlayer p, int prestigeBefore, long floorStamp)
+    {
+        try
+        {
+            StatsData sd = p.getCapability(StatsCapability.INSTANCE).resolve().orElse(null);
+            if (sd == null)
+                return false;
+            CompoundTag b = new CompoundTag();
+            b.put("dmz", sd.save());
+            CompoundTag zsoul = ZSoulBridge.export(p);
+            if (zsoul != null)
+                b.put("zsoul", zsoul);
+            b.putInt("prestige", prestigeBefore);
+            b.putLong("at", System.currentTimeMillis());
+            b.putLong("floorAt", floorStamp);
+            CompoundTag persisted = PlayerUtil.getPersistedTag(p, true);
+            CompoundTag all = persisted.getCompound(FLOOR_BACKUP_KEY);
+            all.put(String.valueOf(activeIndex(p)), b);
+            persisted.put(FLOOR_BACKUP_KEY, all);
+            return true;
+        }
+        catch (Throwable t)
+        {
+            LoggingHandler.sulog.error("[Prestige] could not back up " + p.getGameProfile().getName()
+                    + "'s character before the prestige floor reset", t);
+            return false;
+        }
+    }
+
+    /** The active slot's floor backup, or null when it has none. */
+    public static CompoundTag activeFloorBackup(ServerPlayer p)
+    {
+        CompoundTag all = PlayerUtil.getPersistedTag(p, true).getCompound(FLOOR_BACKUP_KEY);
+        String k = String.valueOf(activeIndex(p));
+        return all.contains(k, Tag.TAG_COMPOUND) ? all.getCompound(k) : null;
+    }
+
+    /** Drop the active slot's floor backup (after a restore). */
+    public static void clearActiveFloorBackup(ServerPlayer p)
+    {
+        CompoundTag persisted = PlayerUtil.getPersistedTag(p, true);
+        if (!persisted.contains(FLOOR_BACKUP_KEY, Tag.TAG_COMPOUND))
+            return;
+        CompoundTag all = persisted.getCompound(FLOOR_BACKUP_KEY);
+        all.remove(String.valueOf(activeIndex(p)));
+        if (all.isEmpty())
+            persisted.remove(FLOOR_BACKUP_KEY);
+        else
+            persisted.put(FLOOR_BACKUP_KEY, all);
+    }
+
+    /** Put banked Z-Soul progress back from a floor backup (no-op without Raid Bosses). */
+    public static void restoreZSoul(ServerPlayer p, CompoundTag zsoul)
+    {
+        ZSoulBridge.load(p, zsoul);
+    }
+
+    /** Whether a server-wide prestige floor is set right now. A parked reset is owed only while one is. */
+    private static boolean floorStillSet(ServerPlayer p)
+    {
+        try
+        {
+            return p.getServer() != null
+                    && net.shurui.shuruisutilities.prestige.PrestigeSettings.get(p.getServer()).getMinimumPrestige() > 0;
+        }
+        catch (Throwable t)
+        {
+            return false;
+        }
+    }
+
     /**
      * Raise EVERY slot that is below {@code floor} up to it, and report how many were raised.
      *
@@ -193,9 +281,14 @@ public final class CharacterSlots
             CompoundTag slot = s.getCompound(i);
             if (slot.getInt("prestige") < floor)
             {
-                slot.putInt("prestige", floor);
+                // The level it had before, so a parked character's floor backup (taken when the reset finally runs
+                // in switchTo) can say what to restore. Written only on a raised slot.
                 if (markForReset && i != active)
+                {
+                    slot.putInt(FLOOR_PREV_PRESTIGE, slot.getInt("prestige"));
                     slot.putBoolean(FLOOR_RESET, true);
+                }
+                slot.putInt("prestige", floor);
                 raised++;
             }
         }
@@ -303,17 +396,39 @@ public final class CharacterSlots
             r.putInt("active", index);
             r.put("slots", s);
             r.putLong("lastSwitch", System.currentTimeMillis());
+            // The ritual Z-Soul grace describes the character that paid the cost, not the one being loaded.
+            PlayerUtil.getPersistedTag(p, true).remove(
+                    net.shurui.shuruisutilities.compat.dmz.RitualFormsCompat.ZSOUL_GRACE_KEY);
             // The prestige floor raised this character while it was parked, so it still owes the reset that comes
             // with the prestige. Now that it is the live character, DMZ's own reset can run on it. The flag is
             // cleared only once the reset has actually run: if it could not (no DMZ character loaded), the character
             // stays owed and is caught on the next switch rather than quietly keeping its pre-reset stats.
-            if (s.getCompound(index).getBoolean(FLOOR_RESET)
-                    && net.shurui.shuruisutilities.prestige.PrestigeManager.wipeActiveCharacter(p))
+            //
+            // Only while a floor is still set: clearing it (/prestige forceall 0) is the admin saying "stop", and a
+            // parked character it raised must not be wiped afterwards. The flag stays, so nothing is lost either way.
+            if (s.getCompound(index).getBoolean(FLOOR_RESET) && !floorStillSet(p))
             {
-                s.getCompound(index).remove(FLOOR_RESET);
-                r.put("slots", s);
-                net.shurui.shuruisutilities.util.output.ChatOutputHandler.chatNotification(p,
-                        "This character was prestiged by the server-wide reset, so it starts again from scratch.");
+                LoggingHandler.sulog.info("[Prestige] floor reset skipped for {} slot {}: no prestige floor is set"
+                        + " any more, the character keeps its progress.", p.getGameProfile().getName(), index);
+            }
+            else if (s.getCompound(index).getBoolean(FLOOR_RESET))
+            {
+                int prev = s.getCompound(index).contains(FLOOR_PREV_PRESTIGE)
+                        ? s.getCompound(index).getInt(FLOOR_PREV_PRESTIGE) : -1;
+                boolean backedUp = backupBeforeFloorWipe(p, prev,
+                        net.shurui.shuruisutilities.prestige.PrestigeSettings.get(p.getServer()).getMinimumPrestigeSetAt());
+                if (net.shurui.shuruisutilities.prestige.PrestigeManager.wipeActiveCharacter(p))
+                {
+                    s.getCompound(index).remove(FLOOR_RESET);
+                    s.getCompound(index).remove(FLOOR_PREV_PRESTIGE);
+                    r.put("slots", s);
+                    net.shurui.shuruisutilities.audit.AuditLog.log("prestige floor reset {} slot {} on switch:"
+                            + " prestige {} -> {}, reset yes, backup {}", p.getGameProfile().getName(), index,
+                            prev < 0 ? "?" : String.valueOf(prev), s.getCompound(index).getInt("prestige"),
+                            backedUp ? "kept" : "FAILED");
+                    net.shurui.shuruisutilities.util.output.ChatOutputHandler.chatNotification(p,
+                            "This character was prestiged by the server-wide reset, so it starts again from scratch.");
+                }
             }
             // apply() -> sd.load() re-clamps every stat to the normal cap; re-assert the now-active character's
             // above-cap overrides so they stick across the swap (active index already updated above)
@@ -559,10 +674,8 @@ public final class CharacterSlots
         try
         {
             var character = sd.getCharacter();
-            runQuietly(() -> character.getHairBase().clear());
-            runQuietly(() -> character.getHairSSJ().clear());
-            runQuietly(() -> character.getHairSSJ2().clear());
-            runQuietly(() -> character.getHairSSJ3().clear());
+            // DragonMineZ 2.2 keeps one style per slot (base, ssj, ssj2, ssj3, ssj4) and resets them all here.
+            runQuietly(character::clearHairStyles);
         }
         catch (Throwable t)
         {

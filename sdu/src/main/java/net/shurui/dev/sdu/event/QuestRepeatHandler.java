@@ -380,12 +380,12 @@ public final class QuestRepeatHandler {
             return;
         }
 
-        // Identify the leader exactly as DMZ's own merge does, so the entity we gate on, reset and sync is the
-        // one syncPartyQuestState will treat as the source. resolveQuestController returns the player itself when
-        // it is the leader, else getPartyLeader.
+        // Identify the leader exactly as DMZ 2.1's merge did (the player itself when it is the leader, else the
+        // online leader). DragonMineZ 2.2 dropped resolveQuestController and the leader-to-member merge with it, so
+        // the bounce below can no longer happen there; the leader gate is kept as the conservative 2.1 behaviour.
         ServerPlayer leader;
         try {
-            leader = PartyManager.resolveQuestController(player);
+            leader = PartyManager.getPartyLeader(player);
         } catch (Throwable t) {
             leader = null;
         }

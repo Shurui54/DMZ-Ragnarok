@@ -6,7 +6,7 @@ import net.minecraftforge.fml.ModList;
 /**
  * Guard entry point for the dragon-ball ritual reward grants. Holds no DMZ imports: it only checks that DMZ is present
  * before touching {@link RitualForms}, which is the sole class here that references DMZ types. Follows
- * the optional-dependency pattern, mirroring {@link ShadowDragonFormCompat}.
+ * docs/compat-pattern.md, mirroring {@link ShadowDragonFormCompat}.
  */
 public final class RitualFormsCompat
 {
@@ -62,6 +62,12 @@ public final class RitualFormsCompat
     {
         return player != null && dmz() && RitualForms.isSaiyanChargingKi(player);
     }
+
+    /**
+     * Player persisted NBT: raw stat key ("str", "res", ...) to the base value a ritual level cost left that stat at,
+     * for stats the cost took below the cap. The Z-Soul overlay keeps projecting while the stat stays at or above it.
+     */
+    public static final String ZSOUL_GRACE_KEY = "su_zsoul_ritual_grace";
 
     public static boolean grantSsj5(ServerPlayer player)
     {

@@ -144,6 +144,40 @@ final class DmzCharacterSetup
         return "scythe";
     }
 
+    /** Set health, ki and stamina to fractions of their maxima and sync, for the HUD animation shots. */
+    static void setResources(ServerPlayer sp, float health, float ki, float stamina)
+    {
+        StatsData data = stats(sp);
+        if (data == null) return;
+        try
+        {
+            sp.setHealth(Math.max(1.0F, sp.getMaxHealth() * health));
+            data.getResources().setCurrentEnergy(data.getMaxEnergy() * ki);
+            data.getResources().setCurrentStamina(data.getMaxStamina() * stamina);
+            sync(sp);
+        }
+        catch (Throwable t)
+        {
+            LOGGER.warn("[VisualTest] Setting HUD resources failed.", t);
+        }
+    }
+
+    /** Force DMZ's aura on or off (the status flag DMZ's renderers draw from), then sync it to the client. */
+    static void setForcedAura(ServerPlayer sp, boolean on)
+    {
+        StatsData data = stats(sp);
+        if (data == null) return;
+        try
+        {
+            data.getStatus().setForcedAura(on);
+            sync(sp);
+        }
+        catch (Throwable t)
+        {
+            LOGGER.warn("[VisualTest] Forced aura toggle failed.", t);
+        }
+    }
+
     private static void sync(ServerPlayer sp)
     {
         try

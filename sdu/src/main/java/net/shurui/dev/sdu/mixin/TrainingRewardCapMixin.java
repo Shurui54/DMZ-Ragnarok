@@ -2,74 +2,91 @@ package net.shurui.dev.sdu.mixin;
 
 import com.dragonminez.common.config.ConfigManager;
 import com.dragonminez.common.config.TrainingConfig;
-import com.dragonminez.common.network.C2S.TrainingRewardC2S;
 import com.dragonminez.common.stats.character.Resources;
+import com.dragonminez.common.training.MinigameSessionManager;
+import net.minecraft.server.level.ServerPlayer;
 import net.shurui.dev.sdu.DmzNpc;
-import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Coerce;
+import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+import java.lang.reflect.Field;
 
 // Make DMZ's per-minigame training cap (tpsLimitPerGame in config/dragonminez/training.json) the ABSOLUTE
 // ceiling on the TP a player actually receives from ONE training-minigame reward, counting every bonus the
 // suite stacks on DMZEvent.TPGainEvent: global /tpboost + shrine (TpBoostState, LOW), prestige + su.tpgain
-// (PrestigeEvents), TP gems (the key's TokenBuffFeature, LOWEST), the gravity chamber (BlockFeatureEvents, LOW), plus
-// DMZ's own HIGH-priority calculateTPGain rewrite in TPGainEvents.onTPGain.
+// (PrestigeEvents), TP gems (the key's TokenBuffFeature, LOWEST), the gravity chamber (BlockFeatureEvents, LOW).
 //
-// DMZ clamps the raw reward to the limit BEFORE any of that fires (TrainingRewardC2S.handle:
-// "if (limit > 0 && totalReward > limit) totalReward = limit;"), so a 50k cap could still pay 80k once the
-// multipliers ran. The reward is delivered by a single Resources.addTrainingPoints(F) call inside the
-// handler's ifPresent lambda; that posts one TPGainEvent and writes oldValue + event.getTpGain() to THIS
-// player's trainingPoints.
+// DragonMineZ 2.2 moved the reward server side: MinigameSessionManager.finish(ServerPlayer, Session, boolean)
+// computes it (computeReward clamps to the limit BEFORE any TPGainEvent listener runs) and pays it with ONE
+// Resources.addBoostedTrainingPoints(double) call, which posts one TPGainEvent (preBoosted) and writes
+// old + event.getTpGain() to THIS player's training points. 2.1 did the same from TrainingRewardC2S's handler lambda,
+// which 2.2 turned into a no-op.
 //
-// We redirect that one call. Rather than chase listener order (a clamp that must land after TokenBuffFeature
-// at LOWEST cannot itself rely on being LOWEST, since order within a priority is undefined), we measure this
-// player's trainingPoints across the real call and shave any excess afterwards. This reads only DMZ state and
-// the final value, so it needs nothing from the shuruisutilities tree. Party, fusion and gravity-chamber
-// shares all land on OTHER players' Resources instances during the nested event, so they never move THIS
-// player's total and are never counted against or clamped for the player who trained.
+// We redirect that one call. Rather than chase listener order, we measure this player's training points across the
+// real call and shave any excess afterwards. Party, fusion and gravity-chamber shares land on OTHER players'
+// Resources during the nested event, so they never move THIS player's total and are never clamped for them.
 //
-// remap=false: every referenced member is DMZ's own, none Minecraft. On any error we fall back to the plain
-// grant so a reward can never be lost, and addTrainingPoints runs exactly once on every path (no double grant).
-@Mixin(value = TrainingRewardC2S.class, remap = false)
+// The minigame id lives on DMZ's private Session, so the HEAD injector (Session taken as @Coerce Object) records it
+// for the redirect; finish runs on the server thread and never nests. remap=false: every member is DMZ's own. On any
+// error we fall back to the plain grant so a reward can never be lost, and the grant runs exactly once on every path.
+@Mixin(value = MinigameSessionManager.class, remap = false)
 public abstract class TrainingRewardCapMixin {
 
-    @Shadow @Final private String minigameId;
+    private static String sdu$minigameId;
+    private static Field sdu$minigameIdField;
+
+    @Inject(method = "finish", at = @At("HEAD"), require = 0, remap = false)
+    private static void sdu$rememberMinigame(ServerPlayer player, @Coerce Object session, boolean notify, CallbackInfo ci) {
+        sdu$minigameId = null;
+        try {
+            if (sdu$minigameIdField == null) {
+                Field f = session.getClass().getDeclaredField("minigameId");
+                f.setAccessible(true);
+                sdu$minigameIdField = f;
+            }
+            sdu$minigameId = (String) sdu$minigameIdField.get(session);
+        } catch (Throwable t) {
+            DmzNpc.LOGGER.debug("[{}] training-reward cap could not read the minigame id: {}", DmzNpc.MODID, t.toString());
+        }
+    }
 
     @Redirect(
-            method = "lambda$handle$0",
+            method = "finish",
             at = @At(value = "INVOKE",
-                    target = "Lcom/dragonminez/common/stats/character/Resources;addTrainingPoints(F)V"),
+                    target = "Lcom/dragonminez/common/stats/character/Resources;addBoostedTrainingPoints(D)V"),
             remap = false,
             require = 0
     )
-    private void sdu$capTrainingReward(Resources resources, float amount) {
+    private static void sdu$capTrainingReward(Resources resources, double amount) {
+        String minigameId = sdu$minigameId;
+        sdu$minigameId = null;
         float limit;
         try {
-            TrainingConfig.MinigameSettings settings = ConfigManager.getTrainingConfig().getSettings(this.minigameId);
+            TrainingConfig.MinigameSettings settings = minigameId == null ? null
+                    : ConfigManager.getTrainingConfig().getSettings(minigameId);
             limit = settings == null ? 0f : settings.getTpsLimitPerGame();
         } catch (Throwable t) {
-            // Config not readable here: behave exactly as today, no cap.
             DmzNpc.LOGGER.debug("[{}] training-reward cap skipped (settings lookup failed): {}", DmzNpc.MODID, t.toString());
             limit = 0f;
         }
         if (limit <= 0f) {
-            // No cap configured for this game (0 or negative): unchanged from DMZ.
-            resources.addTrainingPoints(amount);
+            resources.addBoostedTrainingPoints(amount);
             return;
         }
-        float before = resources.getTrainingPoints();
-        resources.addTrainingPoints(amount); // fires TPGainEvent -> DMZ rewrite + every suite bonus
+        double before = resources.getTrainingPointsExact();
+        resources.addBoostedTrainingPoints(amount); // fires TPGainEvent -> every suite bonus
         try {
-            float gained = resources.getTrainingPoints() - before;
+            double gained = resources.getTrainingPointsExact() - before;
             if (gained > limit) {
-                resources.setTrainingPoints(before + limit);
+                resources.setTrainingPointsExact(before + limit);
                 DmzNpc.LOGGER.debug("[{}] training reward '{}' clamped {} -> {} TP (cap {})",
-                        DmzNpc.MODID, this.minigameId, gained, limit, limit);
+                        DmzNpc.MODID, minigameId, gained, limit, limit);
             }
         } catch (Throwable t) {
-            // Clamp failed after the grant already applied: leave the reward rather than risk a double grant.
             DmzNpc.LOGGER.debug("[{}] training-reward clamp skipped after grant: {}", DmzNpc.MODID, t.toString());
         }
     }

@@ -1,6 +1,6 @@
 package net.shurui.shuruisutilities.client.saiyan;
 
-import com.dragonminez.client.render.hair.HairRenderer;
+import net.shurui.dev.sdu.client.renderer.DmzStaticHair;
 import com.dragonminez.client.util.ColorUtils;
 import com.dragonminez.common.hair.CustomHair;
 import com.dragonminez.common.hair.HairManager;
@@ -22,9 +22,9 @@ import net.shurui.shuruisutilities.saiyan.SaiyanAppearance;
 
 /**
  * SU-owned hair layer for the garrison saiyan. It reuses DragonMineZ's static procedural-hair helpers exactly as the
- * task permits: {@link HairManager#getPresetHair} builds the preset {@link CustomHair} strand set for the synced hair
- * id, and {@link HairRenderer#render} draws the strand cubes. Both are player-agnostic when the character/stats/player
- * arguments are null (the physics/animation block is skipped, giving static hair), so they work for a mob. Hair is drawn
+ * task permits: {@link HairManager#getPresetStyle} gives the preset {@link CustomHair} strand set for the synced hair
+ * id, and {@link DmzStaticHair#render} draws the strands with DMZ 2.2's mesh builder and no physics, so it works for a
+ * mob. Hair is drawn
  * with DIRECT RGB (not a texture multiply), so a pure-black hair colour renders truly black, which is why generic
  * garrison saiyans get {@code #000000} hair.
  *
@@ -86,10 +86,9 @@ public class PlanetSaiyanHairLayer<T extends Mob & GeoEntity & SaiyanAppearance>
             try
             {
                 RenderUtils.translateToPivotPoint(poseStack, bone);
-                // hairTo == hairFrom, transitionFactor 0 -> static single hair; character/stats/player null -> no physics;
-                // forceColor true both sides -> our flat colour overrides any per-strand preset colour, so black stays black.
-                HairRenderer.render(poseStack, bufferSource, hair, hair, 0.0F, null, null, null, rgb, rgb,
-                        true, true, partialTick, packedLight, packedOverlay, 1.0F, 0.0F, 0.0F);
+                // Static single hair, no physics; forced colour so our flat colour overrides any per-strand preset
+                // colour and black stays black.
+                DmzStaticHair.render(poseStack, bufferSource, hair, rgb, true, packedLight, packedOverlay);
             }
             finally
             {
@@ -130,17 +129,18 @@ public class PlanetSaiyanHairLayer<T extends Mob & GeoEntity & SaiyanAppearance>
                         codePrefix(code));
             }
         }
-        return HairManager.getPresetHair(presetId, hairHex);
+        // DragonMineZ 2.2 presets are per slot and carry no colour; the render pass forces our flat colour anyway.
+        return HairManager.getPresetStyle(presetId, com.dragonminez.common.hair.HairStyleSlot.BASE);
     }
 
-    // parse a DMZ hair code into a strand set, applying our flat hair colour. HairManager.fromCode already swallows a bad
+    // parse a DMZ hair code into a strand set, applying our flat hair colour. HairCodec.fromCode already swallows a bad
     // code and returns null rather than throwing, but this stays wrapped so any future DMZ drift here still degrades to the
     // preset on the render thread rather than crashing it.
     private static CustomHair tryFromCode(String code, String hairHex)
     {
         try
         {
-            CustomHair hair = HairManager.fromCode(code);
+            CustomHair hair = com.dragonminez.common.hair.HairCodec.fromCode(code);
             if (hair != null && hairHex != null && !hairHex.isEmpty())
             {
                 // the render pass forces our flat colour anyway, but set it here too so the strand set is self-consistent.

@@ -1,6 +1,5 @@
 package net.shurui.dev.sdu.mixin;
 
-import com.dragonminez.common.quest.Difficulty;
 import com.dragonminez.common.quest.PlayerQuestData;
 import com.dragonminez.common.quest.Quest;
 import com.dragonminez.common.quest.QuestRegistry;
@@ -21,8 +20,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 // sequential reachability (QuestAvailabilityChecker.isSagaQuestAvailable), never that the saga is unlocked,
 // so both were visual locks a modified client could ignore with QuestActionC2S(START, firstQuestKey).
 //
-// Single server funnel: the private startQuest(requester, controller, ResolvedQuest, StatsData, Difficulty)
-// is reached only from the public startQuest(player, questKey), called only by QuestActionC2S START. TURN_IN
+// Single server funnel: DragonMineZ 2.2's private describeStartBlocker(player, StatsData, ResolvedQuest, positional),
+// which the public startQuest(player, questKey) asks for the requester AND for every nearby party member before it
+// lets them join (2.1: the private startQuest(requester, controller, ...), which 2.2 removed). A non-null answer
+// refuses the start (or skips that member). startQuest is called only by QuestActionC2S START. TURN_IN
 // and RESUMMON both require the quest ACCEPTED already, which can't happen once START is refused, so this
 // covers them transitively. Admin StoryCommand accepts quests directly (pqd.acceptQuest), a permission-gated
 // override, intentionally not touched.
@@ -38,8 +39,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 // shard (progress rides the vault) is seen the moment the packet lands.
 //
 // Refusal returns a translatable reason as the return value; the QuestActionC2S handler styles quest failures
-// red and sends them, exactly as DMZ does for its own refusals. Cancel is at HEAD, before acceptQuest,
-// objective init and spawns, so nothing is half-applied.
+// red and sends them, exactly as DMZ does for its own refusals. The blocker is answered before DMZ begins the quest,
+// initialises objectives or spawns anything, so nothing is half-applied.
 //
 // SILENT-FAILURE SIGNATURE: require=0, so if DMZ renames or reshapes this method the inject binds nothing and
 // the gate does not run, leaving TODAY'S client-only lock. That fails SAFE (exploit re-opened, not a crash),
@@ -51,22 +52,19 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 public abstract class QuestServiceStartGateMixin {
 
     @Inject(
-            method = "startQuest(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/server/level/ServerPlayer;Lcom/dragonminez/common/quest/QuestService$ResolvedQuest;Lcom/dragonminez/common/stats/StatsData;Lcom/dragonminez/common/quest/Difficulty;)Lnet/minecraft/network/chat/Component;",
-            at = @At("HEAD"),
+            method = "describeStartBlocker(Lnet/minecraft/server/level/ServerPlayer;Lcom/dragonminez/common/stats/StatsData;Lcom/dragonminez/common/quest/QuestService$ResolvedQuest;Z)Lnet/minecraft/network/chat/Component;",
+            at = @At("RETURN"),
             require = 0,
             cancellable = true,
             remap = false)
-    private static void sdu$enforceSagaGate(ServerPlayer requester, ServerPlayer controller,
-                                            QuestService.ResolvedQuest resolved, StatsData data,
-                                            Difficulty difficulty, CallbackInfoReturnable<Component> cir) {
+    private static void sdu$enforceSagaGate(ServerPlayer player, StatsData data, QuestService.ResolvedQuest resolved,
+                                            boolean positional, CallbackInfoReturnable<Component> cir) {
         try {
-            if (resolved == null || data == null) {
-                return;
+            if (cir.getReturnValue() != null || resolved == null || data == null) {
+                return; // DMZ already refuses (its reason wins), or nothing to judge
             }
             Quest quest = resolved.quest();
             Saga saga = resolved.saga();
-            // only saga quests carry a saga-level lock. side/branch quests (null saga) are covered
-            // transitively by DMZ's own prerequisite check
             if (quest == null || saga == null || !quest.isSagaQuest()) {
                 return;
             }
@@ -75,8 +73,6 @@ public abstract class QuestServiceStartGateMixin {
                 return; // no live progression: fail open, DMZ decides
             }
             String questKey = resolved.questKey();
-            // only gate a fresh start. active/completed -> DMZ's "already active" reply; a FAILED restart
-            // already passed this gate when first started.
             PlayerQuestData.QuestStatus status = pqd.getQuestStatus(questKey);
             if (pqd.isQuestCompleted(questKey)
                     || status == PlayerQuestData.QuestStatus.ACCEPTED
@@ -88,7 +84,6 @@ public abstract class QuestServiceStartGateMixin {
                 cir.setReturnValue(reason); // refuse; nothing accepted or spawned
             }
         } catch (Throwable t) {
-            // Never let the gate break a legitimate start: on any error, fall through to DMZ.
             DmzNpc.LOGGER.debug("[{}] server saga-gate enforcement skipped: {}", DmzNpc.MODID, t.toString());
         }
     }

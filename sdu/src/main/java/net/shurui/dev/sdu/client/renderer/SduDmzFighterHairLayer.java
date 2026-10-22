@@ -1,6 +1,5 @@
 package net.shurui.dev.sdu.client.renderer;
 
-import com.dragonminez.client.render.hair.HairRenderer;
 import com.dragonminez.common.hair.CustomHair;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
@@ -18,7 +17,7 @@ import software.bernie.geckolib.util.RenderUtils;
 
 /**
  * Draws the {@link SduDmzFighter}'s DMZ hairstyle at its {@code head} bone - the same technique as the Custom
- * NPC hair layer (translate to the head pivot, {@code HairRenderer.render} with null character/stats/player,
+ * NPC hair layer (translate to the head pivot, {@link DmzStaticHair#render} with no hair physics,
  * then re-select the body render type so the body texture isn't corrupted).
  */
 public class SduDmzFighterHairLayer extends GeoRenderLayer<SduDmzFighter> {
@@ -49,8 +48,7 @@ public class SduDmzFighterHairLayer extends GeoRenderLayer<SduDmzFighter> {
         poseStack.pushPose();
         try {
             RenderUtils.translateToPivotPoint(poseStack, (CoreGeoBone) bone);
-            HairRenderer.render(poseStack, bufferSource, hair, hair, 0f, null, null, null, rgb, rgb,
-                    force, force, partialTick, packedLight, OverlayTexture.NO_OVERLAY, 1f, 0f, 0f);
+            DmzStaticHair.render(poseStack, bufferSource, hair, rgb, force, packedLight, OverlayTexture.NO_OVERLAY);
             bufferSource.getBuffer(renderType); // re-select body render type (see SduHairLayer)
         } catch (Throwable t) {
             DmzNpc.LOGGER.debug("[{}] Fighter hair render failed: {}", DmzNpc.MODID, t.toString());

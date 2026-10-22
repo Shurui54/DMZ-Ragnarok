@@ -3,6 +3,7 @@ package net.shurui.shuruisutilities.multiworld.v2;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.storage.DerivedLevelData;
 import net.minecraft.world.level.levelgen.FlatLevelSource;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.level.LevelEvent;
@@ -106,6 +107,12 @@ public final class MultiworldEngine
             BlockPos platform = new BlockPos(0, 64, 0);
             if (level.getBlockState(platform).isAir())
                 level.setBlockAndUpdate(platform, Blocks.STONE.defaultBlockState());
+            // A void DATAPACK dimension this manager does not own (the beerus_planet pair) shares the overworld's level
+            // data (DerivedLevelData, whose setSpawn does nothing), so setDefaultSpawnPos could not move its spawn. Its
+            // only effect there was the START ticket it adds, which kept 2209 chunks of an empty dimension loaded and
+            // ticking forever. Skip it for those; managed multiworlds keep the call exactly as before.
+            if (mw == null && level.getLevelData() instanceof DerivedLevelData)
+                return;
             level.setDefaultSpawnPos(platform.above(), 0f);
         });
     }

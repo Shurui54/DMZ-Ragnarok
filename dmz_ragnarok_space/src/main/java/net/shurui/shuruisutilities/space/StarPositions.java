@@ -56,10 +56,10 @@ public final class StarPositions
     public static volatile int sectorSize = DEFAULT_SECTOR_SIZE;
     static volatile double density = DEFAULT_DENSITY;
 
-    // Vertical band a star may occupy, matching the generated-planet band so stars read alongside the rest of the field
-    // rather than in an empty corner. Kept inside the space play band (min_y -64, height 2048).
-    private static final double MIN_Y = 200.0;
-    private static final double MAX_Y = 1600.0;
+    // Vertical band a (retired, see starsNear) scattered star may occupy: the space body band, so it stays reachable and
+    // inside the column (SpaceDimension, -2032..2032). The live suns are the GeneratedSystems stars.
+    private static final double MIN_Y = SpaceDimension.BODY_FLOOR_Y;
+    private static final double MAX_Y = SpaceDimension.BODY_CEILING_Y;
 
     // Visual half-extent range of a star, in blocks. Sized at roughly 1.5x a planet so a star is clearly the biggest
     // thing out there and unmistakable, without dominating the whole sky. Planet half-extents are 24..55, so 36..82 keeps
@@ -181,11 +181,10 @@ public final class StarPositions
         }
         Vec3 pos = new Vec3(x, y, z);
 
-        // yield to a SUPER body's starting spot too (SuperPlanetPositions.overlaps is a pure function over the seven
-        // initial ring positions, so the client rejects identically). A relocated super clears stars at relocation time
-        // and the star field never moves, so the two stay apart afterwards; see SuperPlanetPositions.sampleRelocation.
+        // yield to a SUPER body's LIVE position too, exactly like the orbiting fixed planets in overlapsFixedOrOrigin.
+        // Both sides derive the live positions from the same synced orbit elements (SuperPlanetPositions.overlapsLive).
         if (overlapsFixedOrOrigin(server, pos, radius)
-                || SuperPlanetPositions.overlaps(pos, radius)
+                || SuperPlanetPositions.overlapsLive(server, pos, radius)
                 || BlackHolePositions.overlapsAnyHole(server, pos, radius + HAZARD_CLEARANCE)
                 || HazardExclusion.overlapsGeneratedOrAsteroid(server, pos, radius))
         {

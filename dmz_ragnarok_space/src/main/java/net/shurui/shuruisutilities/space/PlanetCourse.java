@@ -178,6 +178,7 @@ public final class PlanetCourse
         player.getPersistentData().putString(COURSE_TAG, body.key);
         Vec3 pos = body.position();
         SpaceCompassBridge.setCourse(player, SpaceDimension.ID.toString(), pos.x, pos.y, pos.z);
+        PacketSpaceCourseSync.send(player);
         return true;
     }
 
@@ -252,6 +253,7 @@ public final class PlanetCourse
         // record the course and (re)assert the compass pip at the target's position, exactly like setCourseIfBody.
         player.getPersistentData().putString(COURSE_TAG, key);
         SpaceCompassBridge.setCourse(player, SpaceDimension.ID.toString(), pos.x, pos.y, pos.z);
+        PacketSpaceCourseSync.send(player);
         // arm the launch autopilot ONLY when aboard a pod and in a place a launch is allowed from (already in space, or an
         // eligible non-forbidden launch dimension), mirroring the pod branch of handleTravel. On foot, or in a forbidden
         // dimension, only the compass pip is set and the player navigates by hand.
@@ -282,6 +284,7 @@ public final class PlanetCourse
     {
         player.getPersistentData().remove(COURSE_TAG);
         SpaceCompassBridge.clearCourse(player);
+        PacketSpaceCourseSync.send(player);
     }
 
     /**

@@ -30,7 +30,7 @@ import net.shurui.shuruisutilities.util.output.logger.LoggingHandler;
  * <h2>Why a JSON file and not SavedData</h2>
  * This is an admin-edited catalogue, exactly like {@code TaskPool} and {@code CrateManager}, and it is read on
  * both the tick thread and (through {@link #saveState}) the shard sync, so the established shape in this suite
- * for that job is a static store behind a JSON file. Note that the known orphaning trap,
+ * for that job is a static store behind a JSON file. Note that the orphaning trap,
  * {@code DataManager.getTypePath} naming a folder after a Java simple class name, applies only to the
  * {@code loadAll(Class)} / {@code saveAll} form. {@link DataManager#load(Class, File)} takes an explicit file and
  * never touches it, which is the form used here and in {@code TaskPool}. The file name below is nonetheless

@@ -21,6 +21,16 @@ public class SeeablePlayerInventory implements Container
 
     public final Player victim;
 
+    /**
+     * True when {@code section} is one of the viewed player's own inventory slots (main, armour, offhand), false for the
+     * Curios row. The dragon ball confinement treats those slots exactly like the player's own {@code Inventory}, so a
+     * ball taken out with {@code /invsee} can be put back.
+     */
+    public static boolean isInventorySection(int section)
+    {
+        return section >= 0 && section < PLAYER_SLOTS;
+    }
+
     public SeeablePlayerInventory(Player player)
     {
         victim = player;

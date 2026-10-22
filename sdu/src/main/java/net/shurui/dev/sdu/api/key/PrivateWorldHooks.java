@@ -5,7 +5,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.shurui.dev.sdu.api.KeyFeatures;
 
 /**
- * Core-side hook for travel to the PRIVATE imported worlds, {@code namekow} and {@code kaiow} (these
+ * Core-side hook for travel to the PRIVATE imported worlds, {@code namekow} and {@code kaiow} (namekow/kaiow
  * are not public; the allow decision lives in the Ragnarok Key, {@code dmz_ragnarok_key}). The space pod's arrival gate
  * ({@code TravelToPlanetC2SMixin}) stays in core, since the key carries no mixins, and asks {@link Impl#allowTravel}
  * for those two destinations only.

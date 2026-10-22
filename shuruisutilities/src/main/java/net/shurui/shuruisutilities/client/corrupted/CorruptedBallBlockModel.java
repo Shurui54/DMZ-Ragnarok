@@ -12,10 +12,10 @@ import software.bernie.geckolib.model.GeoModel;
  * darker recoloured texture by the block's star number (1..7). Mirrors DMZ's DragonBallBlockModel, but with the
  * SU namespace and a fixed geo (SU has a single copied geo, not DMZ's data-driven set definitions).
  *
- * <p>FOLLOW-UP: the geo path below must match the geometry file at
+ * <p>FOLLOW-UP: the geo path below must match the geometry file copied to
  * assets/shuruisutilities/geo/block/corrupted_dball.geo.json. GeckoLib resolves the model by this file path
  * (the internal "identifier" string inside DMZ's geo is "geometry.unknown", which GeckoLib ignores for a single
- * geometry), so the file name is what has to line up.
+ * geometry), so the file name is what has to line up. Confirm against the shipped file.
  */
 public final class CorruptedBallBlockModel extends GeoModel<CorruptedBallBlockEntity>
 {

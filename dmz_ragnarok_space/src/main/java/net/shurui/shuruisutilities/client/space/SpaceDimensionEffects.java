@@ -259,6 +259,27 @@ public class SpaceDimensionEffects extends DimensionSpecialEffects
             { 0.60F, 0.40F, 0.32F }, // warm rust
     };
 
+    // DEEP SKY (owner, 2026-10-21: "space feels empty now"). A fourth star population far fainter and finer than the
+    // general field, so the gaps between the visible stars fill with a dust of unresolved ones, and a handful of very
+    // faint, very large NEBULA COMPLEXES (each a lumpy cluster of overlapping soft clouds in two related hues) that give
+    // the dark sky some structure. Both live in the existing static buffers: building them is a one-time cost and the
+    // per-frame cost is the same draw calls with more vertices. Switchable with SpaceVisualsConfig.deepSky.
+    private static final int DEEP_STAR_COUNT = 9000;
+    private static final long DEEP_STAR_SEED = 0x2DEE95L;
+    private static final float DEEP_STAR_MIN_BRIGHTNESS = 0.10F;
+    private static final float DEEP_STAR_MAX_BRIGHTNESS = 0.32F;
+    private static final double DEEP_STAR_MIN_SIZE = 0.045D;
+    private static final double DEEP_STAR_SIZE_RANGE = 0.03D;
+    private static final int DEEP_NEBULA_COMPLEXES = 7;
+    private static final long DEEP_NEBULA_SEED = 0x7E8B11L;
+    private static final int DEEP_NEBULA_MIN_LUMPS = 5;
+    private static final int DEEP_NEBULA_MAX_LUMPS = 9;
+    private static final double DEEP_NEBULA_SPREAD = 0.32D;     // lump offset from the complex centre, in shell radii
+    private static final double DEEP_NEBULA_MIN_RADIUS = 14.0D;
+    private static final double DEEP_NEBULA_MAX_RADIUS = 34.0D;
+    private static final float DEEP_NEBULA_MIN_ALPHA = 0.05F;
+    private static final float DEEP_NEBULA_MAX_ALPHA = 0.11F;
+
     private static final int GALAXY_COUNT = 55;
     private static final long GALAXY_SEED = 0x6A17C9L;
     private static final int GALAXY_SEGMENTS = 18;
@@ -619,6 +640,10 @@ public class SpaceDimensionEffects extends DimensionSpecialEffects
         emitFieldStars(builder);
         emitBandStars(builder);
         emitClusterStars(builder);
+        if (SpaceVisualsConfig.get().deepSky)
+        {
+            emitDeepStars(builder);
+        }
 
         return upload(builder.end());
     }
@@ -664,6 +689,60 @@ public class SpaceDimensionEffects extends DimensionSpecialEffects
             double roll = random.nextDouble() * Math.PI * 2.0D;
             emitStarQuad(builder, dir[0], dir[1], dir[2], size, roll,
                     colour[0] * brightness, colour[1] * brightness, colour[2] * brightness);
+        }
+    }
+
+    // The deep field: DEEP_STAR_COUNT very faint, very small stars scattered evenly, dim-skewed, in the field palette.
+    private static void emitDeepStars(BufferBuilder builder)
+    {
+        RandomSource random = RandomSource.create(DEEP_STAR_SEED);
+        double[] dir = new double[3];
+        for (int i = 0; i < DEEP_STAR_COUNT; ++i)
+        {
+            nextDirection(random, dir);
+            float t = (float) Math.pow(random.nextFloat(), 1.6D);
+            float brightness = DEEP_STAR_MIN_BRIGHTNESS + t * (DEEP_STAR_MAX_BRIGHTNESS - DEEP_STAR_MIN_BRIGHTNESS);
+            float[] colour = pickWeighted(random, STAR_PALETTE, STAR_PALETTE_WEIGHTS);
+            double size = DEEP_STAR_MIN_SIZE + random.nextDouble() * DEEP_STAR_SIZE_RANGE;
+            double roll = random.nextDouble() * Math.PI * 2.0D;
+            emitStarQuad(builder, dir[0], dir[1], dir[2], size, roll,
+                    colour[0] * brightness, colour[1] * brightness, colour[2] * brightness);
+        }
+    }
+
+    // The deep nebula complexes: each picks a centre direction and two neighbouring nebula hues, then scatters a lumpy
+    // cluster of large, very faint soft clouds around it, so it reads as one irregular cloud region rather than a disc.
+    private static void emitDeepNebulae(BufferBuilder builder)
+    {
+        RandomSource random = RandomSource.create(DEEP_NEBULA_SEED);
+        double[] centre = new double[3];
+        for (int c = 0; c < DEEP_NEBULA_COMPLEXES; ++c)
+        {
+            nextDirection(random, centre);
+            float[] hueA = NEBULA_PALETTE[random.nextInt(NEBULA_PALETTE.length)];
+            float[] hueB = NEBULA_PALETTE[random.nextInt(NEBULA_PALETTE.length)];
+            int lumps = DEEP_NEBULA_MIN_LUMPS + random.nextInt(DEEP_NEBULA_MAX_LUMPS - DEEP_NEBULA_MIN_LUMPS + 1);
+            for (int l = 0; l < lumps; ++l)
+            {
+                double ox = centre[0] + random.nextGaussian() * DEEP_NEBULA_SPREAD;
+                double oy = centre[1] + random.nextGaussian() * DEEP_NEBULA_SPREAD;
+                double oz = centre[2] + random.nextGaussian() * DEEP_NEBULA_SPREAD;
+                double len = Math.sqrt(ox * ox + oy * oy + oz * oz);
+                if (len < 1.0E-3D)
+                {
+                    continue;
+                }
+                float mix = random.nextFloat();
+                float r = hueA[0] + (hueB[0] - hueA[0]) * mix;
+                float g = hueA[1] + (hueB[1] - hueA[1]) * mix;
+                float b = hueA[2] + (hueB[2] - hueA[2]) * mix;
+                double radius = DEEP_NEBULA_MIN_RADIUS
+                        + random.nextDouble() * (DEEP_NEBULA_MAX_RADIUS - DEEP_NEBULA_MIN_RADIUS);
+                float alpha = DEEP_NEBULA_MIN_ALPHA + random.nextFloat() * (DEEP_NEBULA_MAX_ALPHA - DEEP_NEBULA_MIN_ALPHA);
+                double squash = 0.5D + random.nextDouble() * 0.5D;
+                emitSoftFan(builder, ox / len, oy / len, oz / len, radius, radius * squash,
+                        random.nextDouble() * Math.PI * 2.0D, NEBULA_SEGMENTS, r, g, b, alpha);
+            }
         }
     }
 
@@ -833,6 +912,10 @@ public class SpaceDimensionEffects extends DimensionSpecialEffects
 
         emitNebulae(builder);
         emitBandDust(builder);
+        if (SpaceVisualsConfig.get().deepSky)
+        {
+            emitDeepNebulae(builder);
+        }
 
         return upload(builder.end());
     }

@@ -124,6 +124,10 @@ public class MiniCloneEntity extends TamableAnimal implements CloneAppearance
             SynchedEntityData.defineId(MiniCloneEntity.class, EntityDataSerializers.INT);
     private static final EntityDataAccessor<Integer> EYE2_COLOR =
             SynchedEntityData.defineId(MiniCloneEntity.class, EntityDataSerializers.INT);
+    // The caster's whole DMZ look (character NBT plus worn armour), so the client can draw the copy through DMZ's own
+    // player renderer instead of a vanilla skin. Appended last so the earlier ids keep their slots.
+    private static final EntityDataAccessor<CompoundTag> LOOK =
+            SynchedEntityData.defineId(MiniCloneEntity.class, EntityDataSerializers.COMPOUND_TAG);
 
     /** Identity for a colour multiply: 0xFFFFFF leaves the texture unchanged, so it is the safe "no tint" default. */
     private static final int NO_TINT = 0xFFFFFF;
@@ -141,6 +145,7 @@ public class MiniCloneEntity extends TamableAnimal implements CloneAppearance
     private static final String KEY_HAIR = "su_clone_hair";
     private static final String KEY_EYE1 = "su_clone_eye1";
     private static final String KEY_EYE2 = "su_clone_eye2";
+    private static final String KEY_LOOK = "su_clone_look";
 
     /** Absolute game time at which this clone is discarded. 0 means unset (a freshly created, not-yet-spawned clone). */
     private long expireGameTime;
@@ -175,6 +180,7 @@ public class MiniCloneEntity extends TamableAnimal implements CloneAppearance
         this.entityData.define(HAIR_COLOR, NO_TINT);
         this.entityData.define(EYE1_COLOR, NO_TINT);
         this.entityData.define(EYE2_COLOR, NO_TINT);
+        this.entityData.define(LOOK, new CompoundTag());
     }
 
     /**
@@ -497,6 +503,20 @@ public class MiniCloneEntity extends TamableAnimal implements CloneAppearance
         this.entityData.set(EYE2_COLOR, eye2Color & 0xFFFFFF);
     }
 
+    /**
+     * The caster's DMZ look as built by {@code MiniClone.lookSnapshot}: an empty tag for a themed variant or a clone
+     * cast before the snapshot existed, which the client draws the old way.
+     */
+    public CompoundTag getLookSnapshot()
+    {
+        return this.entityData.get(LOOK);
+    }
+
+    public void setLookSnapshot(@Nullable CompoundTag look)
+    {
+        this.entityData.set(LOOK, look == null ? new CompoundTag() : look);
+    }
+
     /** The render scale of a clone: 60% of the caster. */
     @Override
     public float getCloneScale()
@@ -544,6 +564,11 @@ public class MiniCloneEntity extends TamableAnimal implements CloneAppearance
         tag.putInt(KEY_HAIR, getHairColor());
         tag.putInt(KEY_EYE1, getEye1Color());
         tag.putInt(KEY_EYE2, getEye2Color());
+        CompoundTag look = getLookSnapshot();
+        if (!look.isEmpty())
+        {
+            tag.put(KEY_LOOK, look.copy());
+        }
     }
 
     @Override
@@ -573,6 +598,7 @@ public class MiniCloneEntity extends TamableAnimal implements CloneAppearance
                 tag.contains(KEY_HAIR) ? tag.getInt(KEY_HAIR) : NO_TINT,
                 tag.contains(KEY_EYE1) ? tag.getInt(KEY_EYE1) : NO_TINT,
                 tag.contains(KEY_EYE2) ? tag.getInt(KEY_EYE2) : NO_TINT);
+        setLookSnapshot(tag.getCompound(KEY_LOOK));
     }
 
     /**

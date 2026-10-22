@@ -91,10 +91,12 @@ public final class DmzNet {
         // APPEND-ONLY below: registration order is the wire id, so new packets go at the end.
         channel.registerMessage(packetId++, ChunkedSavePacket.class,
                 ChunkedSavePacket::encode, ChunkedSavePacket::decode, ChunkedSavePacket::handle);
-        channel.registerMessage(packetId++, OpenOptionsPacket.class,
-                OpenOptionsPacket::encode, OpenOptionsPacket::decode, OpenOptionsPacket::handle);
-        channel.registerMessage(packetId++, SaveConfigPacket.class,
-                SaveConfigPacket::encode, SaveConfigPacket::decode, SaveConfigPacket::handle);
+        // The options editor: these two slots were the fixed nine-field open/save pair, and now carry the
+        // generic editor (S2C one tab of options, C2S open/save/link). Same ids, so nothing after them moves.
+        channel.registerMessage(packetId++, ConfigEditorDataPacket.class,
+                ConfigEditorDataPacket::encode, ConfigEditorDataPacket::decode, ConfigEditorDataPacket::handle);
+        channel.registerMessage(packetId++, ConfigEditorRequestPacket.class,
+                ConfigEditorRequestPacket::encode, ConfigEditorRequestPacket::decode, ConfigEditorRequestPacket::handle);
         // Shenron-shrine feature (fully custom)
         channel.registerMessage(packetId++, OpenShrineGuiPacket.class,
                 OpenShrineGuiPacket::encode, OpenShrineGuiPacket::decode, OpenShrineGuiPacket::handle);
@@ -259,18 +261,28 @@ public final class DmzNet {
                 new OpenShrineConfigPacket(net.shurui.dev.sdu.shenron.ShrineConfig.toBundleJson()));
     }
 
-    /** Open the config/options overview on the player's client, seeded with the server's live config values. */
+    /** Open one of the sdu editors by name (the caller has already checked the player may edit). */
+    public static void openEditorFor(ServerPlayer player, String which) {
+        switch (which) {
+            case "race" -> openRaceEditor(player);
+            case "form" -> openFormEditor(player);
+            case "saga" -> openSagaEditor(player);
+            case "sidequest" -> openSideQuestEditor(player);
+            case "wish" -> openWishEditor(player);
+            case "shrine" -> openShrineConfig(player);
+            case "options" -> openOptions(player);
+            default -> { }
+        }
+    }
+
+    /** Open the options editor on the player's client, on its first tab (permission checked inside). */
     public static void openOptions(net.minecraft.server.level.ServerPlayer player) {
-        channel.send(PacketDistributor.PLAYER.with(() -> player), new OpenOptionsPacket(
-                net.shurui.dev.sdu.Config.requireOpToEdit,
-                net.shurui.dev.sdu.Config.maxNpcHealth,
-                net.shurui.dev.sdu.Config.enableDmzIntegration,
-                net.shurui.dev.sdu.Config.enableAuraStacking,
-                net.shurui.dev.sdu.Config.shadowDummyCooldownSeconds,
-                net.shurui.dev.sdu.Config.shadowDummyMaxAlivePerParty,
-                net.shurui.dev.sdu.Config.partyTpFalloffThreshold,
-                net.shurui.dev.sdu.Config.partyTpFalloffStepPercent,
-                net.shurui.dev.sdu.Config.partyTpFalloffFloorPercent));
+        net.shurui.dev.sdu.config.editor.ConfigEditorRegistry.open(player, "", "");
+    }
+
+    /** Send one tab of the options editor (built and permission checked by ConfigEditorRegistry). */
+    public static void sendConfigEditor(ServerPlayer player, ConfigEditorDataPacket packet) {
+        channel.send(PacketDistributor.PLAYER.with(() -> player), packet);
     }
 
     /** Push the per-quest saved-NPC preview appearances to one player (on login), for the DMZ quest GUI. */
@@ -515,7 +527,8 @@ public final class DmzNet {
     }
 
     // Every dragon DMZ knows at runtime (DragonWishRegistry.getServerWishes), including code-only sets with no disk
-    // file. Each Wish round-trips through toJson() then the same parse a loaded file uses (WishSetData.fromWishArray
+    // file. Each Wish round-trips through DMZ's own Gson (2.2 dropped Wish.toJson; its type adapter writes the same
+    // "type"-keyed JSON a wish file holds) then the same parse a loaded file uses (WishSetData.fromWishArray
     // -> WishData.fromJson) so type detection matches. DragonWishRegistry is DMZ-internal and could move; a failure
     // degrades to disk-only and logs one line.
     private static List<net.shurui.dev.sdu.wish.WishSetData> runtimeWishSets() {
@@ -525,7 +538,7 @@ public final class DmzNet {
                     com.dragonminez.common.wish.DragonWishRegistry.getServerWishes().entrySet()) {
                 com.google.gson.JsonArray arr = new com.google.gson.JsonArray();
                 for (com.dragonminez.common.wish.Wish wish : e.getValue()) {
-                    arr.add(com.google.gson.JsonParser.parseString(wish.toJson()).getAsJsonObject());
+                    arr.add(com.dragonminez.common.util.gson.GsonUtils.GSON.toJsonTree(wish, com.dragonminez.common.wish.Wish.class).getAsJsonObject());
                 }
                 result.add(net.shurui.dev.sdu.wish.WishSetData.fromWishArray(e.getKey(), arr));
             }

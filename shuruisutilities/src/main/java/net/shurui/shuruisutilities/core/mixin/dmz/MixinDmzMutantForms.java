@@ -3,13 +3,11 @@ package net.shurui.shuruisutilities.core.mixin.dmz;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import net.minecraft.world.entity.player.Player;
 
 import com.dragonminez.common.stats.StatsData;
-import com.dragonminez.common.stats.character.Effects;
 
 
 /**
@@ -39,7 +37,8 @@ import com.dragonminez.common.stats.character.Effects;
  *
  * <p>{@code require = 0} per the standing rule: a DMZ rename degrades to the mutant shortcut staying, never a broken
  * load. The inject captures {@code hasMutantLegendaryAccess}'s parameters exactly (argument capture is all or
- * nothing), and the redirect appends the enclosing method's one parameter after its own.
+ * nothing). DragonMineZ 2.2's getGroupWithFirstAvailableForm asks hasMutantLegendaryAccess itself instead of reading
+ * the mutant effect, so the inject also covers the form preference that 2.1 needed a second redirect for.
  */
 @Mixin(targets = "com.dragonminez.common.util.TransformationsHelper", remap = false)
 public abstract class MixinDmzMutantForms
@@ -50,20 +49,6 @@ public abstract class MixinDmzMutantForms
     {
         if (su$nerfOn(stats))
             cir.setReturnValue(false);
-    }
-
-    @Redirect(method = "getGroupWithFirstAvailableForm",
-            at = @At(value = "INVOKE",
-                    target = "Lcom/dragonminez/common/stats/character/Effects;hasEffect(Ljava/lang/String;)Z"),
-            require = 0, remap = false)
-    private static boolean su$noMutantLegendaryPreference(Effects effects, String name, StatsData stats)
-    {
-        // Force only the mutant lookup to false, and only while the nerf is on; leave any other effect query in this
-        // method behaving normally, so a mutant's auto-picked first form is the one a non-mutant would get, and
-        // nothing else shifts.
-        if ("mutant".equals(name) && su$nerfOn(stats))
-            return false;
-        return effects.hasEffect(name);
     }
 
     /** Is the nerf in force for the side this call is on? See {@code MixinDmzMutantStats} for the reasoning. */

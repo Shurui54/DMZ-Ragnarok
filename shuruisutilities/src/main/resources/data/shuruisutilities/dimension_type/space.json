@@ -12,9 +12,9 @@
   "bed_works": false,
   "respawn_anchor_works": false,
   "has_raids": false,
-  "logical_height": 2048,
-  "min_y": -64,
-  "height": 2048,
+  "logical_height": 4064,
+  "min_y": -2032,
+  "height": 4064,
   "infiniburn": "#minecraft:infiniburn_overworld",
   "effects": "shuruisutilities:space"
 }

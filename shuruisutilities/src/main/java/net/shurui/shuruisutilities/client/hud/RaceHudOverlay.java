@@ -12,6 +12,10 @@ import net.minecraft.client.resources.DefaultPlayerSkin;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.client.gui.overlay.ForgeGui;
 
+import net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHud;
+import net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHudElement;
+import net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHudFrame;
+import net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHudSlot;
 import net.shurui.shuruisutilities.racing.client.RaceClientState;
 import net.shurui.shuruisutilities.racing.client.RaceItemIcons;
 import net.shurui.shuruisutilities.racing.net.PacketRaceResults;
@@ -22,7 +26,8 @@ import net.shurui.shuruisutilities.racing.physics.PowerupKind;
  * requires the {@code racing} feature synced from the server, so a keyless or non-racing client draws nothing). It is
  * a pure reader of {@link RaceClientState}: position, lap, the race timer and last-lap split, the centre "3 2 1 GO!"
  * countdown, the WRONG WAY and FINAL LAP banners, the finishing results table, and the rescue fade. Server
- * authoritative throughout; the HUD invents no state.
+ * authoritative throughout; the HUD invents no state. The standings block and the item slot are Ragnarok HUD extras
+ * (placed in DragonMineZ's HUD editor); the washes, countdown, banners and results stay screen-centred.
  */
 public final class RaceHudOverlay
 {
@@ -75,42 +80,10 @@ public final class RaceHudOverlay
             g.fill(0, 0, screenWidth, screenHeight, (a << 24) | 0xC00000);
         }
 
-        // --- top right: position, lap, timer, last split ---
-        int place = RaceClientState.place();
-        int total = RaceClientState.totalRacers();
-        String posStr = ordinal(place);
-        int posColor = place == 1 ? GOLD : place == 2 ? 0xFFC0C0C0 : place == 3 ? 0xFFCD7F32 : WHITE;
-        int rx = screenWidth - 6;
-        int ry = 6;
-        drawRight(g, font, posStr, rx, ry, posColor, 1.6F);
-        ry += 20;
-        if (total > 0)
-        {
-            drawRight(g, font, "/ " + total, rx, ry, 0xFFBFBFBF, 0.9F);
-            ry += 12;
-        }
-        drawRight(g, font, "Lap " + RaceClientState.lapCurrent() + "/" + RaceClientState.lapTotal(), rx, ry, WHITE, 1.0F);
-        ry += 12;
-        drawRight(g, font, time(RaceClientState.timeTicks()), rx, ry, WHITE, 1.0F);
-        ry += 11;
-        if (RaceClientState.lastLapSplit() > 0)
-        {
-            drawRight(g, font, "last " + time(RaceClientState.lastLapSplit()), rx, ry, 0xFFBFBFBF, 0.85F);
-            ry += 11;
-        }
-
-        // --- minimap: top-right, under the lap / timer block; the track centreline plus a dot per racer ---
-        if (minimapVisible)
-            drawMinimap(g, screenWidth, ry + 4);
-
-        // --- TOP CENTRE: the item slot + roulette, the self-powerup ring / badge, the Zeni counter. Moved out of the
-        // top-left (R8 follow-up) so it never overlaps DMZ's portrait and ki / health / stamina bars there. Centred
-        // horizontally near the top, clear of the centred countdown / banners lower down, at any GUI scale.
-        int slotX = (screenWidth - SLOT) / 2;
-        int slotY = 6;
-        drawItemSlot(g, font, slotX, slotY);
-        drawSelfEffect(g, font, slotX, slotY);
-        drawZeni(g, font, slotX, slotY);
+        // --- the standings block (position, lap, timer, split, minimap) and the item slot are Ragnarok HUD extras,
+        // placed, scaled and hidden in DragonMineZ's HUD editor; top right and top centre by default ---
+        RagnarokHud.draw(RagnarokHudSlot.RACE_STANDINGS, g, partialTick, screenWidth, screenHeight);
+        RagnarokHud.draw(RagnarokHudSlot.RACE_ITEM, g, partialTick, screenWidth, screenHeight);
 
         // --- centre countdown ---
         int countdown = RaceClientState.countdown();
@@ -131,7 +104,168 @@ public final class RaceHudOverlay
             drawBig(g, font, "FINAL LAP", screenWidth / 2, screenHeight / 3, GOLD, 1.4F);
     }
 
-    // The top-left item slot: a framed 16x16 icon. While the roulette spins the icon cycles across the sixteen
+    /** Bind the standings block and the item slot to their slots in DMZ's HUD layout. */
+    public static void registerElements()
+    {
+        RagnarokHud.register(new StandingsElement());
+        RagnarokHud.register(new ItemElement());
+    }
+
+    // The standings block's box: the widest line and the minimap stacked under the five text lines.
+    private static final int STANDINGS_W = 84;
+    private static final int STANDINGS_TEXT_H = 20 + 12 + 12 + 11 + 11;
+    private static final int STANDINGS_H = STANDINGS_TEXT_H + 4 + 74; // 74 = MINIMAP_SIZE, declared further down
+
+    /** Position, lap, timer and last split, right aligned in its box, with the race minimap beneath. */
+    private static final class StandingsElement extends RagnarokHudElement
+    {
+        StandingsElement()
+        {
+            super(RagnarokHudSlot.RACE_STANDINGS);
+        }
+
+        @Override
+        public float width()
+        {
+            return STANDINGS_W;
+        }
+
+        @Override
+        public float height()
+        {
+            return STANDINGS_H;
+        }
+
+        @Override
+        public float[] defaultPlacement()
+        {
+            return new float[] {1.0f, 0.0f, -6.0f, 6.0f, 1.0f};
+        }
+
+        @Override
+        public boolean listed()
+        {
+            // racing is private: keyless there is no race HUD at all
+            return net.shurui.dev.sdu.api.ClientGate.key();
+        }
+
+        @Override
+        public Appear appear()
+        {
+            return Appear.FADE;
+        }
+
+        @Override
+        public boolean update(boolean preview, float partialTick)
+        {
+            return preview || (RaceClientState.isSessionActive() && !RaceClientState.resultsActive());
+        }
+
+        @Override
+        public void render(GuiGraphics g, float partialTick, RagnarokHudFrame frame)
+        {
+            Font font = Minecraft.getInstance().font;
+            boolean sample = frame.preview && !RaceClientState.isSessionActive();
+            int place = sample ? 1 : RaceClientState.place();
+            int total = sample ? 8 : RaceClientState.totalRacers();
+            String posStr = ordinal(place);
+            int posColor = place == 1 ? GOLD : place == 2 ? 0xFFC0C0C0 : place == 3 ? 0xFFCD7F32 : WHITE;
+            int rx = STANDINGS_W;
+            int ry = 0;
+            drawRight(g, font, posStr, rx, ry, posColor, 1.6F);
+            ry += 20;
+            if (total > 0)
+            {
+                drawRight(g, font, "/ " + total, rx, ry, 0xFFBFBFBF, 0.9F);
+                ry += 12;
+            }
+            drawRight(g, font, "Lap " + (sample ? 1 : RaceClientState.lapCurrent()) + "/" + (sample ? 3 : RaceClientState.lapTotal()),
+                    rx, ry, WHITE, 1.0F);
+            ry += 12;
+            drawRight(g, font, time(sample ? 0 : RaceClientState.timeTicks()), rx, ry, WHITE, 1.0F);
+            ry += 11;
+            if (!sample && RaceClientState.lastLapSplit() > 0)
+            {
+                drawRight(g, font, "last " + time(RaceClientState.lastLapSplit()), rx, ry, 0xFFBFBFBF, 0.85F);
+                ry += 11;
+            }
+
+            // the minimap, under the lap / timer block: the track centreline plus a face per racer
+            if (minimapVisible && !sample)
+                drawMinimap(g, STANDINGS_W + 6, ry + 4);
+        }
+    }
+
+    // The item slot's box: the slot with room for the Kaioken ring around it and the badge and zeni lines below.
+    private static final int ITEM_W = 64;
+    private static final int ITEM_RING = 6;
+    private static final int ITEM_H = ITEM_RING + 24 + 16 + 12; // 24 = SLOT, declared further down
+
+    /** The item slot and roulette, the self-powerup ring or badge, and the race zeni, centred in its box. */
+    private static final class ItemElement extends RagnarokHudElement
+    {
+        ItemElement()
+        {
+            super(RagnarokHudSlot.RACE_ITEM);
+        }
+
+        @Override
+        public float width()
+        {
+            return ITEM_W;
+        }
+
+        @Override
+        public float height()
+        {
+            return ITEM_H;
+        }
+
+        @Override
+        public float[] defaultPlacement()
+        {
+            // top centre, clear of DMZ's portrait and the bars top-left and of the centred countdown below
+            return new float[] {0.5f, 0.0f, 0.0f, 0.0f, 1.0f};
+        }
+
+        @Override
+        public boolean listed()
+        {
+            return net.shurui.dev.sdu.api.ClientGate.key();
+        }
+
+        @Override
+        public Appear appear()
+        {
+            return Appear.FADE;
+        }
+
+        @Override
+        public boolean update(boolean preview, float partialTick)
+        {
+            return preview || (RaceClientState.isSessionActive() && !RaceClientState.resultsActive());
+        }
+
+        @Override
+        public void render(GuiGraphics g, float partialTick, RagnarokHudFrame frame)
+        {
+            Font font = Minecraft.getInstance().font;
+            int slotX = (ITEM_W - SLOT) / 2;
+            int slotY = ITEM_RING;
+            if (frame.preview && !RaceClientState.isSessionActive())
+            {
+                // an empty slot frame, so there is something to grab
+                g.fill(slotX - 1, slotY - 1, slotX + SLOT + 1, slotY + SLOT + 1, 0xFF6FE0FF);
+                g.fill(slotX, slotY, slotX + SLOT, slotY + SLOT, 0xE0121218);
+                return;
+            }
+            drawItemSlot(g, font, slotX, slotY);
+            drawSelfEffect(g, font, slotX, slotY);
+            drawZeni(g, font, slotX, slotY);
+        }
+    }
+
+    // The item slot: a framed 16x16 icon. While the roulette spins the icon cycles across the sixteen
     // powerups, slowing as it nears the reveal (the server already decided the result). Once revealed it holds the
     // item steadily, with charge pips for a multi-use item (Kaioken x3). Empty slot draws nothing.
     private static final int SLOT = 24;

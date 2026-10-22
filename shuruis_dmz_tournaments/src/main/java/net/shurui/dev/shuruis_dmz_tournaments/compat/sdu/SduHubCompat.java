@@ -9,7 +9,7 @@ import net.minecraftforge.fml.ModList;
  * <p>This outer class names <b>no</b> sdu types and is safe to classload when sdu is absent: it only checks
  * {@link ModList#isLoaded(String)} and delegates to the inner {@link Sdu} holder, the only class that
  * references {@code net.shurui.dev.sdu.*}, which is never classloaded unless sdu is present. See
- * the optional-dependency pattern. Client-side only.
+ * {@code docs/compat-pattern.md}. Client-side only.
  */
 public final class SduHubCompat {
 

@@ -7,7 +7,7 @@ import net.shurui.shuruisutilities.core.SUConfig;
 /**
  * Guard entry point for seeding SU's Planet Vegeta gravity entry into DragonMineZ's per-dimension gravity config. This
  * class holds no DMZ imports: it only confirms DMZ is present before touching {@link PlanetGravityBridge}, which does.
- * Follows the optional-dependency pattern.
+ * Follows docs/compat-pattern.md.
  *
  * <p>DMZ already owns the whole per-dimension gravity pipeline (config + tick logic + client sync); SU just contributes
  * one entry so Planet Vegeta ships with 10x gravity out of the box instead of needing a hand-edited config file. See

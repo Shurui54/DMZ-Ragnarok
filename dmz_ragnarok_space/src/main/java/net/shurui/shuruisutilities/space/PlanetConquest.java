@@ -428,7 +428,7 @@ public final class PlanetConquest
             try
             {
                 // a main-character boss fights at the ADVANCED tier (id = ordinal + 1), not the garrison's SIMPLE.
-                saga.setAiTierById(DBSagasEntity.AiTier.ADVANCED.ordinal() + 1);
+                saga.setAiTierById(com.dragonminez.common.init.entities.ai.AiTier.ELITE.getId());
                 saga.getSkillPool().clear();
                 saga.addKiSkill(DBSagasEntity.KiSkillType.GENERIC_KI_WAVE, 60, 1.0F);
                 saga.addKiSkill(DBSagasEntity.KiSkillType.KI_LASER, 40, 1.0F);

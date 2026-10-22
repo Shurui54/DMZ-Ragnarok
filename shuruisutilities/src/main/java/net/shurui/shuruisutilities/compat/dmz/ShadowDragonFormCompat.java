@@ -7,7 +7,7 @@ import net.minecraftforge.fml.ModList;
  * Guard entry point for the shadow dragon transformation grant and the live DMZ race read it depends on. Holds no
  * DMZ imports: it only checks that DMZ is present before touching {@link ShadowDragonFormSkill} (the race read) or the
  * Ragnarok Key's form grant (feature {@code shadowform}, through {@code ShadowFormHooks}). Follows
- * the optional-dependency pattern.
+ * docs/compat-pattern.md.
  *
  * <p>The transformation is applied in DMZ by raising the player's shared {@code superforms} skill to the shadow
  * dragon form's unlock level, but ONLY while the player's live race is {@code shadow_dragon} (see

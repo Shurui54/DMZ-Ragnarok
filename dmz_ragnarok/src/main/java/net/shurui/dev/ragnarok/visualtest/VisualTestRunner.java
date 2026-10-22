@@ -53,6 +53,7 @@ import net.minecraft.world.level.block.SlabBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.SlabType;
 import net.minecraftforge.registries.ForgeRegistries;
+import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.LevelSettings;
 import net.minecraft.world.level.WorldDataConfiguration;
@@ -173,7 +174,9 @@ public class VisualTestRunner
     {
         Set<String> all = Set.of("back", "hand", "head", "anim", "duke", "mount", "pet",
                 "senzu", "items", "sagamodels", "boostpad", "halloween", "pilaf", "planetsky",
-                "garrison", "avatar", "starmap", "spaceview", "wrap", "chorus");
+                "garrison", "avatar", "starmap", "spaceview", "wrap", "chorus", "skillstree", "skillsgate",
+                "eventdates", "dormantballs", "xaeromap", "rituals", "options", "hud", "vegeta", "podfly",
+                "vehicles", "masters", "ocarina", "tapion", "konatsian");
         if (list == null || list.isBlank() || list.equalsIgnoreCase("all"))
             return all;
         java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
@@ -309,9 +312,14 @@ public class VisualTestRunner
             rules.getRule(GameRules.RULE_DOFIRETICK).set(false, null);
             LevelSettings settings = new LevelSettings(WORLD, GameType.CREATIVE, false, Difficulty.PEACEFUL,
                     true, rules, WorldDataConfiguration.DEFAULT);
-            WorldOptions options = new WorldOptions(0L, false, false);
+            // structures stay off (a flat world would grow villages into the shots) except for the vegeta scenario,
+            // which needs Vegeta's generated outposts, and the tapion one, which needs Trunks' ship. Only applies when the world is first created.
+            WorldOptions options = new WorldOptions(0L, scenarios.contains("vegeta") || scenarios.contains("tapion"), false);
             Function<RegistryAccess, WorldDimensions> dims = ra ->
             {
+                // Trunks' ship is placed by DMZ's structure plan, which needs real terrain and land biomes.
+                if (scenarios.contains("tapion"))
+                    return WorldPresets.createNormalWorldDimensions(ra);
                 try
                 {
                     return ra.registryOrThrow(Registries.WORLD_PRESET).getHolderOrThrow(WorldPresets.FLAT).value()
@@ -481,6 +489,7 @@ public class VisualTestRunner
         if (scenarios.contains("boostpad")) buildBoostPad();
         if (scenarios.contains("senzu")) buildSenzu();
         if (scenarios.contains("halloween")) buildHalloween();
+        if (scenarios.contains("eventdates")) buildEventDates();
         if (scenarios.contains("pilaf")) buildPilaf();
         if (scenarios.contains("planetsky")) buildPlanetSky();
         if (scenarios.contains("garrison")) buildGarrison();
@@ -489,7 +498,158 @@ public class VisualTestRunner
         if (scenarios.contains("spaceview")) buildSpaceView();
         if (scenarios.contains("wrap")) buildWrap();
         if (scenarios.contains("chorus")) buildChorus();
+        if (scenarios.contains("skillstree")) buildSkillsTree(false);
+        if (scenarios.contains("skillsgate")) buildSkillsTree(true);
+        if (scenarios.contains("dormantballs")) buildDormantBalls();
+        if (scenarios.contains("xaeromap")) buildXaeroMap();
+        if (scenarios.contains("rituals")) buildRituals();
+        if (scenarios.contains("options")) buildOptions();
+        if (scenarios.contains("hud")) buildHud();
+        if (scenarios.contains("vegeta")) buildVegeta();
+        if (scenarios.contains("podfly")) buildPodFly();
+        if (scenarios.contains("vehicles")) buildVehicles();
+        if (scenarios.contains("masters")) buildMasters();
+        if (scenarios.contains("ocarina")) buildOcarina();
+        if (scenarios.contains("tapion")) buildTapion();
+        // Last: it recreates the test character, and puts the human warrior back when it is done.
+        if (scenarios.contains("konatsian")) buildKonatsian();
         phase = Phase.RUN;
+    }
+
+    // ---------------------------------------------------------------- KONATSIAN scenario (race, swordsman class)
+
+    private Screen konatsScreen;
+
+    /**
+     * KONATSIAN: the bundled tapion race and its swordsman class end to end. DMZ's own race carousel on Konatsian,
+     * its class tab on Swordsman (passive blurb with the live numbers), then DMZ's own finish() commits the character
+     * through CreateCharacterC2S, the exact packet a player sends. Then a third-person shot holding a sword, and
+     * the passive measured through DMZ's melee DamageModifyEvent and the attack attributes: same character and STR, only class and item change.
+     */
+    private void buildKonatsian()
+    {
+        String sc = "konatsian";
+        // Long first wait: the post-join resource reload overlay (software GL) would otherwise cover the GUI shots.
+        step(1200, () -> { });
+        step(10, () -> onServer(sp ->
+        {
+            index.add(sc + " | (race) | " + KonatsianProbe.raceReport());
+            index.add(sc + " | (swords) | " + KonatsianProbe.swordReport());
+            KonatsianProbe.uncreate(sp);
+        }));
+        step(20, () ->
+        {
+            keepScreen = true;
+            try
+            {
+                for (String id : new String[] { com.dragonminez.client.gui.tutorial.TutorialManager.RACE_SELECTION,
+                        com.dragonminez.client.gui.tutorial.TutorialManager.CUSTOMIZATION_CLASS,
+                        com.dragonminez.client.gui.tutorial.TutorialManager.HUD })
+                    com.dragonminez.client.gui.tutorial.TutorialManager.markSeen(id);
+                StatsData d = com.dragonminez.common.stats.StatsProvider.get(
+                        com.dragonminez.common.stats.StatsCapability.INSTANCE, Minecraft.getInstance().player).orElse(null);
+                konatsScreen = new com.dragonminez.client.gui.character.RaceSelectionScreen(d.getCharacter());
+                Minecraft.getInstance().setScreen(konatsScreen);
+            }
+            catch (Throwable t)
+            {
+                index.add(sc + " | (open) | FAILED to open race selection: " + t);
+                LOGGER.warn("[VisualTest] konatsian: race selection failed.", t);
+            }
+        });
+        step(30, () ->
+        {
+            try
+            {
+                java.util.List<String> races = com.dragonminez.common.config.ConfigManager.getLoadedRaces();
+                int i = races.indexOf(KonatsianProbe.RACE);
+                index.add(sc + " | (carousel) | loaded races " + races + ", tapion at " + i);
+                setField(konatsScreen, "selectedRaceIndex", Math.max(0, i));
+                invokeNoArg(konatsScreen, "updateCharacterRace");
+            }
+            catch (Throwable t)
+            {
+                index.add(sc + " | (carousel) | FAILED to select tapion: " + t);
+            }
+        });
+        step(2, () -> grab(sc, "race_selection", "DMZ race carousel on Konatsian: name, description and racial"));
+        step(40, () ->
+        {
+            try { invokeNoArg(konatsScreen, "selectRace"); }
+            catch (Throwable t) { index.add(sc + " | (select) | FAILED: " + t); }
+        });
+        step(30, () ->
+        {
+            Screen s = Minecraft.getInstance().screen;
+            if (!(s instanceof com.dragonminez.client.gui.character.CharacterCustomizationScreen))
+            {
+                index.add(sc + " | (class) | customization screen not open: " + s);
+                return;
+            }
+            konatsScreen = s;
+            try
+            {
+                String[] classes = (String[]) invokeNoArg(s, "getRaceClasses");
+                int ci = java.util.Arrays.asList(classes).indexOf(net.shurui.shuruisutilities.swordsman.Swordsman.CLASS_ID);
+                java.util.List<?> tabs = (java.util.List<?>) getField(s, "activeTabs");
+                index.add(sc + " | (class) | class list " + java.util.Arrays.toString(classes) + ", swordsman at " + ci);
+                setField(s, "currentClassIndex", Math.max(0, ci));
+                setField(s, "currentTabIndex", tabs.size() - 1);
+                invokeNoArg(s, "refreshScreenWidgets");
+            }
+            catch (Throwable t)
+            {
+                index.add(sc + " | (class) | FAILED to pick swordsman: " + t);
+            }
+        });
+        step(2, () -> grab(sc, "class_swordsman",
+                "DMZ customization, class tab: Swordsman, its passive blurb with the live percentages and base stats"));
+        step(30, () ->
+        {
+            try { invokeNoArg(konatsScreen, "finish"); }
+            catch (Throwable t) { index.add(sc + " | (create) | FAILED to finish: " + t); }
+            keepScreen = false;
+            Minecraft.getInstance().setScreen(null);
+        });
+        step(10, () -> onServer(sp ->
+        {
+            index.add(sc + " | (created) | " + KonatsianProbe.characterReport(sp));
+            KonatsianProbe.prepare(sp, net.shurui.shuruisutilities.swordsman.Swordsman.CLASS_ID, "dragonminez:brave_sword");
+        }));
+        step(30, () -> { });
+        for (Angle a : Angle.WEARABLE)
+        {
+            step(1, () -> { Minecraft.getInstance().options.setCameraType(CameraType.THIRD_PERSON_BACK); holdPlayer(a.bodyYaw); });
+            step(2, () -> holdPlayer(a.bodyYaw));
+            step(1, () -> grab(sc, "swordsman_" + a.label, "Konatsian Swordsman holding DMZ's Brave Sword, " + a.label));
+        }
+        step(2, () -> Minecraft.getInstance().options.setCameraType(CameraType.FIRST_PERSON));
+        // The measurements: each case sets class and item, waits for the swing to recharge and the modifiers to
+        // settle, then lands one real hit.
+        step(4, () -> onServer(KonatsianProbe::spawnDummy));
+        String[][] cases = {
+                { "swordsman", null, "swordsman_bare" },
+                { "swordsman", "minecraft:diamond_sword", "swordsman_diamond_sword" },
+                { "warrior", "minecraft:diamond_sword", "warrior_diamond_sword" },
+                { "swordsman", "dragonminez:brave_sword", "swordsman_brave_sword" },
+                { "warrior", "dragonminez:brave_sword", "warrior_brave_sword" },
+                { "swordsman", "minecraft:diamond_axe", "swordsman_diamond_axe" },
+                { "warrior", "minecraft:diamond_axe", "warrior_diamond_axe" },
+        };
+        for (String[] c : cases)
+        {
+            step(40, () -> onServer(sp -> KonatsianProbe.prepare(sp, c[0], c[1])));
+            step(4, () -> onServer(sp -> index.add(sc + " | (measure) | " + KonatsianProbe.hit(sp, c[2]))));
+        }
+        step(4, () -> onServer(sp ->
+        {
+            KonatsianProbe.removeDummy(sp);
+            KonatsianProbe.prepare(sp, net.shurui.shuruisutilities.swordsman.Swordsman.CLASS_ID, null);
+            // Put the harness's usual human warrior back so later runs look the same as before.
+            KonatsianProbe.uncreate(sp);
+            DmzCharacterSetup.ensureCharacter(sp);
+            index.add(sc + " | (restore) | " + KonatsianProbe.characterReport(sp));
+        }));
     }
 
     /** A worn slot: equip each catalogue piece for the slot, then shoot it from a few angles. */
@@ -625,6 +785,199 @@ public class VisualTestRunner
         step(30, this::dukeProvoke);
         for (int i = 0; i < 3; i++)
             shootDuke("low health, " + Angle.duke(i).label, Angle.duke(i));
+    }
+
+    // ---------------------------------------------------------------- skills tree (forms page) scenario
+
+    private com.dragonminez.client.gui.character.SkillsMenuScreen skillsScreen;
+    private Object skillsNode;
+
+    /**
+     * SKILLSTREE: open DMZ's skills menu on the FORMS page, give one real form an addon unlock-requirement text
+     * (the client index the sdu skills mixin reads, filled exactly as a custom form's unlockDescription would be)
+     * and hover that form's node, so DMZ's form tooltip is shot with the addon line in place of DMZ's own unlock
+     * block. Checks the SkillsMenuScreenMixin redirect into renderFormsTree (DMZ 2.2).
+     */
+    /**
+     * The skills tree form tooltip. {@code gate} false: a form given an addon unlock text (the label line).
+     * {@code gate} true: a form behind a quest gate (form_quest_gates) whose quest the player has not done, so the
+     * tooltip shows DMZ's "Unlocked by quest:" line and the quest title in place of the price.
+     */
+    private void buildSkillsTree(boolean gate)
+    {
+        String scenario = gate ? "skillsgate" : "skillstree";
+        step(30, () -> onServer(sp ->
+        {
+            DmzCharacterSetup.ensureCharacter(sp);
+            com.dragonminez.common.stats.StatsData d = sp.getCapability(
+                    com.dragonminez.common.stats.StatsCapability.INSTANCE).resolve().orElse(null);
+            index.add(scenario + " | (character) | server stats "
+                    + (d == null ? "MISSING" : "created=" + d.getStatus().isHasCreatedCharacter()
+                    + " race=" + d.getCharacter().getRaceName()));
+            try { com.dragonminez.common.network.NetworkHandler.sendToTrackingEntityAndSelf(
+                    new com.dragonminez.common.network.S2C.StatsSyncS2C(sp), sp); }
+            catch (Throwable t) { LOGGER.warn("[VisualTest] skillstree: stats sync failed.", t); }
+        }));
+        step(4, () ->
+        {
+            keepScreen = true;
+            try
+            {
+                for (String id : new String[] { com.dragonminez.client.gui.tutorial.TutorialManager.SKILLS_GENERAL,
+                        com.dragonminez.client.gui.tutorial.TutorialManager.SKILLS_FORMS })
+                    com.dragonminez.client.gui.tutorial.TutorialManager.markSeen(id);
+            }
+            catch (Throwable t) { LOGGER.warn("[VisualTest] skillstree: could not mark tutorials seen.", t); }
+            skillsScreen = new com.dragonminez.client.gui.character.SkillsMenuScreen();
+            Minecraft.getInstance().setScreen(skillsScreen);
+        });
+        step(20, () -> { });
+        step(40, () ->
+        {
+            try
+            {
+                Object btn = getField(skillsScreen, "formsButton");
+                ((net.minecraft.client.gui.components.Button) btn).onPress();
+                index.add(scenario + " | (open) | forms page requested");
+            }
+            catch (Throwable t)
+            {
+                index.add(scenario + " | (open) | FAILED to switch to forms: " + t);
+                LOGGER.warn("[VisualTest] skillstree: forms button failed.", t);
+            }
+        });
+        step(4, gate ? this::skillsPickAndGate : this::skillsPickAndLabel);
+        for (int i = 0; i < 6; i++) step(4, this::skillsHover);
+        step(2, () ->
+        {
+            skillsHover();
+            if (gate)
+                grab(scenario, "form_quest_gate",
+                        "Forms page, hovered form tooltip: price replaced by 'Unlocked by quest:' and the gating quest title");
+            else
+                grab(scenario, "form_unlock_label",
+                        "Forms page, hovered form tooltip: lines after the skill level replaced by the addon unlock label");
+        });
+        step(2, () -> { keepScreen = false; Minecraft.getInstance().setScreen(null); });
+    }
+
+    @SuppressWarnings("unchecked")
+    private void skillsPickAndGate()
+    {
+        try
+        {
+            if (com.dragonminez.client.gui.tutorial.TutorialManager.isActive())
+                com.dragonminez.client.gui.tutorial.TutorialManager.stop();
+            skillsNode = null;
+            com.dragonminez.common.stats.StatsData sd = (com.dragonminez.common.stats.StatsData) getField(skillsScreen, "statsData");
+            java.util.List<Object> nodes = (java.util.List<Object>) getField(skillsScreen, "formNodes");
+            index.add("skillsgate | (nodes) | " + nodes.size() + " form node(s) on the forms page");
+            // a form the player does not own yet, one rung up its skill, so the gate applies to it
+            for (Object n : nodes)
+            {
+                com.dragonminez.common.config.FormConfig.FormData data =
+                        (com.dragonminez.common.config.FormConfig.FormData) getField(n, "data");
+                String formType = (String) getField(n, "formType");
+                Integer lvl = data.getUnlockOnSkillLevel();
+                if (lvl == null || lvl < 1 || sd.getSkills().getSkillLevel(formType) >= lvl)
+                    continue;
+                skillsNode = n;
+                break;
+            }
+            if (skillsNode == null)
+            {
+                index.add("skillsgate | (gate) | no unowned form node to gate");
+                return;
+            }
+            com.dragonminez.common.config.FormConfig.FormData data =
+                    (com.dragonminez.common.config.FormConfig.FormData) getField(skillsNode, "data");
+            String group = (String) getField(skillsNode, "group");
+            String questId = null;
+            for (String id : com.dragonminez.common.quest.QuestRegistry.getAllQuests().keySet())
+                if (!sd.getPlayerQuestData().isQuestCompleted(id)) { questId = id; break; }
+            if (questId == null)
+            {
+                index.add("skillsgate | (gate) | no incomplete quest to gate with");
+                return;
+            }
+            java.util.Map<String, net.shurui.dev.sdu.form.FormQuestGateConfig.Gate> gates = new java.util.LinkedHashMap<>();
+            gates.put(group + "." + data.getName(), new net.shurui.dev.sdu.form.FormQuestGateConfig.Gate(questId, true));
+            net.shurui.dev.sdu.form.FormQuestGateConfig.applySynced(gates);
+            index.add("skillsgate | (gate) | form '" + group + "." + data.getName() + "' (" + getField(skillsNode, "formType")
+                    + " level " + data.getUnlockOnSkillLevel() + ") gated by quest " + questId + ", blocking title: "
+                    + net.shurui.dev.sdu.form.FormQuestGate.blockingQuestTitle(sd, (String) getField(skillsNode, "formType"),
+                            data.getUnlockOnSkillLevel()));
+        }
+        catch (Throwable t)
+        {
+            index.add("skillsgate | (gate) | FAILED: " + t);
+            LOGGER.warn("[VisualTest] skillsgate: gate pick failed.", t);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void skillsPickAndLabel()
+    {
+        try
+        {
+            if (com.dragonminez.client.gui.tutorial.TutorialManager.isActive())
+                com.dragonminez.client.gui.tutorial.TutorialManager.stop();
+            Object sd = getField(skillsScreen, "statsData");
+            index.add("skillstree | (screen) | statsData " + (sd == null ? "null" : "race="
+                    + ((com.dragonminez.common.stats.StatsData) sd).getCharacter().getRaceName()));
+            java.util.List<Object> nodes = (java.util.List<Object>) getField(skillsScreen, "formNodes");
+            index.add("skillstree | (nodes) | " + nodes.size() + " form node(s) on the forms page");
+            if (nodes.isEmpty()) return;
+            skillsNode = nodes.get(Math.min(1, nodes.size() - 1));
+            com.dragonminez.common.config.FormConfig.FormData data =
+                    (com.dragonminez.common.config.FormConfig.FormData) getField(skillsNode, "data");
+            Field f = net.shurui.dev.sdu.client.GeneratedLang.class.getDeclaredField("FORM_UNLOCK_DESC");
+            f.setAccessible(true);
+            String label = "&6VisualTest addon unlock: clear the Ragnarok trial";
+            ((java.util.Map<String, String>) f.get(null)).put(data.getName().toLowerCase(java.util.Locale.ROOT), label);
+            // and an addon description, which must land in the same tooltip (one tooltip, DMZ's UI scale)
+            Field fd = net.shurui.dev.sdu.client.GeneratedLang.class.getDeclaredField("FORM_DESC");
+            fd.setAccessible(true);
+            ((java.util.Map<String, String>) fd.get(null)).put(data.getName().toLowerCase(java.util.Locale.ROOT),
+                    "VisualTest addon description line");
+            index.add("skillstree | (label) | form '" + data.getName() + "' (" + getField(skillsNode, "formType")
+                    + ") given unlock text: " + label);
+        }
+        catch (Throwable t)
+        {
+            index.add("skillstree | (label) | FAILED: " + t);
+            LOGGER.warn("[VisualTest] skillstree: node pick failed.", t);
+        }
+    }
+
+    private void skillsHover()
+    {
+        try
+        {
+            if (skillsNode == null) return;
+            Minecraft mc = Minecraft.getInstance();
+            float zoom = (Float) getField(skillsScreen, "formsZoom");
+            java.lang.reflect.Method nx = skillsScreen.getClass().getDeclaredMethod("nodeScreenX", skillsNode.getClass());
+            java.lang.reflect.Method ny = skillsScreen.getClass().getDeclaredMethod("nodeScreenY", skillsNode.getClass());
+            nx.setAccessible(true);
+            ny.setAccessible(true);
+            double ux = (Float) nx.invoke(skillsScreen, skillsNode) + 16 * zoom;
+            double uy = (Float) ny.invoke(skillsScreen, skillsNode) + 16 * zoom;
+            Object us = invokeNoArg(skillsScreen, "getUiScale");
+            double uiScale = us instanceof Float fl ? fl : 1.0D;
+            var win = mc.getWindow();
+            double sx = (win.getScreenWidth() > 0 ? win.getScreenWidth() : win.getWidth()) / (double) Math.max(1, win.getGuiScaledWidth());
+            double sy = (win.getScreenHeight() > 0 ? win.getScreenHeight() : win.getHeight()) / (double) Math.max(1, win.getGuiScaledHeight());
+            double cx = ux * uiScale * sx;
+            double cy = uy * uiScale * sy;
+            GLFW.glfwSetCursorPos(win.getWindow(), cx, cy);
+            setField(mc.mouseHandler, "xpos", cx);
+            setField(mc.mouseHandler, "ypos", cy);
+        }
+        catch (Throwable t)
+        {
+            LOGGER.warn("[VisualTest] skillstree: hover failed.", t);
+        }
     }
 
     // ---------------------------------------------------------------- senzu radial node scenario
@@ -1025,6 +1378,64 @@ public class VisualTestRunner
         step(2, () -> grab("halloween", "editor_regions",
                 "Regions sub: event regions, target regions and dimensions are all dropdowns"));
         step(2, () -> { keepScreen = false; Minecraft.getInstance().setScreen(null); });
+    }
+
+    // ---------------------------------------------------------------- EVENT DATES scenario (Schedule tab)
+    //
+    // The event editor's Schedule tab, built client side: a yearly day range that wraps the new year, an older
+    // annual window converted into the day dropdowns on open, and an older one-off shown read-only.
+
+    private void buildEventDates()
+    {
+        step(4, () -> openScheduleEditor("winter_fest", d -> {
+            d.schedule.startMonth = 12;
+            d.schedule.startDay = 20;
+            d.schedule.endMonth = 1;
+            d.schedule.endDay = 5;
+            d.schedule.annual = true;
+        }));
+        step(4, () -> {});
+        step(2, () -> grab("eventdates", "schedule_wrap", "Schedule tab: Dec 20 to Jan 5 day dropdowns, wraps the new year"));
+        step(2, () -> openScheduleEditor("halloween_2026", d -> {
+            d.schedule.zone = "America/New_York";
+            d.schedule.startLocal = "2026-10-24T18:00";
+            d.schedule.endLocal = "2026-11-02T23:59";
+            d.schedule.annual = true;
+        }));
+        step(4, () -> {});
+        step(2, () -> grab("eventdates", "schedule_migrated",
+                "Schedule tab: an older annual window converted to Oct 24 to Nov 2 on open"));
+        step(2, () -> openScheduleEditor("launch_party", d -> {
+            d.schedule.zone = "UTC";
+            d.schedule.startLocal = "2026-08-01T18:00";
+            d.schedule.endLocal = "2026-08-03T22:00";
+            d.schedule.startEpochMillis = 1785607200000L;
+            d.schedule.endEpochMillis = 1785794400000L;
+        }));
+        step(4, () -> {});
+        step(2, () -> grab("eventdates", "schedule_legacy_oneoff", "Schedule tab: an older one-off shown read-only"));
+        step(2, () -> { keepScreen = false; Minecraft.getInstance().setScreen(null); });
+    }
+
+    private void openScheduleEditor(String id, java.util.function.Consumer<net.shurui.shuruisutilities.events.EventDef> setup)
+    {
+        try
+        {
+            net.shurui.shuruisutilities.events.EventDef d = new net.shurui.shuruisutilities.events.EventDef(id);
+            d.name = "&6" + id;
+            setup.accept(d);
+            net.minecraft.nbt.CompoundTag picks = new net.minecraft.nbt.CompoundTag();
+            picks.putString("serverZone", java.time.ZoneId.systemDefault().getId());
+            picks.putLong("serverNow", System.currentTimeMillis());
+            keepScreen = true;
+            Minecraft.getInstance().setScreen(
+                    new net.shurui.shuruisutilities.client.gui.editor.EventEditScreen(d.toNbt(), picks));
+            showEventSection(1);
+        }
+        catch (Throwable t)
+        {
+            index.add("eventdates | (editor) | failed to open the editor: " + t);
+        }
     }
 
     private void giveHalloweenItems(ServerPlayer sp)
@@ -1476,6 +1887,249 @@ public class VisualTestRunner
         index.add("boostpad | (setup) | placed race_boost_pad on a bottom slab at " + base.above());
     }
 
+    // ---------------------------------------------------------------- admin hub Rituals row
+
+    /** The Rituals editor (admin hub and /rg edit) with its SSG chargers field and the DragonMineZ god ritual toggle. */
+    private void buildRituals()
+    {
+        step(20, () ->
+        {
+            keepScreen = true;
+            Minecraft.getInstance().setScreen(new net.shurui.shuruisutilities.client.gui.editor.RitualSettingsScreen(
+                    List.of("0", "5", "5", "0", "true", "true")));
+        });
+        step(20, () -> grab("rituals", "rituals_editor", "Rituals editor: SSG chargers (now 5) and the DragonMineZ god ritual toggle (On, the default)"));
+        step(2, () -> { keepScreen = false; Minecraft.getInstance().setScreen(null); });
+    }
+
+    // ---------------------------------------------------------------- SDU options editor
+
+    private void optionsDo(String action, String arg)
+    {
+        if (Minecraft.getInstance().screen instanceof net.shurui.dev.sdu.client.gui.OptionsOverviewScreen s)
+            s.debugAction(action, arg);
+        else
+            index.add("options | (setup) | FAILED: options screen not open for " + action + " " + arg);
+    }
+
+    /**
+     * The SDU options editor, opened the real way (the hub's open request to the server, which describes a tab back),
+     * then driven through several tabs, a dropdown, a search, the list editor, the Client and Editors tabs, and a save.
+     */
+    private void buildOptions()
+    {
+        // long first wait: a fresh client applies the streamed asset packs right after joining (a reload overlay)
+        step(400, () -> onServer(sp -> sp.server.getPlayerList().op(sp.getGameProfile())));
+        step(30, () ->
+        {
+            keepScreen = true;
+            net.shurui.dev.sdu.network.DmzNet.sendToServer(new net.shurui.dev.sdu.network.OpenEditorRequestPacket("options"));
+        });
+        step(20, () -> grab("options", "options_general", "Options editor, General tab: tab column, search box, toggles and number fields with reset buttons"));
+        step(30, () -> optionsDo("tab", "space"));
+        step(20, () -> grab("options", "options_space_restart", "Space tab (SpacePlanets.toml): amber 'restart' tags on the layout values, long tab scrolls"));
+        step(10, () -> optionsDo("scrollto", "su.spaceplanets:SpacePlanets.wildDefenderMinCount"));
+        step(20, () -> grab("options", "options_space_scrolled", "Space tab scrolled down with its scrollbar"));
+        step(30, () -> optionsDo("tab", "tournaments"));
+        step(10, () -> optionsDo("scrollto", "tournaments:schedule.mode"));
+        step(10, () -> optionsDo("dropdown", "tournaments:schedule.mode"));
+        step(20, () -> grab("options", "options_dropdown", "Tournaments tab: schedule mode dropdown open (MANUAL, DAILY, WEEKLY, MONTHLY)"));
+        step(10, () -> optionsDo("list", "tournaments:rewards.winner"));
+        step(20, () -> grab("options", "options_list_editor", "List editor for tournament winner rewards: one box per entry, remove and add"));
+        step(10, () -> { if (Minecraft.getInstance().screen instanceof net.shurui.dev.sdu.client.gui.OptionListEditScreen l) l.onClose(); });
+        step(30, () -> optionsDo("tab", "rituals"));
+        step(20, () -> grab("options", "options_rituals", "Rituals tab: the main.toml defaults and the world override rows shared with /rg edit Rituals"));
+        step(10, () -> optionsDo("search", "zsoul"));
+        step(30, () -> grab("options", "options_search", "Search 'zsoul' across every tab: matches grouped by tab and file"));
+        step(30, () -> optionsDo("tab", "client"));
+        step(20, () -> grab("options", "options_client", "Client tab: this player's own settings (sdu-client.toml, main.toml client values, space visuals)"));
+        step(30, () -> optionsDo("tab", "editors"));
+        step(20, () -> grab("options", "options_editors", "Editors tab: links to the editors that own the rest"));
+        step(30, () -> optionsDo("tab", "training"));
+        step(10, () -> optionsDo("set", "sdu:chamberMultiplier=2.0"));
+        step(10, () -> optionsDo("set", "sdu:shadowDummyMaxAlivePerParty=999"));
+        step(10, () -> optionsDo("save", ""));
+        step(30, () -> grab("options", "options_saved", "After Save: one change stored, one refused out of range (red, with the reason on hover)"));
+        step(2, () -> { keepScreen = false; Minecraft.getInstance().setScreen(null); });
+    }
+
+    // ---------------------------------------------------------------- HUD: the Ragnarok style of DMZ's HUD editor
+
+    /**
+     * HUD: selects the Ragnarok style in DragonMineZ's HUD layout and shoots the live HUD, then an animation sequence
+     * (a hit with ki and stamina spent, its trailing chip held and draining, the low health heartbeat, a burst heal),
+     * then DMZ's own HUD editor on its main page (our panel and currency boxes) and its Extras page (compass, quest
+     * tracker, region, staff task and the rest).
+     */
+    private void buildHud()
+    {
+        // long first wait: a fresh client applies the streamed asset packs right after joining (a reload overlay)
+        step(400, () -> onServer(sp -> DmzCharacterSetup.setResources(sp, 1.0F, 1.0F, 1.0F)));
+        step(20, () ->
+        {
+            Minecraft.getInstance().options.hideGui = false;
+            net.shurui.shuruisutilities.client.hud.RagnarokHudSettings.setRagnarokStyle(true);
+            index.add("hud | (style) | available=" + net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHud.available()
+                    + " style=" + net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHud.styleName()
+                    + " active=" + net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHud.styleActive());
+        });
+        step(60, () -> grab("hud", "ragnarok_idle", "Ragnarok style live: our stat panel top-left in place of DMZ's main HUD, placed by DMZ's layout"));
+        // a hit with ki and stamina spent at once; each shot is timed from the moment the CLIENT sees the change
+        step(0, () -> onServer(sp -> DmzCharacterSetup.setResources(sp, 0.55F, 0.35F, 0.4F)));
+        awaitHealth(0.55F);
+        step(1, () -> grab("hud", "anim_1_hit", "Frame of the hit: health white flash and panel shake, the lost chunks as pale chips"));
+        step(14, () -> grab("hud", "anim_2_chip_held", "0.9 s later: fills eased down, the chips still held (DMZ holds 1.5 s), numbers pulsing"));
+        step(24, () -> grab("hud", "anim_3_chip_drain", "2.1 s: the chips draining (tau 0.32 s)"));
+        step(40, () -> grab("hud", "anim_4_settled", "Settled at the new values"));
+        step(0, () -> onServer(sp -> DmzCharacterSetup.setResources(sp, 0.15F, 0.35F, 0.4F)));
+        awaitHealth(0.15F);
+        // DMZ regenerates health fast on this test character, so hold it down while the heartbeat cycles
+        for (int i = 0; i < 30; i++)
+            step(1, () -> onServer(sp -> DmzCharacterSetup.setResources(sp, 0.15F, 0.35F, 0.4F)));
+        step(1, () -> grab("hud", "anim_5_low_health", "Health under 25%: the heartbeat band and the red frame pulse"));
+        step(80, () -> { });
+        step(0, () -> onServer(sp -> DmzCharacterSetup.setResources(sp, 1.0F, 1.0F, 1.0F)));
+        awaitHealth(1.0F);
+        step(3, () -> grab("hud", "anim_6_heal_burst", "A burst heal: green heal chip ahead of the fill"));
+        step(30, () -> grab("hud", "anim_7_healed", "Healed and refilled"));
+        // DMZ's own HUD editor with our elements in it
+        step(2, () ->
+        {
+            keepScreen = true;
+            Minecraft.getInstance().setScreen(new com.dragonminez.client.gui.config.HudEditorScreen(null));
+        });
+        step(20, () -> grab("hud", "editor_main", "DMZ's HUD editor, style Ragnarok: our stat panel and currency boxes beside DMZ's meters and technique rows"));
+        step(4, () ->
+        {
+            if (Minecraft.getInstance().screen instanceof net.shurui.dev.sdu.mixin.hud.DmzHudEditorScreenInvoker editor)
+                editor.sdu$toggleExtras();
+        });
+        step(20, () -> grab("hud", "editor_extras", "DMZ's HUD editor Extras page: our compass, quest tracker, region, staff task, raid, planet, clash and race boxes"));
+        step(2, () -> { keepScreen = false; Minecraft.getInstance().setScreen(null); });
+        step(20, () -> grab("hud", "after_editor", "Back in game after the editor: same layout"));
+        step(2, () -> Minecraft.getInstance().options.hideGui = true);
+    }
+
+    /**
+     * Hold the script until the client's health reads {@code fraction} (within 8%), at most 15 s. On a software GL run
+     * the server mutation and its sync can land well over a second late, which would shift every animation shot.
+     */
+    private void awaitHealth(float fraction)
+    {
+        int[] tries = {0};
+        Runnable[] poll = new Runnable[1];
+        poll[0] = () ->
+        {
+            LocalPlayer p = Minecraft.getInstance().player;
+            boolean seen = p != null && Math.abs(p.getHealth() / Math.max(1.0F, p.getMaxHealth()) - fraction) <= 0.08F;
+            if (!seen && tries[0]++ < 300)
+                script.addFirst(new Step(0, poll[0]));
+        };
+        step(0, poll[0]);
+    }
+
+    // ---------------------------------------------------------------- Xaero world map: NPC region outline drawing
+
+    /**
+     * Opens Xaero's World Map (when it is installed in the run's mods) and draws an NPC region outline on it the way
+     * the "+ Draw NPC region outline" mode does, then closes the outline into the add-selection popup. Each step is
+     * shot. Skipped (one index line) without Xaero's World Map.
+     */
+    private void buildXaeroMap()
+    {
+        if (!net.minecraftforge.fml.ModList.get().isLoaded("xaeroworldmap"))
+        {
+            index.add("xaeromap | (skip) | Xaero's World Map is not installed in this run");
+            return;
+        }
+        step(20, () ->
+        {
+            keepScreen = true;
+            net.minecraft.client.KeyMapping open = null;
+            for (net.minecraft.client.KeyMapping k : Minecraft.getInstance().options.keyMappings)
+                if (k.getName().toLowerCase(java.util.Locale.ROOT).contains("xaero")
+                        && k.getName().toLowerCase(java.util.Locale.ROOT).contains("map")
+                        && !k.getName().toLowerCase(java.util.Locale.ROOT).contains("mini"))
+                {
+                    open = k;
+                    if (k.getName().toLowerCase(java.util.Locale.ROOT).contains("open")) break;
+                }
+            index.add("xaeromap | (open) | key " + (open == null ? "NONE" : open.getName()));
+            if (open != null)
+                net.minecraft.client.KeyMapping.click(open.getKey());
+        });
+        step(60, () -> grab("xaeromap", "map_open", "Xaero's World Map open on DMZ 2.2: "
+                + (Minecraft.getInstance().screen == null ? "no screen" : Minecraft.getInstance().screen.getClass().getSimpleName())));
+        step(4, () ->
+        {
+            var p = Minecraft.getInstance().player;
+            String dim = p.level().dimension().location().toString();
+            net.shurui.shuruisutilities.compat.client.NpcRegionMapDraw.start(dim);
+            int x = p.getBlockX(), z = p.getBlockZ();
+            int[][] pts = { { x - 40, z - 30 }, { x + 10, z - 50 }, { x + 50, z - 10 }, { x + 30, z + 40 }, { x - 30, z + 35 } };
+            for (int[] pt : pts)
+                net.shurui.shuruisutilities.compat.client.NpcRegionMapDraw.add(pt[0], pt[1]);
+            index.add("xaeromap | (draw) | " + net.shurui.shuruisutilities.compat.client.NpcRegionMapDraw.count()
+                    + " outline point(s) in " + dim);
+        });
+        step(10, () -> grab("xaeromap", "outline_drawing", "Draw mode with a five point freeform outline on the map"));
+        step(4, () -> index.add("xaeromap | (close) | close=" + net.shurui.shuruisutilities.compat.client.NpcRegionMapDraw.close()));
+        step(20, () -> grab("xaeromap", "outline_popup", "Closing the outline opens the NPC region add-selection popup: "
+                + (Minecraft.getInstance().screen == null ? "no screen" : Minecraft.getInstance().screen.getClass().getSimpleName())));
+        step(2, () -> { keepScreen = false; Minecraft.getInstance().setScreen(null); });
+    }
+
+    /**
+     * DORMANTBALLS: a dormant set's ball next to an active one, then the dormant set woken live. Left: Earth balls
+     * (the Earth set is forced dormant, so they must draw as solid stone); right: Namek balls (active, their normal
+     * look). The third shot wakes Earth with no relog and must show the Earth balls back to normal.
+     */
+    private void buildDormantBalls()
+    {
+        // Long first wait: on a software-GL client the post-join resource reload overlay can last well over a minute.
+        step(1200, () -> onServer(this::placeDormantBalls));
+        step(60, () -> lookAtScene(0.0D, 1.2D, 3.2D));
+        step(20, () -> lookAtScene(0.0D, 1.2D, 3.2D));
+        step(2, () -> grab("dormantballs", "dormantballs_dormant_vs_active",
+                "Left two: Earth balls of a DORMANT set (solid stone). Right two: Namek balls, active (normal)"));
+        step(60, () -> onServer(sp -> net.shurui.shuruisutilities.compat.dmz.BallDormancy.forceWake(sp.getServer(),
+                "earth")));
+        step(20, () -> lookAtScene(0.0D, 1.2D, 3.2D));
+        step(2, () -> grab("dormantballs", "dormantballs_woken_live",
+                "Same balls after the Earth set woke (no relog): all four drawn normally"));
+    }
+
+    private void placeDormantBalls(ServerPlayer sp)
+    {
+        Block e1 = blockById("dragonminez:dball1");
+        Block e2 = blockById("dragonminez:dball2");
+        Block n1 = blockById("dragonminez:dball1_namek");
+        Block n2 = blockById("dragonminez:dball2_namek");
+        if (e1 == null || e2 == null || n1 == null || n2 == null)
+        {
+            index.add("dormantballs | (setup) | FAILED: a dragon ball block is missing");
+            return;
+        }
+        net.minecraft.server.MinecraftServer server = sp.getServer();
+        net.shurui.shuruisutilities.compat.dmz.BallDormancy.forceWake(server, "namek");
+        net.shurui.shuruisutilities.compat.dmz.BallDormancy.forceDormant(server, "earth");
+        BlockPos base = sp.blockPosition().relative(sp.getDirection(), 4);
+        net.minecraft.server.level.ServerLevel level = sp.serverLevel();
+        // Fixed axes so the camera (scene + 3.2 on Z) sees all four side by side whatever way the player faces:
+        // Earth (dormant) at x-3 and x-2, Namek (active) at x+2 and x+3.
+        BlockPos[] spots = { base.west(3), base.west(2), base.east(2), base.east(3) };
+        Block[] balls = { e1, e2, n1, n2 };
+        for (int i = 0; i < spots.length; i++)
+        {
+            level.setBlockAndUpdate(spots[i].below(), Blocks.SMOOTH_QUARTZ.defaultBlockState());
+            level.setBlockAndUpdate(spots[i], balls[i].defaultBlockState());
+        }
+        sceneX = base.getX() + 0.5D;
+        sceneY = base.getY();
+        sceneZ = base.getZ() + 0.5D;
+        index.add("dormantballs | (setup) | earth forced dormant, namek active; balls placed around " + base);
+    }
+
     /** Place the camera at a scene-relative offset and aim it at the current scene point. */
     private void lookAtScene(double ox, double oy, double oz)
     {
@@ -1728,7 +2382,635 @@ public class VisualTestRunner
                 + " defenders; server-side modelId fallbacks to 2stars: " + (mism.length() == 0 ? "NONE" : mism.toString()));
     }
 
+    // ---------------------------------------------------------------- VEGETA scenario (random saiyans + planet spawns)
+    //
+    // Part 1 shoots the randomly rolled Planet Vegeta saiyans (citizen, garrison warrior, trader, plus two unarmored
+    // citizens so the bare body skin is in frame). Part 2 travels to Planet Vegeta and proves what can spawn there: a dump
+    // of every Vegeta biome's final spawn lists (after biome modifiers), a natural-spawn tally in the wilderness and in
+    // the city, a landscape shot for the vegetation, and a tally at the nearest generated saiyan outpost.
+
+    private static final ResourceLocation VEGETA_DIM = new ResourceLocation("dmz_ragnarok", "planet_vegeta");
+    private static final String[] VEGETA_ROW = {
+            "planet_saiyan_citizen", "planet_saiyan_citizen", "planet_garrison_saiyan", "planet_garrison_saiyan",
+            "planet_saiyan_trader", "planet_saiyan_citizen:bare", "planet_saiyan_citizen:bare" };
+    private static final int VEGETA_WILD_X = 2400;
+    private static final int VEGETA_WILD_Z = 2400;
+
+    private void buildVegeta()
+    {
+        // the join triggers a resource reload (cosmetic art); let it finish so no shot catches the loading overlay.
+        step(300, () -> { });
+        step(40, () -> onServer(this::spawnVegetaSaiyanRow));
+        step(10, () -> lookAtScene(0.0D, 0.6D, -9.0D));
+        step(4, () -> lookAtScene(0.0D, 0.6D, -9.0D));
+        step(2, () -> grab("vegeta", "saiyans_row", "Row of randomly rolled Vegeta saiyans (2 citizens, 2 garrison, "
+                + "trader, 2 unarmored citizens); bodies must be skin coloured, never the magenta/black missing texture"));
+        step(2, () -> lookAtScene(-3.5D, 0.6D, -4.0D));
+        step(3, () -> lookAtScene(-3.5D, 0.6D, -4.0D));
+        step(2, () -> grab("vegeta", "saiyans_left", "Left of the row, close up (citizens, garrison)"));
+        step(2, () -> lookAtScene(4.0D, 0.6D, -4.0D));
+        step(3, () -> lookAtScene(4.0D, 0.6D, -4.0D));
+        step(2, () -> grab("vegeta", "saiyans_right", "Right of the row, close up (trader, unarmored citizens)"));
+        step(2, () -> lookAtScene(0.0D, 0.6D, 7.0D));
+        step(3, () -> lookAtScene(0.0D, 0.6D, 7.0D));
+        step(2, () -> grab("vegeta", "saiyans_back", "The row from behind (tails, backs)"));
+
+        // Part 2: Planet Vegeta itself.
+        step(10, () -> onServer(this::dumpVegetaSpawnLists));
+        step(120, () -> onServer(sp -> vegetaTeleport(sp, VEGETA_WILD_X, VEGETA_WILD_Z)));
+        step(20, () -> sendCommand(Minecraft.getInstance(), "gamerule doMobSpawning true"));
+        step(600, () -> { });
+        step(5, () -> onServer(sp -> tallyAround(sp, "wilderness", 128.0D)));
+        step(4, () -> lookVegetaLandscape(0.0F));
+        step(20, () -> lookVegetaLandscape(0.0F));
+        step(2, () -> grab("vegeta", "landscape_a", "Vegeta wilderness from above: vegetation, flowers, crops, mobs"));
+        step(4, () -> lookVegetaLandscape(180.0F));
+        step(20, () -> lookVegetaLandscape(180.0F));
+        step(2, () -> grab("vegeta", "landscape_b", "Vegeta wilderness, the other way"));
+        step(10, () -> onServer(sp -> scanVegetation(sp, 96)));
+        step(4, () -> lookAtScene(3.0D, 2.0D, 3.0D));
+        step(20, () -> lookAtScene(3.0D, 2.0D, 3.0D));
+        step(2, () -> grab("vegeta", "wild_crops", "Close up of the nearest wild carrot/potato patch on Vegeta"));
+        step(10, () -> onServer(sp -> focusNearest(sp, 96, "minecraft:poppy", "minecraft:dandelion",
+                "minecraft:cornflower", "minecraft:oxeye_daisy", "minecraft:azure_bluet")));
+        step(4, () -> lookAtScene(3.0D, 2.0D, 3.0D));
+        step(20, () -> lookAtScene(3.0D, 2.0D, 3.0D));
+        step(2, () -> grab("vegeta", "flowers", "Close up of the nearest flower patch on Vegeta"));
+        step(120, () -> onServer(sp -> vegetaTeleport(sp, 155, -75)));
+        step(1200, () -> { });
+        step(5, () -> onServer(sp -> tallyAround(sp, "city", 128.0D)));
+        // the structure search runs on the server thread and can take a while; everything queued after it waits.
+        step(600, () -> onServer(this::vegetaTeleportToOutpost));
+        step(900, () -> { });
+        step(5, () -> onServer(sp -> tallyAround(sp, "outpost", 64.0D)));
+        step(10, () -> onServer(sp -> focusNearest(sp, 64, "dmz_ragnarok:planet_garrison_saiyan")));
+        step(4, () -> lookAtScene(4.0D, 3.0D, 4.0D));
+        step(20, () -> lookAtScene(4.0D, 3.0D, 4.0D));
+        step(2, () -> grab("vegeta", "outpost", "Nearest saiyan outpost on Vegeta: hostile saiyan squad"));
+        step(4, () -> sendCommand(Minecraft.getInstance(), "gamerule doMobSpawning false"));
+        step(60, () -> { });
+    }
+
+    private void spawnVegetaSaiyanRow(ServerPlayer sp)
+    {
+        ServerLevel level = sp.serverLevel();
+        double bx = sp.getX();
+        double rowZ = sp.getZ() + 5.0D;
+        double spacing = 1.6D;
+        int groundY = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING,
+                Mth.floor(bx), Mth.floor(rowZ));
+        sceneX = bx;
+        sceneY = groundY + 0.4D;
+        sceneZ = rowZ;
+        StringBuilder looks = new StringBuilder();
+        int spawned = 0;
+        for (int i = 0; i < VEGETA_ROW.length; ++i)
+        {
+            String[] parts = VEGETA_ROW[i].split(":");
+            EntityType<?> type = ForgeRegistries.ENTITY_TYPES.getValue(new ResourceLocation("dmz_ragnarok", parts[0]));
+            Entity e = type == null ? null : type.create(level);
+            if (!(e instanceof net.minecraft.world.entity.Mob m))
+            {
+                index.add("vegeta | (setup) | FAILED to create " + parts[0]);
+                if (e != null) e.discard();
+                continue;
+            }
+            double x = bx + (i - (VEGETA_ROW.length - 1) / 2.0D) * spacing;
+            m.moveTo(x, groundY, rowZ, 180.0F, 0.0F);
+            m.setNoAi(true);
+            m.setPersistenceRequired();
+            try
+            {
+                m.getClass().getMethod("randomize", net.minecraft.util.RandomSource.class).invoke(m, level.getRandom());
+            }
+            catch (Throwable t)
+            {
+                index.add("vegeta | (setup) | randomize failed on " + parts[0] + ": " + t);
+            }
+            net.shurui.shuruisutilities.saiyan.SaiyanArmorSets.equip(m, level.getRandom());
+            if (parts.length > 1)
+            {
+                for (net.minecraft.world.entity.EquipmentSlot slot : net.minecraft.world.entity.EquipmentSlot.values())
+                    if (slot.getType() == net.minecraft.world.entity.EquipmentSlot.Type.ARMOR)
+                        m.setItemSlot(slot, ItemStack.EMPTY);
+            }
+            if (m instanceof net.shurui.shuruisutilities.saiyan.SaiyanAppearance a)
+                looks.append(parts[0]).append(parts.length > 1 ? "(bare)" : "").append('[')
+                        .append(a.isMale() ? "m" : "f").append(" body").append(a.getBodyType())
+                        .append(" skin#").append(Integer.toHexString(a.getSkinColor())).append("] ");
+            if (level.addFreshEntity(m)) spawned++;
+        }
+        index.add("vegeta | (setup) | spawned " + spawned + "/" + VEGETA_ROW.length + " saiyans: " + looks);
+    }
+
+    // Every Vegeta biome's live spawn lists, read off the registry after Forge biome modifiers applied, so this is what
+    // the natural spawner actually draws from.
+    private void dumpVegetaSpawnLists(ServerPlayer sp)
+    {
+        net.minecraft.core.Registry<net.minecraft.world.level.biome.Biome> biomes =
+                sp.server.registryAccess().registryOrThrow(Registries.BIOME);
+        for (String ns : new String[] { "dmz_ragnarok", "shuruisutilities" })
+        {
+            for (String path : new String[] { "vegeta", "vegeta_arid", "vegeta_meadow", "vegeta_deep", "vegeta_city" })
+            {
+                ResourceLocation id = new ResourceLocation(ns, path);
+                net.minecraft.world.level.biome.Biome b = biomes.get(id);
+                if (b == null)
+                {
+                    index.add("vegeta | (spawns) | " + id + " MISSING");
+                    continue;
+                }
+                StringBuilder line = new StringBuilder();
+                for (net.minecraft.world.entity.MobCategory cat : net.minecraft.world.entity.MobCategory.values())
+                {
+                    var mobs = b.getMobSettings().getMobs(cat).unwrap();
+                    if (mobs.isEmpty()) continue;
+                    line.append(cat.getName()).append('{');
+                    for (var d : mobs)
+                        line.append(ForgeRegistries.ENTITY_TYPES.getKey(d.type)).append(" w").append(d.getWeight().asInt())
+                                .append(' ');
+                    line.append("} ");
+                }
+                index.add("vegeta | (spawns) | " + id + " -> " + (line.length() == 0 ? "NOTHING" : line.toString()));
+            }
+        }
+    }
+
+    private void vegetaTeleport(ServerPlayer sp, int x, int z)
+    {
+        ServerLevel veg = sp.server.getLevel(net.minecraft.resources.ResourceKey.create(Registries.DIMENSION, VEGETA_DIM));
+        if (veg == null)
+        {
+            index.add("vegeta | (travel) | FAILED: " + VEGETA_DIM + " is not loaded");
+            return;
+        }
+        // walk outward until the column tops out on dry land, so the camera is never parked under a lake.
+        int y = 0;
+        search:
+        for (int ring = 0; ring < 12; ++ring)
+            for (int dx = -ring; dx <= ring; ++dx)
+                for (int dz = -ring; dz <= ring; ++dz)
+                {
+                    if (Math.max(Math.abs(dx), Math.abs(dz)) != ring) continue;
+                    int cx = x + dx * 24, cz = z + dz * 24;
+                    veg.getChunk(cx >> 4, cz >> 4);
+                    int top = veg.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, cx, cz);
+                    if (veg.getFluidState(new BlockPos(cx, top - 1, cz)).isEmpty())
+                    {
+                        x = cx;
+                        z = cz;
+                        y = top + 1;
+                        break search;
+                    }
+                }
+        if (y == 0) y = veg.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, x, z) + 1;
+        sp.teleportTo(veg, x + 0.5D, y, z + 0.5D, 0.0F, 20.0F);
+        sp.getAbilities().mayfly = true;
+        sp.getAbilities().flying = true;
+        sp.onUpdateAbilities();
+        sceneX = x + 0.5D;
+        sceneY = y;
+        sceneZ = z + 0.5D;
+        index.add("vegeta | (travel) | at " + x + "," + y + "," + z + " biome "
+                + veg.getBiome(new BlockPos(x, y, z)).unwrapKey().map(k -> k.location().toString()).orElse("?"));
+    }
+
+    private void vegetaTeleportToOutpost(ServerPlayer sp)
+    {
+        ServerLevel veg = sp.server.getLevel(net.minecraft.resources.ResourceKey.create(Registries.DIMENSION, VEGETA_DIM));
+        if (veg == null) return;
+        var registry = veg.registryAccess().registryOrThrow(Registries.STRUCTURE);
+        List<net.minecraft.core.Holder<net.minecraft.world.level.levelgen.structure.Structure>> holders =
+                new ArrayList<>();
+        for (String ns : new String[] { "dmz_ragnarok", "shuruisutilities" })
+            registry.getHolder(net.minecraft.resources.ResourceKey.create(Registries.STRUCTURE,
+                    new ResourceLocation(ns, "saiyan_settlement"))).ifPresent(holders::add);
+        // check the placement's candidate chunk in the 3x3 spread regions around the point directly (a full
+        // findNearestMapStructure walk stalls the server thread far too long for a scripted shot).
+        var state = veg.getChunkSource().getGeneratorState();
+        BlockPos at = null;
+        String which = "?";
+        int checked = 0;
+        StringBuilder cands = new StringBuilder();
+        for (var holder : holders)
+            for (var placement : state.getPlacementsForStructure(holder))
+            {
+                if (!(placement instanceof net.minecraft.world.level.levelgen.structure.placement.RandomSpreadStructurePlacement rs))
+                    continue;
+                // getPotentialStructureChunk takes any chunk in a spread region and answers that region's candidate.
+                int cx0 = VEGETA_WILD_X >> 4;
+                int cz0 = VEGETA_WILD_Z >> 4;
+                for (int dx = -1; dx <= 1 && at == null; ++dx)
+                    for (int dz = -1; dz <= 1 && at == null; ++dz)
+                    {
+                        net.minecraft.world.level.ChunkPos cp = rs.getPotentialStructureChunk(state.getLevelSeed(),
+                                cx0 + dx * rs.spacing(), cz0 + dz * rs.spacing());
+                        var chunk = veg.getChunk(cp.x, cp.z);
+                        checked++;
+                        cands.append(cp).append(' ');
+                        // the live and shim sets share a salt, so test the chunk for either structure.
+                        for (var h : holders)
+                        {
+                            var start = chunk.getStartForStructure(h.value());
+                            if (start != null && start.isValid() && at == null)
+                            {
+                                at = start.getBoundingBox().getCenter();
+                                which = h.unwrapKey().map(k -> k.location().toString()).orElse("?") + " in chunk " + cp;
+                            }
+                        }
+                    }
+            }
+        if (at == null)
+        {
+            index.add("vegeta | (outpost) | no saiyan_settlement start in " + checked + " candidate chunks: " + cands);
+            return;
+        }
+        index.add("vegeta | (outpost) | " + which + " start at " + at + " (" + checked + " candidates checked)");
+        vegetaTeleport(sp, at.getX(), at.getZ());
+    }
+
+    private void tallyAround(ServerPlayer sp, String where, double radius)
+    {
+        java.util.TreeMap<String, Integer> counts = new java.util.TreeMap<>();
+        StringBuilder foreign = new StringBuilder();
+        for (Entity e : sp.serverLevel().getEntities(sp, sp.getBoundingBox().inflate(radius),
+                ent -> ent instanceof net.minecraft.world.entity.LivingEntity))
+        {
+            ResourceLocation key = ForgeRegistries.ENTITY_TYPES.getKey(e.getType());
+            counts.merge(String.valueOf(key), 1, Integer::sum);
+            // where and in which biome anything not one of our own saiyans stands, to trace stray spawns.
+            if (key != null && !key.getPath().startsWith("planet_saiyan_") && foreign.length() < 1500)
+                foreign.append(key.getPath()).append('@').append(e.blockPosition().toShortString()).append('/')
+                        .append(sp.serverLevel().getBiome(e.blockPosition()).unwrapKey()
+                                .map(k -> k.location().toString()).orElse("?"))
+                        .append(e.getPersistentData().isEmpty() ? "" : " nbt" + e.getPersistentData().getAllKeys())
+                        .append("; ");
+        }
+        index.add("vegeta | (tally) | " + where + " within " + (int) radius + " of " + sp.blockPosition() + " in "
+                + sp.serverLevel().dimension().location() + ": " + counts);
+        if (foreign.length() > 0)
+            index.add("vegeta | (tally) | " + where + " detail: " + foreign);
+    }
+
+    // count the new vegetation blocks in the loaded area and park the scene on the nearest crop.
+    private void scanVegetation(ServerPlayer sp, int radius)
+    {
+        java.util.TreeMap<String, Integer> counts = new java.util.TreeMap<>();
+        BlockPos centre = sp.blockPosition();
+        BlockPos nearestCrop = null;
+        double best = Double.MAX_VALUE;
+        ServerLevel level = sp.serverLevel();
+        for (int x = -radius; x <= radius; ++x)
+            for (int z = -radius; z <= radius; ++z)
+            {
+                int cx = centre.getX() + x, cz = centre.getZ() + z;
+                if (!level.hasChunk(cx >> 4, cz >> 4)) continue;
+                int top = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, cx, cz);
+                for (int y = top - 3; y <= top + 1; ++y)
+                {
+                    BlockPos p = new BlockPos(cx, y, cz);
+                    Block b = level.getBlockState(p).getBlock();
+                    if (b == Blocks.CARROTS || b == Blocks.POTATOES || b == Blocks.FARMLAND || b == Blocks.POPPY
+                            || b == Blocks.DANDELION || b == Blocks.CORNFLOWER || b == Blocks.OXEYE_DAISY
+                            || b == Blocks.AZURE_BLUET || b == Blocks.ALLIUM || b == Blocks.RED_TULIP
+                            || b == Blocks.ORANGE_TULIP)
+                    {
+                        counts.merge(String.valueOf(ForgeRegistries.BLOCKS.getKey(b)), 1, Integer::sum);
+                        double d = p.distSqr(centre);
+                        if ((b == Blocks.CARROTS || b == Blocks.POTATOES) && d < best)
+                        {
+                            best = d;
+                            nearestCrop = p;
+                        }
+                    }
+                }
+            }
+        index.add("vegeta | (vegetation) | within " + radius + " of " + centre + ": " + counts);
+        if (nearestCrop != null)
+        {
+            sceneX = nearestCrop.getX() + 0.5D;
+            sceneY = nearestCrop.getY();
+            sceneZ = nearestCrop.getZ() + 0.5D;
+        }
+    }
+
+    // park the scene on the nearest block or entity of one of the given ids.
+    private void focusNearest(ServerPlayer sp, int radius, String... ids)
+    {
+        Set<String> want = Set.of(ids);
+        ServerLevel level = sp.serverLevel();
+        BlockPos centre = sp.blockPosition();
+        BlockPos found = null;
+        double best = Double.MAX_VALUE;
+        for (Entity e : level.getEntities(sp, sp.getBoundingBox().inflate(radius),
+                ent -> want.contains(String.valueOf(ForgeRegistries.ENTITY_TYPES.getKey(ent.getType())))))
+        {
+            double d = e.blockPosition().distSqr(centre);
+            if (d < best) { best = d; found = e.blockPosition(); }
+        }
+        if (found == null)
+            for (int x = -radius; x <= radius && found == null; ++x)
+                for (int z = -radius; z <= radius; ++z)
+                {
+                    int cx = centre.getX() + x, cz = centre.getZ() + z;
+                    if (!level.hasChunk(cx >> 4, cz >> 4)) continue;
+                    int top = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, cx, cz);
+                    BlockPos p = new BlockPos(cx, top - 1, cz);
+                    if (want.contains(String.valueOf(ForgeRegistries.BLOCKS.getKey(level.getBlockState(p).getBlock()))))
+                    {
+                        found = p;
+                        break;
+                    }
+                }
+        if (found != null)
+        {
+            sceneX = found.getX() + 0.5D;
+            sceneY = found.getY();
+            sceneZ = found.getZ() + 0.5D;
+        }
+        index.add("vegeta | (focus) | " + String.join(",", ids) + " -> " + found);
+    }
+
+    /** Hover above the current scene point and look out over the terrain. */
+    private void lookVegetaLandscape(float yaw)
+    {
+        LocalPlayer p = Minecraft.getInstance().player;
+        if (p == null) return;
+        final double x = sceneX, y = sceneY + 14.0D, z = sceneZ;
+        p.setPos(x, y, z);
+        lookSky(yaw, 30.0F);
+        onServer(sp -> sp.teleportTo(sp.serverLevel(), x, y, z, yaw, 30.0F));
+    }
+
     // ---------------------------------------------------------------- AVATAR scenario (owner-avatar planet defender)
+
+    // ---------------------------------------------------------------- MASTERS scenario (Tien / Cell / Buu + mini clone)
+
+    /** Where each master was set down, filled on the server thread, read by the camera steps. */
+    private final java.util.Map<String, double[]> masterSpots = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * MASTERS: Cell and Majin Buu standing where DMZ 2.2's own structure templates put them (cell_arena and buu_house
+     * placed with their baked-in entities), Tien at the spot DMZ's structure_npcs file gives him on the Budokai
+     * Tenkaichi (the 172x342 arena itself is not placed here: it is huge, and the headless boot proves the real
+     * spawn), each master's shop open on the KI tab with the Mini Clone selected, then the mini clone cast next to the
+     * player: the DMZ-look copy, the old vanilla-skin fallback for comparison, and a Namekian caster's copy.
+     */
+    private void buildMasters()
+    {
+        step(300, () -> { });
+        step(80, () -> onServer(this::placeMasters));
+        for (String master : new String[] { "cell", "buu", "tien" })
+        {
+            step(10, () -> lookAtMaster(master));
+            step(6, () -> lookAtMaster(master));
+            step(2, () -> grab("masters", master + "_spawned", "Master " + master + " standing where DMZ places him"));
+            step(4, () -> openMasterShop(master));
+            step(30, () -> selectMiniCloneInShop());
+            step(2, () -> grab("masters", master + "_shop_mini_clone",
+                    "Master " + master + "'s shop, KI tab, Mini Clone listed and selected"));
+            step(2, () -> { keepScreen = false; Minecraft.getInstance().setScreen(null); });
+            // buy it through DMZ's own packet, standing in front of the master, and check what the server did
+            step(4, () -> onServer(sp -> { resetMiniClonePurchase(sp); setAlignmentFor(sp, master); }));
+            step(10, () -> com.dragonminez.common.network.NetworkHandler.sendToServer(
+                    new com.dragonminez.common.network.C2S.UpdateSkillC2S(
+                            com.dragonminez.common.network.C2S.UpdateSkillC2S.SkillAction.PURCHASE,
+                            net.shurui.shuruisutilities.clone.MiniClone.TECHNIQUE_ID, 0)));
+            step(4, () -> onServer(sp -> reportMiniClonePurchase(sp, master)));
+        }
+        // clones next to the player, everyone facing the third-person camera
+        step(20, () -> onServer(sp -> castClonesFor(sp, false)));
+        shootClones("clones_dmz_look", "Human caster (DMZ hair, Tien gi) and two mini clones: the clones wear the same DMZ "
+                + "body, hair and gi at 60% scale with a white outline");
+        step(10, () -> onServer(sp -> setCloneSnapshots(sp, false)));
+        shootClones("clones_old_vanilla_fallback", "Same clones forced onto the OLD path (no look snapshot): vanilla "
+                + "skin only, which is the reported bug");
+        step(20, () -> onServer(sp -> castClonesFor(sp, true)));
+        shootClones("clones_namekian", "Namekian caster and two mini clones wearing the Namekian body and antennae");
+    }
+
+    private void shootClones(String name, String description)
+    {
+        step(2, () -> { Minecraft.getInstance().options.setCameraType(CameraType.THIRD_PERSON_BACK); holdPlayer(0.0F); });
+        step(4, () -> holdPlayer(0.0F));
+        step(4, () -> holdPlayer(0.0F));
+        step(1, () -> grab("masters", name, description));
+    }
+
+    private void placeMasters(ServerPlayer sp)
+    {
+        ServerLevel level = sp.serverLevel();
+        BlockPos base = sp.blockPosition();
+        int ground = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, base.getX(),
+                base.getZ());
+        // cell_arena and buu_house carry their master as a template entity, exactly as world generation places them
+        placeTemplate(level, "cell_arena", new BlockPos(base.getX() + 60, ground - 6, base.getZ() - 36));
+        placeTemplate(level, "buu_house", new BlockPos(base.getX() - 160, ground - 3, base.getZ() - 40));
+        recordMaster(level, "cell", "dragonminez:master_cell", null);
+        recordMaster(level, "buu", "dragonminez:quest_npc", "buu");
+        // Tien: DMZ's structure_npcs/budokai_tenkaichi.json entry, on a stone pad standing in for the arena floor
+        BlockPos tien = new BlockPos(base.getX(), ground, base.getZ() + 70);
+        for (int dx = -3; dx <= 3; dx++)
+            for (int dz = -3; dz <= 3; dz++)
+                level.setBlockAndUpdate(tien.offset(dx, -1, dz), Blocks.SMOOTH_STONE.defaultBlockState());
+        EntityType<?> tienType = ForgeRegistries.ENTITY_TYPES.getValue(new ResourceLocation("dragonminez", "master_tien"));
+        Entity t = tienType == null ? null : tienType.create(level);
+        if (t != null)
+        {
+            t.moveTo(tien.getX() + 0.5D, tien.getY(), tien.getZ() + 0.5D, 180.0F, 0.0F);
+            if (t instanceof net.minecraft.world.entity.Mob m) m.setPersistenceRequired();
+            level.addFreshEntity(t);
+        }
+        recordMaster(level, "tien", "dragonminez:master_tien", null);
+        // the player back on solid ground, on foot, for the clone shots
+        sp.getAbilities().flying = false;
+        sp.onUpdateAbilities();
+        sp.teleportTo(level, base.getX() + 0.5D, ground, base.getZ() + 0.5D, 0.0F, 0.0F);
+        dressCaster(sp, false);
+    }
+
+    private void placeTemplate(ServerLevel level, String name, BlockPos origin)
+    {
+        try
+        {
+            java.util.Optional<net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate> tpl =
+                    level.getStructureManager().get(new ResourceLocation("dragonminez", name));
+            if (tpl.isEmpty())
+            {
+                index.add("masters | (setup) | FAILED: template dragonminez:" + name + " missing");
+                return;
+            }
+            tpl.get().placeInWorld(level, origin, origin,
+                    new net.minecraft.world.level.levelgen.structure.templatesystem.StructurePlaceSettings(),
+                    level.getRandom(), 2);
+            index.add("masters | (setup) | placed template dragonminez:" + name + " at " + origin);
+        }
+        catch (Throwable t)
+        {
+            index.add("masters | (setup) | FAILED placing " + name + ": " + t);
+        }
+    }
+
+    // find the master the template (or the pad) put down, freeze it facing -Z so the camera sees its front
+    private void recordMaster(ServerLevel level, String key, String typeId, String questNpcId)
+    {
+        EntityType<?> type = ForgeRegistries.ENTITY_TYPES.getValue(new ResourceLocation(typeId));
+        for (Entity e : level.getAllEntities())
+        {
+            if (e.getType() != type) continue;
+            if (questNpcId != null && !(e instanceof com.dragonminez.common.init.entities.questnpc.QuestNPCEntity q
+                    && questNpcId.equals(q.getNpcId()))) continue;
+            if (e instanceof net.minecraft.world.entity.Mob m) m.setNoAi(true);
+            e.setYRot(180.0F);
+            e.setYHeadRot(180.0F);
+            e.setYBodyRot(180.0F);
+            masterSpots.put(key, new double[] { e.getX(), e.getY(), e.getZ(), e.getId() });
+            index.add("masters | (setup) | " + key + " master " + typeId + " at " + e.blockPosition());
+            return;
+        }
+        index.add("masters | (setup) | FAILED: no " + key + " master found after placement");
+    }
+
+    private void lookAtMaster(String key)
+    {
+        double[] at = masterSpots.get(key);
+        if (at == null) return;
+        sceneX = at[0];
+        sceneY = at[1] + 0.4D;
+        sceneZ = at[2];
+        lookAtScene(0.0D, 1.0D, -4.5D);
+    }
+
+    private void openMasterShop(String key)
+    {
+        Minecraft mc = Minecraft.getInstance();
+        double[] at = masterSpots.get(key);
+        if (at == null || mc.level == null) return;
+        Entity e = mc.level.getEntity((int) at[3]);
+        if (!(e instanceof net.minecraft.world.entity.LivingEntity living)) return;
+        keepScreen = true;
+        mc.setScreen(new com.dragonminez.client.gui.MastersSkillsScreen(key, living));
+    }
+
+    // the KI tab, the Mini Clone row selected, through the screen's own refresh so its buttons rebuild
+    private void selectMiniCloneInShop()
+    {
+        Screen s = Minecraft.getInstance().screen;
+        if (!(s instanceof com.dragonminez.client.gui.MastersSkillsScreen)) return;
+        try
+        {
+            @SuppressWarnings({"unchecked", "rawtypes"})
+            Object ki = Enum.valueOf((Class) Class.forName(
+                    "com.dragonminez.client.gui.MastersSkillsScreen$SkillCategory"), "KI");
+            setField(s, "currentCategory", ki);
+            setField(s, "selectedSkill", net.shurui.shuruisutilities.clone.MiniClone.TECHNIQUE_ID);
+            invokeNoArg(s, "refreshButtons");
+        }
+        catch (Throwable t)
+        {
+            index.add("masters | (shop) | could not select the Mini Clone row: " + t);
+        }
+    }
+
+    // a distinctive DMZ look: spiky golden hair and Tien's gi (human), or a green Namekian
+    private void dressCaster(ServerPlayer sp, boolean namekian)
+    {
+        StatsData data = sp.getCapability(com.dragonminez.common.stats.StatsCapability.INSTANCE).resolve().orElse(null);
+        if (data == null) return;
+        com.dragonminez.common.stats.character.Character ch = data.getCharacter();
+        if (namekian)
+        {
+            ch.setRace("namekian");
+            ch.setBodyType(0);
+            ch.setBodyColor("#5BBF3A");
+            ch.setBodyColor2("#C0506A");
+            ch.setBodyColor3("#F2C1D1");
+        }
+        else
+        {
+            ch.setHairId(2);
+            ch.setHairColor("#F5C542");
+            ch.setBodyType(1);
+            for (String piece : new String[] { "chestplate", "leggings", "boots" })
+            {
+                Item item = ForgeRegistries.ITEMS.getValue(new ResourceLocation("dragonminez", "tien_armor_" + piece));
+                if (item instanceof net.minecraft.world.item.ArmorItem armor)
+                    sp.setItemSlot(armor.getEquipmentSlot(), new ItemStack(item));
+            }
+        }
+        sp.refreshDimensions();
+        com.dragonminez.common.network.NetworkHandler.sendToTrackingEntityAndSelf(
+                new com.dragonminez.common.network.S2C.StatsSyncS2C(sp), sp);
+    }
+
+    private static final double PURCHASE_TP = 20000.0D;
+
+    private void resetMiniClonePurchase(ServerPlayer sp)
+    {
+        StatsData data = sp.getCapability(com.dragonminez.common.stats.StatsCapability.INSTANCE).resolve().orElse(null);
+        if (data == null) return;
+        String id = net.shurui.shuruisutilities.clone.MiniClone.TECHNIQUE_ID;
+        data.getSkills().removeSkill(id);
+        data.getTechniques().getUnlockedTechniques().remove(id);
+        data.getResources().setTrainingPointsExact(PURCHASE_TP);
+    }
+
+    // DMZ's NpcDispositionService only lets Cell (and Frieza) serve evil-aligned players (alignment 40 or lower)
+    private void setAlignmentFor(ServerPlayer sp, String master)
+    {
+        StatsData data = sp.getCapability(com.dragonminez.common.stats.StatsCapability.INSTANCE).resolve().orElse(null);
+        if (data != null) data.getResources().setAlignment("cell".equals(master) ? 0 : 50);
+    }
+
+    private void reportMiniClonePurchase(ServerPlayer sp, String master)
+    {
+        StatsData data = sp.getCapability(com.dragonminez.common.stats.StatsCapability.INSTANCE).resolve().orElse(null);
+        if (data == null) return;
+        String id = net.shurui.shuruisutilities.clone.MiniClone.TECHNIQUE_ID;
+        boolean unlocked = data.getTechniques().getUnlockedTechniques().containsKey(id);
+        double spent = PURCHASE_TP - data.getResources().getTrainingPointsExact();
+        StringBuilder near = new StringBuilder();
+        for (com.dragonminez.common.init.entities.MastersEntity m : sp.serverLevel().getEntitiesOfClass(
+                com.dragonminez.common.init.entities.MastersEntity.class, sp.getBoundingBox().inflate(10.0D)))
+            near.append(m.getMasterName()).append('@').append(String.format("%.1f", m.distanceTo(sp))).append(' ');
+        for (com.dragonminez.common.init.entities.questnpc.QuestNPCEntity q : sp.serverLevel().getEntitiesOfClass(
+                com.dragonminez.common.init.entities.questnpc.QuestNPCEntity.class, sp.getBoundingBox().inflate(10.0D)))
+            near.append("npc:").append(q.getNpcId()).append('@').append(String.format("%.1f", q.distanceTo(sp))).append(' ');
+        Object blocker = com.dragonminez.common.alignment.NpcDispositionService.getServiceBlocker(sp, master);
+        index.add("masters | (purchase) | " + master + ": su_mini_clone unlocked=" + unlocked + ", TP spent=" + spent
+                + ", player at " + sp.blockPosition() + ", alignment=" + data.getResources().getAlignment()
+                + ", near=[" + near.toString().trim() + "], blocker=" + blocker);
+        LOGGER.info("[VisualTest] masters purchase at {}: unlocked={} spent={}", master, unlocked, spent);
+    }
+
+    private void castClonesFor(ServerPlayer sp, boolean namekian)
+    {
+        if (namekian) dressCaster(sp, true);
+        boolean ok = net.shurui.shuruisutilities.clone.MiniClone.spawn(sp, 1.75F);
+        int frozen = 0;
+        for (net.shurui.shuruisutilities.clone.MiniCloneEntity c : clonesOf(sp))
+        {
+            c.setNoAi(true);
+            c.setYRot(0.0F);
+            c.setYHeadRot(0.0F);
+            c.setYBodyRot(0.0F);
+            frozen++;
+        }
+        index.add("masters | (clones) | cast ok=" + ok + ", " + frozen + " clone(s)" + (namekian ? " (namekian)" : ""));
+    }
+
+    // the old path for comparison: a clone with no look snapshot draws the vanilla skin, as before this fix
+    private void setCloneSnapshots(ServerPlayer sp, boolean keep)
+    {
+        for (net.shurui.shuruisutilities.clone.MiniCloneEntity c : clonesOf(sp))
+            if (!keep) c.setLookSnapshot(null);
+    }
+
+    private List<net.shurui.shuruisutilities.clone.MiniCloneEntity> clonesOf(ServerPlayer sp)
+    {
+        return sp.serverLevel().getEntitiesOfClass(net.shurui.shuruisutilities.clone.MiniCloneEntity.class,
+                sp.getBoundingBox().inflate(16.0D), c -> sp.getUUID().equals(c.getOwnerProfileId()));
+    }
 
     /**
      * AVATAR: spawn a pair of owner-avatar planet defenders ({@code dmz_ragnarok:planet_owner_avatar}) with two different
@@ -1825,6 +3107,12 @@ public class VisualTestRunner
         step(2, this::starMapRecenter);
         step(8, () -> { });
         step(2, () -> grab("starmap", "zoomed_out", "Star map zoomed out: distant systems as icons with real textures"));
+        // the player marker up close: centre on the player and zoom in, so the heading arrow is the subject.
+        step(2, this::starMapFocusPlayer);
+        step(8, () -> { });
+        step(2, () -> grab("starmap", "player_arrow", "Centred on the player: the player drawn as an ARROW pointing their heading"));
+        step(2, this::starMapRecenter);
+        step(8, () -> { });
         step(2, () -> grab("starmap", "super_bodies",
                 "With the Super radar held: the seven super dragon balls drawn as orange orbs (labelled) near the centre"));
         step(2, this::starMapSelectFirstSystem);
@@ -1888,6 +3176,28 @@ public class VisualTestRunner
             index.add("starmap | (open) | FAILED: " + t);
             LOGGER.warn("[VisualTest] starmap open failed.", t);
         }
+    }
+
+    private void starMapFocusPlayer()
+    {
+        try
+        {
+            Screen scr = Minecraft.getInstance().screen;
+            Class<?> c = scr.getClass();
+            java.lang.reflect.Field pp = c.getDeclaredField("playerPos");
+            pp.setAccessible(true);
+            net.minecraft.world.phys.Vec3 pos = (net.minecraft.world.phys.Vec3) pp.get(scr);
+            for (String[] f : new String[][] {{"centreX", "x"}, {"centreZ", "z"}})
+            {
+                java.lang.reflect.Field fl = c.getDeclaredField(f[0]);
+                fl.setAccessible(true);
+                fl.setDouble(scr, "x".equals(f[1]) ? pos.x : pos.z);
+            }
+            java.lang.reflect.Field z = c.getDeclaredField("zoom");
+            z.setAccessible(true);
+            z.setDouble(scr, 0.25);
+        }
+        catch (Throwable t) { LOGGER.warn("[VisualTest] starmap focus player failed.", t); }
     }
 
     private void starMapRecenter()
@@ -2000,9 +3310,9 @@ public class VisualTestRunner
         for (float yaw : new float[] { 45.0F, 225.0F })
         {
             final int y = (int) yaw;
-            // gentle pitches near the horizon: at system distances (~8-30k) the height spread (systems at Y 650..1550 vs
-            // this Y 900 plane) is only a few degrees of elevation, so a near-horizon look catches the high and the low
-            // systems reading as sun + planet clusters at slightly different elevations.
+            // gentle pitches near the horizon: at system distances (~8-30k) even the full-column height spread (planets at
+            // Y -1776..1968 around this Y 0 plane) is a few degrees of elevation, so a near-horizon look catches the high
+            // and the low systems. The up/down "planets straight above and below" proof is the space3d block below.
             step(2, () -> lookSky(yaw, -12.0F));
             step(5, () -> lookSky(yaw, -12.0F));
             step(1, () -> grab("space", "systems_high_yaw" + y,
@@ -2012,6 +3322,12 @@ public class VisualTestRunner
             step(1, () -> grab("space", "systems_low_yaw" + y,
                     "Systems just below the horizon, yaw " + y + ": distant systems as sun + planets at varied heights"));
         }
+        // frame time looking across the system band (where most distant planets are on screen), ~5 s.
+        step(2, () -> lookSky(45.0F, -6.0F));
+        step(5, () -> lookSky(45.0F, -6.0F));
+        step(2, this::startFrameSampling);
+        step(100, () -> lookSky(45.0F, -6.0F));
+        step(2, () -> stopFrameSampling("space systems band, yaw 45"));
         // pod wake: spawn a pod at the player, MOUNT the player (a piloted pod, so the trail resolves the pilot's aura
         // colour), drive it forward so the client wake samples a streak, and shoot it in third person from behind and side.
         step(20, () -> onServer(this::spawnMovingPod));
@@ -2032,7 +3348,232 @@ public class VisualTestRunner
                         "Piloted pod under motion, camera to the SIDE: wake ribbon and rear exhaust plume"));
         }
         step(2, () -> onServer(this::dismountAndRemovePod));
+        buildSpace3d();
         step(2, () -> spaceForceDay(-1.0F));
+    }
+
+    // ---- REAL 3D SPACE (owner, 2026-10-22): planets above and below the player, and the in-world target pip.
+
+    private Vec3 pipAbove;   // the system planet highest above the camera, the pip's target
+    private String pipAboveId;
+
+    private void buildSpace3d()
+    {
+        // a steep system seen side on from outside, level with its sun: planets spread far above and below the sun.
+        step(20, () -> onServer(sp -> enterSystem(sp, 6500.0)));
+        step(30, () -> { });
+        step(2, () -> lookAtScene(0.0F));
+        step(8, () -> lookAtScene(0.0F));
+        step(1, () -> grab("space3d", "system_side_view", "A 3D star system side on, level with its sun: steep, "
+                + "varied orbital planes put planets far above and below the sun"));
+        // directly under one planet and directly over another.
+        step(20, () -> onServer(sp -> overPlanet(sp, true)));
+        step(30, () -> { });
+        step(2, () -> lookSky(0.0F, -90.0F));
+        step(8, () -> lookSky(0.0F, -90.0F));
+        step(1, () -> grab("space3d", "planet_straight_above", "A system planet STRAIGHT ABOVE the player (900 blocks up)"));
+        step(20, () -> onServer(sp -> overPlanet(sp, false)));
+        step(30, () -> { });
+        step(2, () -> lookSky(0.0F, 90.0F));
+        step(8, () -> lookSky(0.0F, 90.0F));
+        step(1, () -> grab("space3d", "planet_straight_below", "A system planet STRAIGHT BELOW the player (900 blocks down)"));
+        // the in-world target pip, on the target planet and pinned to the screen edge when it is off screen. The HUD is
+        // shown for these shots only (the pip is part of it), with the pip pointed at a planet of this system.
+        step(20, () -> onServer(sp -> enterSystem(sp, 1300.0)));
+        step(30, () -> { });
+        step(2, () -> { Minecraft.getInstance().options.hideGui = false; forcePip(pipAboveId); });
+        step(2, () -> lookAt(pipAbove));
+        step(10, () -> lookAt(pipAbove));
+        step(1, () -> grab("space3d", "pip_on_screen", "Target pip ON the target planet (name, distance, height above)"));
+        step(2, () -> lookAtScene(180.0F));
+        step(8, () -> lookAtScene(180.0F));
+        step(1, () -> grab("space3d", "pip_off_screen_behind", "Target planet behind the player: the pip pinned to the "
+                + "screen edge with an arrow"));
+        step(2, () -> lookAtScene(90.0F));
+        step(8, () -> lookAtScene(90.0F));
+        step(1, () -> grab("space3d", "pip_off_screen_side", "Target planet off to the side: the pip on the screen edge"));
+        step(2, () -> { forcePip(null); Minecraft.getInstance().options.hideGui = true; });
+    }
+
+    // ---- reflective access to the Space module (this harness is also compiled into core, which must not name it).
+
+    private static Object rField(Object target, String name) throws ReflectiveOperationException
+    {
+        return target.getClass().getField(name).get(target);
+    }
+
+    private static List<?> systemsOf(MinecraftServer server) throws ReflectiveOperationException
+    {
+        Class<?> gs = Class.forName("net.shurui.shuruisutilities.space.GeneratedSystems");
+        return (List<?>) gs.getMethod("allSystems", MinecraftServer.class).invoke(null, server);
+    }
+
+    private static long orbitEpoch() throws ReflectiveOperationException
+    {
+        return (Long) Class.forName("net.shurui.shuruisutilities.space.OrbitClock").getMethod("epochMillis").invoke(null);
+    }
+
+    private static Vec3 planetPos(Object sys, Object planet, long epoch) throws ReflectiveOperationException
+    {
+        Class<?> sp = Class.forName("net.shurui.shuruisutilities.space.GeneratedSystems$SystemPlanet");
+        return (Vec3) sys.getClass().getMethod("planetPositionAt", sp, long.class).invoke(sys, planet, epoch);
+    }
+
+    // the steepest system within 60000 of the origin (the largest planet swing), with at least 7 planets.
+    private static Object steepSystem(MinecraftServer server) throws ReflectiveOperationException
+    {
+        Object best = null;
+        double bestLift = -1.0;
+        for (Object sys : systemsOf(server))
+        {
+            double lift = (Double) rField(sys, "maxLift");
+            List<?> planets = (List<?>) rField(sys, "planets");
+            Vec3 star = (Vec3) rField(sys, "starPos");
+            if (planets.size() < 7 || Math.hypot(star.x, star.z) > 60000.0)
+            {
+                continue;
+            }
+            if (lift > bestLift)
+            {
+                bestLift = lift;
+                best = sys;
+            }
+        }
+        return best;
+    }
+
+    // beside that system's sun (out on X by {@code out}, at its height), outside its burn field.
+    private void enterSystem(ServerPlayer sp, double out)
+    {
+        try
+        {
+            MinecraftServer server = sp.getServer();
+            ServerLevel space = server == null ? null
+                    : server.getLevel(net.shurui.shuruisutilities.world.space.SpaceKeys.SPACE);
+            Object sys = server == null ? null : steepSystem(server);
+            if (space == null || sys == null)
+            {
+                index.add("space3d | (enter) | FAILED: no space level or no steep system");
+                return;
+            }
+            Vec3 star = (Vec3) rField(sys, "starPos");
+            double x = star.x + out;
+            double y = star.y;
+            double z = star.z;
+            sp.teleportTo(space, x, y, z, sp.getYRot(), sp.getXRot());
+            sceneX = star.x;
+            sceneY = star.y;
+            sceneZ = star.z;
+            long epoch = orbitEpoch();
+            Vec3 eye = new Vec3(x, y, z);
+            StringBuilder heights = new StringBuilder();
+            pipAbove = null;
+            double bestRise = -Double.MAX_VALUE;
+            Vec3 toSun = star.subtract(eye).normalize();
+            for (Object p : (List<?>) rField(sys, "planets"))
+            {
+                Vec3 pos = planetPos(sys, p, epoch);
+                heights.append(' ').append(Math.round(pos.y - y));
+                // the pip target: the highest planet that is not hidden behind the sun (over 20 degrees off it).
+                if (pos.subtract(eye).normalize().dot(toSun) < Math.cos(Math.toRadians(20.0)) && pos.y - y > bestRise)
+                {
+                    bestRise = pos.y - y;
+                    pipAbove = pos;
+                    pipAboveId = (String) rField(p, "id");
+                }
+            }
+            index.add("space3d | (enter) | system " + rField(sys, "starKey") + " sun at (" + Math.round(star.x) + ", "
+                    + Math.round(star.y) + ", " + Math.round(star.z) + "), max swing "
+                    + Math.round((Double) rField(sys, "maxLift")) + "; player at sun + " + Math.round(out)
+                    + " X; planet heights relative "
+                    + "to the player:" + heights + "; pip target " + pipAboveId + " " + Math.round(bestRise)
+                    + " above, " + Math.round(pipAbove == null ? 0.0 : pipAbove.distanceTo(eye)) + " away");
+        }
+        catch (ReflectiveOperationException e)
+        {
+            index.add("space3d | (enter) | FAILED: " + e);
+        }
+    }
+
+    // 900 blocks under the highest outer planet of the system (under = true), or over the lowest (false).
+    private void overPlanet(ServerPlayer sp, boolean under)
+    {
+        try
+        {
+            MinecraftServer server = sp.getServer();
+            ServerLevel space = server == null ? null
+                    : server.getLevel(net.shurui.shuruisutilities.world.space.SpaceKeys.SPACE);
+            Object sys = server == null ? null : steepSystem(server);
+            if (space == null || sys == null)
+            {
+                return;
+            }
+            long epoch = orbitEpoch();
+            Vec3 pick = null;
+            for (Object p : (List<?>) rField(sys, "planets"))
+            {
+                if ((Double) rField(p, "ringRadius") < 1500.0)
+                {
+                    continue;   // keep the camera well clear of the sun's burn field.
+                }
+                Vec3 pos = planetPos(sys, p, epoch);
+                if (pick == null || (under ? pos.y > pick.y : pos.y < pick.y))
+                {
+                    pick = pos;
+                }
+            }
+            if (pick == null)
+            {
+                return;
+            }
+            double y = under ? pick.y - 900.0 : pick.y + 900.0;
+            sp.teleportTo(space, pick.x, y, pick.z, sp.getYRot(), sp.getXRot());
+            index.add("space3d | (" + (under ? "under" : "over") + ") | planet at Y " + Math.round(pick.y)
+                    + ", player at Y " + Math.round(y));
+        }
+        catch (ReflectiveOperationException e)
+        {
+            index.add("space3d | (over) | FAILED: " + e);
+        }
+    }
+
+    private void forcePip(String id)
+    {
+        try
+        {
+            Class.forName("net.shurui.shuruisutilities.client.space.SpaceTargetPip")
+                    .getMethod("forceTarget", String.class).invoke(null, id);
+        }
+        catch (Throwable t)
+        {
+            LOGGER.warn("[VisualTest] space3d: force pip failed.", t);
+        }
+    }
+
+    // face the scene centre (sceneX/Y/Z) when extraYaw is 0, else turn that many degrees away from it, level.
+    private void lookAtScene(float extraYaw)
+    {
+        LocalPlayer p = Minecraft.getInstance().player;
+        if (p == null) return;
+        double dx = sceneX - p.getX();
+        double dz = sceneZ - p.getZ();
+        double dy = sceneY - p.getEyeY();
+        float yaw = (float) Math.toDegrees(Math.atan2(-dx, dz)) + extraYaw;
+        float pitch = extraYaw == 0.0F ? (float) -Math.toDegrees(Math.atan2(dy, Math.hypot(dx, dz))) : 0.0F;
+        lookSky(yaw, pitch);
+    }
+
+    // face a world point, a few degrees off it so the pip and the drawn body both read.
+    private void lookAt(Vec3 target)
+    {
+        LocalPlayer p = Minecraft.getInstance().player;
+        if (p == null || target == null) return;
+        double dx = target.x - p.getX();
+        double dz = target.z - p.getZ();
+        double dy = target.y - p.getEyeY();
+        float yaw = (float) Math.toDegrees(Math.atan2(-dx, dz)) + 8.0F;
+        float pitch = (float) -Math.toDegrees(Math.atan2(dy, Math.hypot(dx, dz))) + 6.0F;
+        lookSky(yaw, Mth.clamp(pitch, -90.0F, 90.0F));
     }
 
     /** Orient the riding player's view yaw so the third-person camera sits at the requested bearing around the pod. */
@@ -2066,15 +3607,15 @@ public class VisualTestRunner
         sp.getAbilities().mayfly = true;
         sp.getAbilities().flying = true;
         sp.onUpdateAbilities();
-        // Enter ABOVE the descend-out return altitude (SpaceTravelModule.returnAltitude, 288) so the space tick never
-        // pulls the player back down (the old Y=200 sat below the return floor and was evicted at once), and CLEAR of the
-        // central sun: the sun sits at (0, 900, 0) with a large 3x drawn body, so a camera near the origin column ends up
+        // Enter ABOVE the descend-out return altitude (SpaceTravelModule.returnAltitude, -1840) so the space tick never
+        // pulls the player back down, and CLEAR of the central sun: the sun sits at (0, PLANET_Y, 0) with a large 3x
+        // drawn body, so a camera near the origin column ends up
         // INSIDE the drawn sun and every shot fills with its glow. Sit on the body plane a few thousand blocks out on X,
         // well past the sun's danger radius (480) and drawn body, but still inside the reserved inner system (no body to
         // land on), so the player floats on the plane with the distant systems (which start ~12000 out) reading all around
         // and at their varied heights above/below this plane.
         double entryX = 3000.0D;
-        double entryY = 900.0D;
+        double entryY = 0.0D;   // PlanetPositions.PLANET_Y, the main sun plane (named reflectively elsewhere: core build)
         sp.teleportTo(space, entryX, entryY, 0.5D, sp.getYRot(), sp.getXRot());
         sceneX = entryX;
         sceneY = entryY;
@@ -2144,6 +3685,716 @@ public class VisualTestRunner
         podEntityId = -1;
     }
 
+    // ---------------------------------------------------------------- VEHICLES scenario (workbench, upgrade bench, tiers)
+
+    private BlockPos vehWorkbench;
+    private BlockPos vehUpgradeBench;
+
+    private void buildVehicles()
+    {
+        // short render distance: the software renderer at full distance is what ran the shared box out of memory
+        step(2, () -> { Minecraft.getInstance().options.renderDistance().set(2); Minecraft.getInstance().levelRenderer.allChanged(); });
+        // long first wait: the post-join resource reload overlay on a software-GL client
+        step(1200, () -> onServer(this::vehSetup));
+        step(40, () -> lookAtScene(0.0D, 1.6D, 4.5D));
+        step(20, () -> lookAtScene(0.0D, 1.6D, 4.5D));
+        step(2, () -> grab("vehicles", "consoles_in_world",
+                "Left: the full space console (vehicle workbench). Right: the compact console (upgrade bench)"));
+
+        // the workbench: list, a hoverbike, a DMZ vehicle, and a blueprint the player cannot afford
+        step(4, () -> keepScreen = true);
+        step(30, () -> onServer(sp -> vehOpen(sp, false)));
+        step(10, () -> vehSelect("dmz_ragnarok:hoverbike_1", 1));
+        step(10, () -> { });
+        step(2, () -> grab("vehicles", "workbench_hoverbike",
+                "Vehicle workbench on GuiTheme: blueprint list, Hoverbike Mk. I parts with have/need counts, Build"));
+        step(4, () -> vehSelect("dragonminez:cc576", 1));
+        step(10, () -> { });
+        step(2, () -> grab("vehicles", "workbench_cc576", "DMZ's Capsule Corp. 576 from DMZ vehicle parts"));
+        step(4, () -> vehSelect("dragonminez:frieza_capsule", 1));
+        step(10, () -> { });
+        step(2, () -> grab("vehicles", "workbench_frieza_short",
+                "Frieza's capsule: the gete ingot the player lacks is in red, Build disabled"));
+        step(4, () -> vehSelect("dmz_ragnarok:hoverbike_1", 2));
+        step(10, () -> { });
+        step(2, () -> grab("vehicles", "workbench_hoverbike_tier2", "The doubled-parts blueprint that builds a tier 2 bike"));
+        // build: two tier 1 bikes (to merge), one cc576 (to kit), one aircraft kit
+        step(6, () -> vehBuild("dmz_ragnarok:hoverbike_1", 1));
+        step(6, () -> vehBuild("dmz_ragnarok:hoverbike_1", 1));
+        step(6, () -> vehBuild("dragonminez:cc576", 1));
+        step(6, () -> vehBuild("dmz_ragnarok:aircraft_upgrade", 1));
+        step(60, () -> onServer(this::vehReportInventory));
+        step(2, () -> grab("vehicles", "workbench_after_build", "After building: the spent parts' counts dropped"));
+        step(4, () -> Minecraft.getInstance().player.closeContainer());
+
+        // the upgrade bench: merge two tier 1 bikes, then a kit on the cc576
+        step(30, () -> onServer(sp -> vehOpen(sp, true)));
+        step(10, () -> onServer(sp -> vehLoadBench(sp, "dmz_ragnarok:hoverbike_1", 2, null)));
+        step(40, () -> { });
+        step(2, () -> grab("vehicles", "upgrade_merge_preview", "Upgrade bench: two tier I bikes previewing one tier II"));
+        step(60, this::vehUpgrade);
+        step(2, () -> grab("vehicles", "upgrade_merge_done", "The merged tier II bike sits in the first slot"));
+        step(10, () -> onServer(this::vehReportBench));
+        step(10, () -> onServer(sp -> vehLoadBench(sp, "dragonminez:cc576", 1, "dmz_ragnarok:aircraft_upgrade")));
+        step(40, () -> { });
+        step(2, () -> grab("vehicles", "upgrade_kit_preview", "One tier I Capsule Corp. 576 plus one aircraft kit previewing tier II"));
+        step(60, this::vehUpgrade);
+        step(10, () -> onServer(this::vehReportBench));
+        step(2, () -> grab("vehicles", "upgrade_kit_done", "The cc576 is now tier II"));
+        step(4, () -> Minecraft.getInstance().player.closeContainer());
+        step(4, () -> keepScreen = false);
+        step(4, () -> onServer(this::vehTooltipReport));
+
+        // ride: the tier II cc576 placed through DMZ's own item (real right-click path), then a tier II hoverbike
+        step(20, () -> onServer(this::vehPlaceAndRideCc576));
+        step(20, () -> Minecraft.getInstance().options.setCameraType(CameraType.THIRD_PERSON_BACK));
+        step(30, () -> Minecraft.getInstance().options.keyUp.setDown(true));
+        step(40, () -> Minecraft.getInstance().options.keyUp.setDown(false));
+        step(2, () -> grab("vehicles", "ride_cc576_tier2", "Riding the tier II Capsule Corp. 576 (third person)"));
+        step(20, () -> onServer(this::vehPackUpCc576));
+        step(20, () -> onServer(this::vehRideHoverbike));
+        step(30, () -> Minecraft.getInstance().options.keyUp.setDown(true));
+        step(30, () -> Minecraft.getInstance().options.keyUp.setDown(false));
+        step(2, () -> grab("vehicles", "ride_hoverbike_tier2", "Riding the tier II Hoverbike Mk. I"));
+        step(10, () -> onServer(sp -> { sp.stopRiding(); vehReportHoverbike(sp); }));
+        step(4, () -> Minecraft.getInstance().options.setCameraType(CameraType.FIRST_PERSON));
+    }
+
+    private void vehSetup(ServerPlayer sp)
+    {
+        ServerLevel level = sp.serverLevel();
+        sp.getInventory().clearContent();
+        BlockPos base = sp.blockPosition().relative(net.minecraft.core.Direction.NORTH, 4);
+        vehWorkbench = base.west(2);
+        vehUpgradeBench = base.east(2);
+        for (int dx = -5; dx <= 5; dx++)
+            for (int dz = -2; dz <= 2; dz++)
+                for (int dy = 0; dy <= 2; dy++)
+                    level.setBlockAndUpdate(base.offset(dx, dy, dz), Blocks.AIR.defaultBlockState());
+        net.minecraft.world.level.block.state.properties.DirectionProperty facing =
+                net.shurui.shuruisutilities.spaceconsole.SpaceConsoleBlock.FACING;
+        level.setBlockAndUpdate(vehWorkbench, net.shurui.shuruisutilities.spaceconsole.SpaceConsoleBlocks.SPACE_CONSOLE_A
+                .get().defaultBlockState().setValue(facing, net.minecraft.core.Direction.SOUTH));
+        level.setBlockAndUpdate(vehUpgradeBench, net.shurui.shuruisutilities.spaceconsole.SpaceConsoleBlocks.SPACE_CONSOLE_B
+                .get().defaultBlockState().setValue(facing, net.minecraft.core.Direction.SOUTH));
+        // parts for two bikes, a cc576 and a kit; no gete ingot, so Frieza's capsule shows a shortfall
+        String[][] give = { { "dragonminez:vehicle_engine", "8" }, { "dragonminez:vehicle_plating", "16" },
+                { "dragonminez:vehicle_propeller", "8" }, { "dragonminez:vehicle_seat", "6" },
+                { "minecraft:redstone", "24" }, { "minecraft:glass", "4" }, { "minecraft:diamond", "3" },
+                { "minecraft:purple_dye", "2" } };
+        for (String[] g : give)
+        {
+            Item it = itemById(g[0]);
+            if (it != null)
+                sp.getInventory().add(new ItemStack(it, Integer.parseInt(g[1])));
+        }
+        sp.inventoryMenu.broadcastChanges();
+        sceneX = base.getX() + 0.5D;
+        sceneY = base.getY();
+        sceneZ = base.getZ() + 0.5D;
+        int blueprints = net.shurui.shuruisutilities.vehicleworkbench.VehicleWorkbenchRegistry
+                .sorted(level.getRecipeManager()).size();
+        int rules = level.getRecipeManager().getAllRecipesFor(
+                net.shurui.shuruisutilities.vehicleworkbench.VehicleWorkbenchRegistry.UPGRADE_TYPE.get()).size();
+        index.add("vehicles | (setup) | consoles at " + vehWorkbench + " / " + vehUpgradeBench + "; server loaded "
+                + blueprints + " vehicle_crafting and " + rules + " vehicle_upgrade recipe(s)");
+    }
+
+    private void vehOpen(ServerPlayer sp, boolean upgrade)
+    {
+        BlockPos pos = upgrade ? vehUpgradeBench : vehWorkbench;
+        BlockState state = sp.serverLevel().getBlockState(pos);
+        // the block's own right-click path, so this is exactly what a player clicking the console gets
+        state.use(sp.serverLevel(), sp, net.minecraft.world.InteractionHand.MAIN_HAND,
+                new net.minecraft.world.phys.BlockHitResult(net.minecraft.world.phys.Vec3.atCenterOf(pos),
+                        net.minecraft.core.Direction.SOUTH, pos, false));
+        index.add("vehicles | (open) | " + (upgrade ? "upgrade bench" : "workbench") + " menu "
+                + sp.containerMenu.getClass().getSimpleName());
+    }
+
+    private int vehIndexOf(String id, int tier)
+    {
+        if (!(Minecraft.getInstance().screen instanceof net.shurui.shuruisutilities.vehicleworkbench.client.VehicleWorkbenchScreen scr))
+            return -1;
+        var list = scr.recipes();
+        for (int i = 0; i < list.size(); i++)
+        {
+            ItemStack r = list.get(i).result();
+            if (id.equals(String.valueOf(ForgeRegistries.ITEMS.getKey(r.getItem())))
+                    && net.shurui.shuruisutilities.vehicleworkbench.VehicleTiers.tier(r) == tier)
+                return i;
+        }
+        return -1;
+    }
+
+    private void vehSelect(String id, int tier)
+    {
+        int i = vehIndexOf(id, tier);
+        if (Minecraft.getInstance().screen instanceof net.shurui.shuruisutilities.vehicleworkbench.client.VehicleWorkbenchScreen scr && i >= 0)
+        {
+            scr.select(i);
+            index.add("vehicles | (select) | " + id + " tier " + tier + " = blueprint " + i + " of " + scr.recipes().size());
+        }
+        else
+            index.add("vehicles | (select) | NOT FOUND " + id + " tier " + tier + " (screen "
+                    + (Minecraft.getInstance().screen == null ? "none" : Minecraft.getInstance().screen.getClass().getSimpleName()) + ")");
+    }
+
+    private void vehBuild(String id, int tier)
+    {
+        vehSelect(id, tier);
+        if (Minecraft.getInstance().screen instanceof net.shurui.shuruisutilities.vehicleworkbench.client.VehicleWorkbenchScreen scr)
+            scr.build();
+    }
+
+    private void vehReportInventory(ServerPlayer sp)
+    {
+        StringBuilder b = new StringBuilder();
+        for (ItemStack st : sp.getInventory().items)
+            if (!st.isEmpty())
+                b.append(ForgeRegistries.ITEMS.getKey(st.getItem()).getPath()).append(" x").append(st.getCount())
+                        .append(net.shurui.shuruisutilities.vehicleworkbench.VehicleTiers.isTiered(st)
+                                ? " (tier " + net.shurui.shuruisutilities.vehicleworkbench.VehicleTiers.tier(st) + ")" : "")
+                        .append(", ");
+        index.add("vehicles | (server inventory) | " + b);
+    }
+
+    /** Move vehicles (and optionally all kits) from the player's inventory into the open bench's slots, server side. */
+    private void vehLoadBench(ServerPlayer sp, String vehicleId, int copies, String kitId)
+    {
+        if (!(sp.containerMenu instanceof net.shurui.shuruisutilities.vehicleworkbench.VehicleUpgradeMenu menu))
+        {
+            index.add("vehicles | (bench) | FAILED: upgrade menu not open");
+            return;
+        }
+        // hand back whatever is in the bench first
+        for (int i = 0; i < net.shurui.shuruisutilities.vehicleworkbench.VehicleUpgradeMenu.BENCH_SLOTS; i++)
+        {
+            ItemStack in = menu.slots.get(i).getItem();
+            if (!in.isEmpty())
+            {
+                sp.getInventory().add(in.copy());
+                menu.slots.get(i).set(ItemStack.EMPTY);
+            }
+        }
+        int slot = 0;
+        var items = sp.getInventory().items;
+        for (int i = 0; i < items.size() && slot < copies; i++)
+        {
+            ItemStack st = items.get(i);
+            if (vehicleId.equals(String.valueOf(ForgeRegistries.ITEMS.getKey(st.getItem())))
+                    && net.shurui.shuruisutilities.vehicleworkbench.VehicleTiers.tier(st) == 1)
+            {
+                menu.slots.get(slot++).set(st.copy());
+                items.set(i, ItemStack.EMPTY);
+            }
+        }
+        if (kitId != null)
+            for (int i = 0; i < items.size(); i++)
+                if (kitId.equals(String.valueOf(ForgeRegistries.ITEMS.getKey(items.get(i).getItem()))))
+                {
+                    menu.slots.get(net.shurui.shuruisutilities.vehicleworkbench.VehicleUpgradeMenu.KIT_SLOT).set(items.get(i).copy());
+                    items.set(i, ItemStack.EMPTY);
+                    break;
+                }
+        menu.broadcastChanges();
+        index.add("vehicles | (bench) | loaded " + slot + " x " + vehicleId + (kitId != null ? " + " + kitId : ""));
+    }
+
+    private void vehUpgrade()
+    {
+        if (Minecraft.getInstance().screen instanceof net.shurui.shuruisutilities.vehicleworkbench.client.VehicleUpgradeScreen scr)
+        {
+            ItemStack pv = scr.preview();
+            index.add("vehicles | (bench preview) | " + (pv.isEmpty() ? "nothing"
+                    : pv.getHoverName().getString() + " tier " + net.shurui.shuruisutilities.vehicleworkbench.VehicleTiers.tier(pv)));
+            scr.upgrade();
+        }
+        else
+            index.add("vehicles | (bench) | FAILED: upgrade screen not open");
+    }
+
+    private void vehReportBench(ServerPlayer sp)
+    {
+        if (!(sp.containerMenu instanceof net.shurui.shuruisutilities.vehicleworkbench.VehicleUpgradeMenu menu))
+            return;
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < net.shurui.shuruisutilities.vehicleworkbench.VehicleUpgradeMenu.BENCH_SLOTS; i++)
+        {
+            ItemStack st = menu.slots.get(i).getItem();
+            b.append(i).append('=').append(st.isEmpty() ? "-" : ForgeRegistries.ITEMS.getKey(st.getItem()).getPath()
+                    + " x" + st.getCount() + " t" + net.shurui.shuruisutilities.vehicleworkbench.VehicleTiers.tier(st)).append(' ');
+        }
+        index.add("vehicles | (server bench) | " + b);
+    }
+
+    private void vehTooltipReport(ServerPlayer sp)
+    {
+        Item it = itemById("dmz_ragnarok:hoverbike_1");
+        if (it == null) return;
+        ItemStack st = net.shurui.shuruisutilities.vehicleworkbench.VehicleTiers.withTier(new ItemStack(it), 3);
+        Minecraft.getInstance().execute(() ->
+        {
+            var lines = st.getTooltipLines(Minecraft.getInstance().player, net.minecraft.world.item.TooltipFlag.NORMAL);
+            StringBuilder b = new StringBuilder();
+            for (var l : lines) b.append(l.getString()).append(" / ");
+            index.add("vehicles | (tooltip) | tier 3 hoverbike: " + b);
+        });
+    }
+
+    private net.minecraft.world.entity.LivingEntity vehCc576;
+
+    private void vehPlaceAndRideCc576(ServerPlayer sp)
+    {
+        ItemStack t2 = ItemStack.EMPTY;
+        for (ItemStack st : sp.getInventory().items)
+            if ("cc576".equals(ForgeRegistries.ITEMS.getKey(st.getItem()).getPath()))
+            { t2 = st; break; }
+        if (t2.isEmpty())
+        {
+            index.add("vehicles | (ride) | FAILED: no cc576 in the inventory");
+            return;
+        }
+        sp.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, t2.copy());
+        t2.setCount(0);
+        BlockPos ground = sp.blockPosition().relative(net.minecraft.core.Direction.SOUTH, 3).below();
+        sp.gameMode.useItemOn(sp, sp.serverLevel(), sp.getMainHandItem(), net.minecraft.world.InteractionHand.MAIN_HAND,
+                new net.minecraft.world.phys.BlockHitResult(net.minecraft.world.phys.Vec3.atCenterOf(ground).add(0, 0.5, 0),
+                        net.minecraft.core.Direction.UP, ground, false));
+        var found = sp.serverLevel().getEntitiesOfClass(com.dragonminez.common.init.entities.vehicle.VehicleEntity.class,
+                sp.getBoundingBox().inflate(8.0D));
+        if (found.isEmpty())
+        {
+            index.add("vehicles | (ride) | FAILED: the cc576 did not spawn");
+            return;
+        }
+        vehCc576 = found.get(0);
+        int tier = net.shurui.shuruisutilities.vehicleworkbench.VehicleTiers.entityTier(vehCc576);
+        double f = net.shurui.shuruisutilities.vehicleworkbench.VehicleTiers.factor(vehCc576,
+                net.shurui.shuruisutilities.vehicleworkbench.VehicleTiers.SPEED_ID);
+        boolean rode = sp.startRiding(vehCc576, true);
+        index.add(String.format(Locale.ROOT, "vehicles | (ride) | cc576 placed via DMZ's item: entity tier %d, speed factor %.2f, name '%s', mounted %s",
+                tier, f, vehCc576.getCustomName() == null ? "" : vehCc576.getCustomName().getString(), rode));
+    }
+
+    private void vehPackUpCc576(ServerPlayer sp)
+    {
+        if (vehCc576 == null) return;
+        sp.stopRiding();
+        sp.attack(vehCc576);
+        var drops = sp.serverLevel().getEntitiesOfClass(net.minecraft.world.entity.item.ItemEntity.class,
+                vehCc576.getBoundingBox().inflate(4.0D));
+        String got = "none";
+        for (var d : drops)
+            if ("cc576".equals(ForgeRegistries.ITEMS.getKey(d.getItem().getItem()).getPath()))
+                got = "cc576 tier " + net.shurui.shuruisutilities.vehicleworkbench.VehicleTiers.tier(d.getItem());
+        index.add("vehicles | (pack up) | hit the cc576: removed=" + vehCc576.isRemoved() + ", dropped " + got);
+    }
+
+    private net.shurui.shuruisutilities.hoverbike.HoverbikeEntity vehBike;
+
+    private void vehRideHoverbike(ServerPlayer sp)
+    {
+        var bike = new net.shurui.shuruisutilities.hoverbike.HoverbikeEntity(sp.serverLevel(), sp.getX(), sp.getY(), sp.getZ());
+        bike.setVariant(1);
+        bike.setTier(2);
+        bike.setYRot(sp.getYRot());
+        sp.serverLevel().addFreshEntity(bike);
+        vehBike = bike;
+        boolean rode = sp.startRiding(bike, true);
+        index.add("vehicles | (hoverbike) | spawned tier " + bike.getTier() + " bike, mounted " + rode);
+    }
+
+    private void vehReportHoverbike(ServerPlayer sp)
+    {
+        if (vehBike == null) return;
+        ItemStack pick = vehBike.getPickResult();
+        index.add("vehicles | (hoverbike) | tier " + vehBike.getTier() + ", pick/drop item tier "
+                + net.shurui.shuruisutilities.vehicleworkbench.VehicleTiers.tier(pick)
+                + String.format(Locale.ROOT, ", tier speed x%.2f, durability x%.2f",
+                net.shurui.shuruisutilities.vehicleworkbench.VehicleTiers.speedMult(vehBike.getTier()),
+                net.shurui.shuruisutilities.vehicleworkbench.VehicleTiers.durabilityMult(vehBike.getTier())));
+        vehBike.discard();
+    }
+
+    // ---------------------------------------------------------------- PODFLY scenario (pod 3D aura + flight smoothness)
+
+    /** True while the pod flight probe records frames and ticks (client thread only). */
+    private volatile boolean podProbe = false;
+    /** One row per rendered frame: {nanos, camera x y z, pod render x y z}. */
+    private final List<double[]> podProbeFrames = new ArrayList<>();
+    private final List<Double> podProbeTickMoves = new ArrayList<>();
+    private int podProbeTicks, podProbeFrozen, podProbeSnaps, podProbeNoChunk;
+    private double[] podProbeTickStart, podProbeTickEnd;
+    private int podProbeNoPod;
+    /** Frames where the pod's chunk section was not compiled: vanilla's entity pass would not draw it then. */
+    private int podProbeUncompiledFrames;
+    /** Server side of the probe (server thread only): ticks the pilot was not seated, the pod gone, its chunk unloaded. */
+    private volatile int srvUnseated, srvPodGone, srvChunkMissing, srvTicks;
+    private volatile String srvPodGoneWhy = "";
+    private volatile int srvUntracked, srvNotTicking;
+    /** Largest gap between the server pod and the pilot's client pod (both live in this one JVM). */
+    private volatile double srvMaxLag;
+    private volatile Entity srvPodRef;
+    private long podProbeFrameStart;
+    private float podProbeFramePt;
+    /**
+     * Free shot camera around the ridden pod: the bearing (degrees, the world yaw from the pod to the camera; NaN = the
+     * normal camera), distance and height. It only moves the camera, so the pod keeps flying the pilot's course.
+     */
+    private volatile float podCamBearing = Float.NaN;
+    private volatile double podCamDist = 9.0D, podCamHeight = 2.5D;
+    private static Method cameraSetPosition;
+
+    /** Record where the camera and the pod were drawn on each frame while the probe runs. */
+    @SubscribeEvent
+    public void onRenderTickPod(TickEvent.RenderTickEvent event)
+    {
+        if (!podProbe)
+            return;
+        if (event.phase == TickEvent.Phase.START)
+        {
+            // the frame's partial tick is fixed here, so its timestamp belongs here too (an END stamp adds render jitter)
+            podProbeFrameStart = System.nanoTime();
+            podProbeFramePt = event.renderTickTime;
+            return;
+        }
+        LocalPlayer p = Minecraft.getInstance().player;
+        Entity pod = p == null ? null : p.getVehicle();
+        if (pod == null || podProbeFrameStart == 0L)
+            return;
+        net.minecraft.world.phys.Vec3 cam = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
+        float pt = podProbeFramePt;
+        if (!Minecraft.getInstance().levelRenderer.isChunkCompiled(pod.blockPosition()))
+            podProbeUncompiledFrames++;
+        podProbeFrames.add(new double[] { podProbeFrameStart, cam.x, cam.y, cam.z,
+                Mth.lerp(pt, pod.xOld, pod.getX()), Mth.lerp(pt, pod.yOld, pod.getY()),
+                Mth.lerp(pt, pod.zOld, pod.getZ()) });
+    }
+
+    /** Server half of the probe: what the SERVER pod is doing while the client reports trouble. */
+    @SubscribeEvent
+    public void onServerTickPod(TickEvent.ServerTickEvent event)
+    {
+        if (event.phase != TickEvent.Phase.END || !podProbe || podEntityId < 0)
+            return;
+        MinecraftServer server = net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
+        if (server == null)
+            return;
+        for (ServerPlayer sp : server.getPlayerList().getPlayers())
+        {
+            srvTicks++;
+            Entity pod = srvPodRef;
+            if (sp.getVehicle() == null)
+                srvUnseated++;
+            if (pod == null || pod.isRemoved())
+            {
+                srvPodGone++;
+                if (pod != null && srvPodGoneWhy.isEmpty())
+                    srvPodGoneWhy = String.valueOf(pod.getRemovalReason());
+            }
+            else if (sp.serverLevel().getEntity(podEntityId) == null)
+                srvUntracked++;
+            LocalPlayer lp = Minecraft.getInstance().player;
+            Entity clientPod = lp == null ? null : lp.getVehicle();
+            if (pod != null && clientPod != null)
+                srvMaxLag = Math.max(srvMaxLag, pod.position().distanceTo(clientPod.position()));
+            Entity at = pod != null ? pod : sp;
+            if (!sp.serverLevel().isPositionEntityTicking(at.blockPosition()))
+                srvNotTicking++;
+            if (sp.serverLevel().getChunkSource().getChunkNow(at.getBlockX() >> 4, at.getBlockZ() >> 4) == null)
+                srvChunkMissing++;
+            break;
+        }
+    }
+
+    /** Place the shot camera around the ridden pod, looking at its centre (dev harness only). */
+    @SubscribeEvent
+    public void onCameraAnglesPod(net.minecraftforge.client.event.ViewportEvent.ComputeCameraAngles event)
+    {
+        float bearing = podCamBearing;
+        if (Float.isNaN(bearing))
+            return;
+        LocalPlayer p = Minecraft.getInstance().player;
+        Entity pod = p == null ? null : p.getVehicle();
+        if (pod == null)
+            return;
+        float pt = (float) event.getPartialTick();
+        double cx = Mth.lerp(pt, pod.xOld, pod.getX());
+        double cy = Mth.lerp(pt, pod.yOld, pod.getY()) + 1.2D;
+        double cz = Mth.lerp(pt, pod.zOld, pod.getZ());
+        double rad = Math.toRadians(bearing);
+        double ox = -Math.sin(rad) * podCamDist, oz = Math.cos(rad) * podCamDist, oy = podCamHeight;
+        try
+        {
+            if (cameraSetPosition == null)
+            {
+                cameraSetPosition = net.minecraft.client.Camera.class.getDeclaredMethod("setPosition",
+                        net.minecraft.world.phys.Vec3.class);
+                cameraSetPosition.setAccessible(true);
+            }
+            cameraSetPosition.invoke(event.getCamera(), new net.minecraft.world.phys.Vec3(cx + ox, cy + oy, cz + oz));
+        }
+        catch (Throwable t)
+        {
+            return;
+        }
+        double flat = Math.sqrt(ox * ox + oz * oz);
+        event.setYaw((float) Math.toDegrees(Math.atan2(ox, -oz)));
+        event.setPitch((float) Math.toDegrees(Math.atan2(oy, flat)));
+    }
+
+    /**
+     * Per client tick: a pod that did not move during a tick while the throttle is held is a FREEZE (its entity did not
+     * tick, or travel did nothing); a pod that moved between the end of one tick and the start of the next was moved by
+     * a packet (a SNAP, e.g. a ClientboundMoveVehiclePacket correction).
+     */
+    @SubscribeEvent
+    public void onClientTickPod(TickEvent.ClientTickEvent event)
+    {
+        if (!podProbe)
+            return;
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null || mc.level == null)
+            return;
+        Entity pod = mc.player.getVehicle();
+        if (pod == null)
+        {
+            if (event.phase == TickEvent.Phase.END)
+                podProbeNoPod++;
+            return;
+        }
+        double[] now = { pod.getX(), pod.getY(), pod.getZ() };
+        if (event.phase == TickEvent.Phase.START)
+        {
+            if (podProbeTickEnd != null && dist3(now, podProbeTickEnd) > 1.0e-4)
+                podProbeSnaps++;
+            podProbeTickStart = now;
+            return;
+        }
+        if (podProbeTickStart == null)
+            return;
+        podProbeTicks++;
+        double moved = dist3(now, podProbeTickStart);
+        podProbeTickMoves.add(moved);
+        if (moved < 1.0e-4)
+            podProbeFrozen++;
+        if (!mc.level.getChunkSource().hasChunk(BlockPos.containing(now[0], now[1], now[2]).getX() >> 4,
+                BlockPos.containing(now[0], now[1], now[2]).getZ() >> 4))
+            podProbeNoChunk++;
+        podProbeTickEnd = now;
+    }
+
+    private static double dist3(double[] a, double[] b)
+    {
+        double dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    private void podProbeStart()
+    {
+        podProbeFrames.clear();
+        podProbeTickMoves.clear();
+        podProbeTicks = podProbeFrozen = podProbeSnaps = podProbeNoChunk = podProbeNoPod = 0;
+        podProbeFrameStart = 0L;
+        podProbeUncompiledFrames = 0;
+        srvUnseated = srvPodGone = srvChunkMissing = srvTicks = srvUntracked = srvNotTicking = 0;
+        srvMaxLag = 0.0;
+        srvPodGoneWhy = "";
+        podProbeTickStart = podProbeTickEnd = null;
+        podProbe = true;
+    }
+
+    /**
+     * Summarise the probe: per-frame speeds of the camera and of the drawn pod against the pod's true per-tick speed,
+     * and of the camera RELATIVE to the pod (any non-zero value there is the pod visibly shaking on screen).
+     */
+    private void podProbeStop(String label)
+    {
+        podProbe = false;
+        List<double[]> f = new ArrayList<>(podProbeFrames);
+        List<Double> camV = new ArrayList<>(), podV = new ArrayList<>(), relV = new ArrayList<>(), dts = new ArrayList<>();
+        for (int i = 1; i < f.size(); i++)
+        {
+            double[] a = f.get(i - 1), b = f.get(i);
+            double dt = (b[0] - a[0]) / 1.0e9;
+            if (dt <= 0.0)
+                continue;
+            dts.add(dt * 1000.0);
+            camV.add(Math.sqrt(sq(b[1] - a[1]) + sq(b[2] - a[2]) + sq(b[3] - a[3])) / dt);
+            podV.add(Math.sqrt(sq(b[4] - a[4]) + sq(b[5] - a[5]) + sq(b[6] - a[6])) / dt);
+            relV.add(Math.sqrt(sq((b[1] - b[4]) - (a[1] - a[4])) + sq((b[2] - b[5]) - (a[2] - a[5]))
+                    + sq((b[3] - b[6]) - (a[3] - a[6]))) / dt);
+        }
+        double travel = 0.0;
+        for (double m : podProbeTickMoves)
+            travel += m;
+        double tickSpeed = podProbeTicks > 0 ? travel / podProbeTicks : 0.0;
+        double expected = tickSpeed * 20.0;
+        int camHitch = 0, podHitch = 0;
+        for (int i = 0; i < camV.size(); i++)
+        {
+            if (Math.abs(camV.get(i) - expected) > 0.35 * expected) camHitch++;
+            if (Math.abs(podV.get(i) - expected) > 0.35 * expected) podHitch++;
+        }
+        String line = String.format(Locale.ROOT,
+                "podfly | (probe) | %s: ticks=%d noPodTicks=%d frozenTicks=%d snaps=%d noChunkTicks=%d tickStep=%.3f (cv %.3f) "
+                        + "expected=%.1f b/s | frames=%d (pod section uncompiled %d) frameMs med=%.1f p95=%.1f max=%.1f | camSpeed med=%.1f cv=%.3f "
+                        + "offFrames=%d | podSpeed med=%.1f cv=%.3f offFrames=%d | camVsPod med=%.3f max=%.3f b/s"
+                        + " | server: ticks=%d unseated=%d podRemoved=%d (%s) podUntracked=%d podChunkUnloaded=%d"
+                        + " podNotEntityTicking=%d maxServerLag=%.1f",
+                label, podProbeTicks, podProbeNoPod, podProbeFrozen, podProbeSnaps, podProbeNoChunk, tickSpeed, cv(podProbeTickMoves),
+                expected, f.size(), podProbeUncompiledFrames, pct(dts, 0.5), pct(dts, 0.95), pct(dts, 1.0), pct(camV, 0.5), cv(camV), camHitch,
+                pct(podV, 0.5), cv(podV), podHitch, pct(relV, 0.5), pct(relV, 1.0), srvTicks, srvUnseated, srvPodGone,
+                srvPodGoneWhy, srvUntracked, srvChunkMissing, srvNotTicking, srvMaxLag);
+        index.add(line);
+        LOGGER.info("[VisualTest] {}", line);
+    }
+
+    private static double sq(double v)
+    {
+        return v * v;
+    }
+
+    private static double pct(List<Double> v, double q)
+    {
+        if (v.isEmpty())
+            return 0.0;
+        List<Double> s = new ArrayList<>(v);
+        s.sort(Double::compare);
+        return s.get((int) Math.min(s.size() - 1, Math.floor(q * (s.size() - 1))));
+    }
+
+    private static double cv(List<Double> v)
+    {
+        if (v.size() < 2)
+            return 0.0;
+        double mean = 0.0;
+        for (double x : v) mean += x;
+        mean /= v.size();
+        double var = 0.0;
+        for (double x : v) var += sq(x - mean);
+        var /= v.size();
+        return mean > 1.0e-9 ? Math.sqrt(var) / mean : 0.0;
+    }
+
+    /** Turn on DMZ's 3D aura for the local player with the given style, and push it to the server. */
+    private void podAura3D(String style)
+    {
+        try
+        {
+            com.dragonminez.common.config.GeneralUserConfig cfg = com.dragonminez.common.config.ConfigManager.getUserConfig();
+            cfg.setAura3DPersonal(true);
+            cfg.setAura3DStyle(style);
+            com.dragonminez.client.render.effects.AuraModeState.pushLocalPreference();
+            index.add("podfly | (aura) | local 3D aura on, style " + style);
+        }
+        catch (Throwable t)
+        {
+            index.add("podfly | (aura) | FAILED to set the 3D aura: " + t);
+        }
+    }
+
+    private void podThrottle(boolean down)
+    {
+        Minecraft.getInstance().options.keyUp.setDown(down);
+    }
+
+    /** Spawn a pod at the player and seat him as its pilot (a normal ridden pod: no AI change, client-controlled). */
+    private void spawnPilotPod(ServerPlayer sp)
+    {
+        podEntityId = -1;
+        EntityType<?> type = ForgeRegistries.ENTITY_TYPES.getValue(new ResourceLocation("dragonminez", "spacepod"));
+        Entity e = type == null ? null : type.create(sp.serverLevel());
+        if (e == null)
+        {
+            index.add("podfly | (pod) | NOTE: dragonminez:spacepod unavailable");
+            return;
+        }
+        e.moveTo(sp.getX(), sp.getY(), sp.getZ(), 270.0F, 0.0F);
+        if (sp.serverLevel().addFreshEntity(e))
+        {
+            podEntityId = e.getId();
+            srvPodRef = e;
+            boolean rode = sp.startRiding(e, true);
+            index.add("podfly | (pod) | spawned and mounted pod id=" + podEntityId + " mounted=" + rode);
+        }
+    }
+
+    /** Set the ridden pod's cruise speed (FLYING_SPEED * 0.45 blocks per tick in space, see PodSpeedBoost). */
+    private void podCruise(ServerPlayer sp, double blocksPerTick)
+    {
+        if (!(sp.getVehicle() instanceof net.minecraft.world.entity.LivingEntity pod)) return;
+        var inst = pod.getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.FLYING_SPEED);
+        if (inst != null) inst.setBaseValue(blocksPerTick / 0.45D);
+        index.add(String.format(Locale.ROOT, "podfly | (pod) | cruise set to %.2f blocks/tick", blocksPerTick));
+    }
+
+    private void podShots(String style)
+    {
+        // the pod flies east (+X): bearing 90 puts the camera west of it (behind), about 0 south (its right side), 270
+        // east (in front). The free camera only moves the view, so the pod keeps its course. Each shot waits 40 ticks:
+        // a screenshot stalls the client, and DMZ restarts a 3D aura's grow-in after any gap over two ticks.
+        step(40, () -> podCamBearing = 90.0F);
+        step(1, () -> grab("podfly", style + "_behind", "Pod flying east, camera BEHIND, " + style
+                + " 3D aura: shell wraps the pod, flame streams back toward the camera"));
+        step(40, () -> podCamBearing = 10.0F);
+        step(1, () -> grab("podfly", style + "_side", "Pod flying east (left to right), camera at its SIDE, " + style
+                + " 3D aura: shell wraps the whole pod, tail trails to the left (behind)"));
+        step(40, () -> podCamBearing = 270.0F);
+        step(1, () -> grab("podfly", style + "_front", "Pod flying toward the camera, " + style
+                + " 3D aura: pod inside the shell, flame streaming away behind it"));
+        step(40, () -> podCamBearing = 35.0F);
+        step(1, () -> grab("podfly", style + "_quarter", "Pod flying east, camera behind and to the side, " + style
+                + " 3D aura trailing behind"));
+        step(1, () -> podCamBearing = Float.NaN);
+    }
+
+    private void buildPodFly()
+    {
+        // a short render distance keeps the software renderer fast; slow frames make DMZ restart the 3D aura's grow-in
+        // on its own (more than two game ticks between draws), which would spoil every aura shot.
+        step(2, () -> { Minecraft.getInstance().options.renderDistance().set(2); Minecraft.getInstance().levelRenderer.allChanged(); });
+        step(6, () -> sendCommand(Minecraft.getInstance(), "gamemode creative"));
+        step(60, () -> onServer(this::enterSpace));
+        step(40, () -> { });
+        step(4, () -> spaceForceDay(0.05F));
+        step(4, () -> podAura3D("smooth"));
+        step(20, () -> onServer(sp -> DmzCharacterSetup.setForcedAura(sp, true)));
+        step(30, () -> onServer(this::spawnPilotPod));
+        step(10, () -> podCam(270.0F));
+        // parked: the shell lies back along the pod's heading.
+        step(10, () -> { });
+        step(40, () -> podCamBearing = 90.0F);
+        step(1, () -> grab("podfly", "parked_behind", "Parked pod, camera behind: smooth 3D aura wraps the pod, laid back"));
+        step(40, () -> podCamBearing = 10.0F);
+        step(1, () -> grab("podfly", "parked_side", "Parked pod from the side: shell wraps the pod, tail toward the back (left)"));
+        step(1, () -> podCamBearing = Float.NaN);
+
+        // flying (smooth style): throttle held, shots from three sides.
+        step(30, () -> podThrottle(true));
+        podShots("smooth");
+
+        // clean probes, no screenshots inside them (a screenshot stalls a frame).
+        step(20, () -> { });
+        step(160, () -> podProbeStart());
+        step(1, () -> podProbeStop("cruise_floor_throttle"));
+        step(20, () -> onServer(sp -> podCruise(sp, 12.0D)));
+        step(160, () -> podProbeStart());
+        step(1, () -> podProbeStop("fast_12bpt_throttle"));
+        step(20, () -> onServer(sp -> podCruise(sp, 2.16D)));
+
+        // sparking style while flying.
+        step(30, () -> podAura3D("sparking"));
+        podShots("sparking");
+
+        step(4, () -> podThrottle(false));
+        step(2, () -> podCamBearing = Float.NaN);
+        step(4, () -> onServer(sp -> DmzCharacterSetup.setForcedAura(sp, false)));
+        step(2, () -> onServer(this::dismountAndRemovePod));
+        step(2, () -> spaceForceDay(-1.0F));
+    }
+
     // ---------------------------------------------------------------- WRAP + MEMORY scenario (land v4, walk off edge)
 
     private void buildWrap()
@@ -2151,10 +4402,12 @@ public class VisualTestRunner
         step(6, () -> sendCommand(Minecraft.getInstance(), "gamemode creative"));
         // land on a fresh (v4) overworld planet; it stamps as it lands.
         step(80, () -> onServer(sp -> spaceDebugLand(sp, "landWetPlanet", "wrap")));
-        // wait for the stamp to complete (poll the generated flag) up to ~15 s.
+        // wait for the stamp to complete (poll the generated flag) up to ~5 min: a size 218 v4 planet takes about 220 s
+        // on a 4-core box (headless profile), longer on a software-rendered client sharing its cores with the
+        // integrated server. The remaining polls are dropped the moment the flag is set.
         step(4, () -> {});
-        for (int i = 0; i < 40; ++i)
-            step(6, () -> wrapWaitForStamp());
+        for (int i = 0; i < 1000; ++i)
+            step(6, wrapPoll);
         // record the pre-move position, then teleport the player just past the +x real edge and let tickOnSurface wrap.
         step(4, () -> onServer(this::wrapMoveOffEdge));
         for (int i = 0; i < 12; ++i)
@@ -2181,9 +4434,16 @@ public class VisualTestRunner
         index.add(scenario + " | (land) | " + method + " -> planet id=" + (wrapPlanetId.isEmpty() ? "NONE" : wrapPlanetId));
     }
 
+    private final Runnable wrapPoll = this::wrapWaitForStamp;
+
     private void wrapWaitForStamp()
     {
-        if (wrapStampDone || wrapPlanetId.isEmpty()) return;
+        if (wrapStampDone)
+        {
+            script.removeIf(st -> st.body() == wrapPoll);
+            return;
+        }
+        if (wrapPlanetId.isEmpty()) return;
         onServer(sp ->
         {
             double[] g = (double[]) spaceDebug("planetWrapGeom",
@@ -2270,6 +4530,435 @@ public class VisualTestRunner
         catch (Throwable t)
         {
             index.add("mem | (heap) | failed: " + t);
+        }
+    }
+
+    // ---------------------------------------------------------------- OCARINA scenario (menu, meditation pose, effects)
+
+    /**
+     * OCARINA: learn every song (DMZ skill levels), raise the ocarina the real way (the key's OPEN request), shoot the
+     * menu, start a song and shoot the pose from the front, the side and three quarters (DMZ's meditation with both
+     * hands at the mouth), then finish two songs at a perfect score and shoot the effect icons in the inventory.
+     */
+    private void buildOcarina()
+    {
+        String sc = "ocarina";
+        waitForNoOverlay();
+        step(20, () -> onServer(sp ->
+        {
+            DmzCharacterSetup.ensureCharacter(sp);
+            sp.getAbilities().flying = false;
+            sp.onUpdateAbilities();
+            // a small stage in the sky, so nothing stands between the camera and the pose
+            int gy = 200;
+            for (int dx = -3; dx <= 3; dx++)
+                for (int dz = -3; dz <= 3; dz++)
+                    sp.serverLevel().setBlockAndUpdate(new BlockPos(sp.getBlockX() + dx, gy - 1, sp.getBlockZ() + dz),
+                            Blocks.SMOOTH_QUARTZ.defaultBlockState());
+            sp.teleportTo(sp.serverLevel(), sp.getBlockX() + 0.5D, gy, sp.getBlockZ() + 0.5D, 0.0F, 0.0F);
+            com.dragonminez.common.stats.StatsData d = sp.getCapability(
+                    com.dragonminez.common.stats.StatsCapability.INSTANCE).resolve().orElse(null);
+            if (d != null)
+            {
+                for (net.shurui.shuruisutilities.ocarina.OcarinaSong s : net.shurui.shuruisutilities.ocarina.OcarinaSong.values())
+                    d.getSkills().setSkillLevel(s.skillId, s.ordinal() == 3 ? 0 : 5);
+                d.getSkills().setSkillLevel("ocarina_boost", 10);
+            }
+            try { com.dragonminez.common.network.NetworkHandler.sendToTrackingEntityAndSelf(
+                    new com.dragonminez.common.network.S2C.StatsSyncS2C(sp), sp); }
+            catch (Throwable ignored) { }
+            index.add(sc + " | (setup) | songs learned, levels " + java.util.Arrays.toString(levelsOf(d))
+                    + ", tapion offering " + com.dragonminez.common.config.ConfigManager.getSkillsConfig()
+                    .getSkillOfferings().get("tapion"));
+        }));
+        step(30, () -> { keepScreen = true; onServer(sp -> net.shurui.shuruisutilities.api.key.OcarinaHooks.get()
+                .onPacket(sp, net.shurui.shuruisutilities.ocarina.PacketOcarina.OPEN, 0, 0)); });
+        step(2, () -> { Minecraft.getInstance().options.hideGui = false; });
+        step(2, () -> grab(sc, "menu", "Ocarina menu (GuiTheme): learned songs with level, phrase and the server's "
+                + "numbers at that level, a Play button each; Hildegarn's Seal not learned (greyed, learn at Tapion)"));
+        step(2, () -> { Minecraft.getInstance().options.hideGui = true; });
+        // Start Ocarina Boost from the server, as the Play button would: the menu closes and the song begins.
+        step(10, () -> onServer(sp -> net.shurui.shuruisutilities.api.key.OcarinaHooks.get()
+                .onPacket(sp, net.shurui.shuruisutilities.ocarina.PacketOcarina.PLAY, 1, 0)));
+        step(10, () -> keepScreen = false);
+        for (Angle a : new Angle[] { Angle.FRONT, Angle.RIGHT, Angle.THREE_QUARTER, Angle.LEFT })
+        {
+            // the front shot uses the front camera: with the body turned, DMZ's held clip turns it back
+            CameraType cam = a == Angle.FRONT ? CameraType.THIRD_PERSON_FRONT : CameraType.THIRD_PERSON_BACK;
+            float yaw = a == Angle.FRONT ? 0.0F : a.bodyYaw;
+            step(1, () -> { Minecraft.getInstance().options.setCameraType(cam); holdPlayer(yaw); });
+            step(2, () -> holdPlayer(yaw));
+            step(2, () -> holdPlayer(yaw));
+            step(1, () -> grab(sc, "pose_" + a.label, "Playing the ocarina, " + a.label
+                    + ": DMZ meditation pose (legs folded, floating) with both hands raised to the mouth holding the ocarina"));
+        }
+        step(2, () -> { Minecraft.getInstance().options.hideGui = false; holdPlayer(180.0F); });
+        step(2, () -> grab(sc, "rhythm", "The song's rhythm minigame running over the meditating player (HUD on)"));
+        step(2, () -> { Minecraft.getInstance().options.hideGui = true; });
+        // A perfect score for the boost, then Ki Resonance, so the real songs lay their effects.
+        step(10, () -> onServer(sp -> net.shurui.shuruisutilities.api.key.OcarinaHooks.get()
+                .onPacket(sp, net.shurui.shuruisutilities.ocarina.PacketOcarina.SCORE, 1, 1_000_000)));
+        step(10, () -> { net.shurui.shuruisutilities.client.combat.ClashRhythmOverlay.reset(); });
+        step(4, () -> onServer(sp ->
+        {
+            var hooks = net.shurui.shuruisutilities.api.key.OcarinaHooks.get();
+            hooks.onPacket(sp, net.shurui.shuruisutilities.ocarina.PacketOcarina.OPEN, 0, 0);
+            hooks.onPacket(sp, net.shurui.shuruisutilities.ocarina.PacketOcarina.PLAY, 5, 0);
+            hooks.onPacket(sp, net.shurui.shuruisutilities.ocarina.PacketOcarina.SCORE, 5, 1_000_000);
+        }));
+        step(30, () -> { net.shurui.shuruisutilities.client.combat.ClashRhythmOverlay.reset(); Minecraft.getInstance().setScreen(null); });
+        step(4, () -> onServer(sp ->
+        {
+            com.dragonminez.common.stats.StatsData d = sp.getCapability(
+                    com.dragonminez.common.stats.StatsCapability.INSTANCE).resolve().orElse(null);
+            String held = sp.getMainHandItem().getHoverName().getString();
+            index.add(sc + " | (check) | after Boost Lv10 + Resonance Lv5 at a perfect score: boost effect="
+                    + sp.getEffect(net.shurui.shuruisutilities.ocarina.OcarinaEffects.BOOST.get())
+                    + " resonance=" + sp.getEffect(net.shurui.shuruisutilities.ocarina.OcarinaEffects.RESONANCE.get())
+                    + " dmz boost power=" + (d == null ? "?" : d.getEffects().getEffectPower("dmzr_ocarina_boost"))
+                    + " STR mult=" + (d == null ? "?" : d.getEffectsMultiplier("STR"))
+                    + " hand after=" + held);
+            // the hindering effects cannot land on the player by a song (they never hit allies), so put them on
+            // directly for the icon shot
+            sp.addEffect(new net.minecraft.world.effect.MobEffectInstance(
+                    net.shurui.shuruisutilities.ocarina.OcarinaEffects.DRAIN.get(), 600, 9));
+            sp.addEffect(new net.minecraft.world.effect.MobEffectInstance(
+                    net.shurui.shuruisutilities.ocarina.OcarinaEffects.SEAL.get(), 600, 0));
+            sp.addEffect(new net.minecraft.world.effect.MobEffectInstance(
+                    net.shurui.shuruisutilities.ocarina.OcarinaEffects.CALM.get(), 600, 0));
+        }));
+        step(30, () -> onServer(sp ->
+        {
+            var speed = sp.getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.MOVEMENT_SPEED);
+            com.dragonminez.common.stats.StatsData d = sp.getCapability(
+                    com.dragonminez.common.stats.StatsCapability.INSTANCE).resolve().orElse(null);
+            index.add(sc + " | (check) | drain Lv10 + seal on the player: movement speed attr=" + speed.getValue()
+                    + " (base " + speed.getBaseValue() + "), dmz drain power="
+                    + (d == null ? "?" : d.getEffects().getEffectPower("dmzr_ocarina_drain"))
+                    + " STR mult=" + (d == null ? "?" : d.getEffectsMultiplier("STR")));
+        }));
+        step(4, () ->
+        {
+            keepScreen = true;
+            Minecraft.getInstance().options.hideGui = false;
+            Minecraft mc = Minecraft.getInstance();
+            mc.setScreen(new net.minecraft.client.gui.screens.inventory.InventoryScreen(mc.player));
+        });
+        step(4, () -> grab(sc, "effects", "Inventory: the five custom ocarina effect icons and names (Ocarina Boost X, "
+                + "Ki Resonance V, Ocarina Drain X, Hildegarn's Seal, Lulled)"));
+        step(2, () ->
+        {
+            keepScreen = false;
+            Minecraft.getInstance().setScreen(null);
+            Minecraft.getInstance().options.hideGui = true;
+            onServer(sp ->
+            {
+                sp.removeAllEffects();
+                sp.getAbilities().flying = true;
+                sp.onUpdateAbilities();
+            });
+        });
+    }
+
+    private int overlayWaits;
+
+    /** A first run streams the server's art and reloads resources once: wait for that loading overlay to go. */
+    private void waitForNoOverlay()
+    {
+        overlayWaits = 0;
+        step(20, this::overlayStep);
+    }
+
+    private void overlayStep()
+    {
+        if (Minecraft.getInstance().getOverlay() != null && overlayWaits++ < 90)
+            script.addFirst(new Step(20, this::overlayStep));
+    }
+
+    private static int[] levelsOf(com.dragonminez.common.stats.StatsData d)
+    {
+        net.shurui.shuruisutilities.ocarina.OcarinaSong[] all = net.shurui.shuruisutilities.ocarina.OcarinaSong.values();
+        int[] out = new int[all.length];
+        if (d != null)
+            for (net.shurui.shuruisutilities.ocarina.OcarinaSong s : all)
+                out[s.ordinal()] = d.getSkills().getSkillLevel(s.skillId);
+        return out;
+    }
+
+    // ---------------------------------------------------------------- TAPION scenario (master beside Trunks' ship)
+
+    private volatile int tapionId = -1;
+    private volatile boolean tapionFromShip;
+
+    /**
+     * TAPION: go to Trunks' ship (DMZ's structure plan position for trunks_ship, salt 66332211) and wait for DMZ's
+     * StructureNpcs to place Tapion beside it; if the world has no ship, summon him beside the player instead (and
+     * say so). Shoot him and the ship from three sides, buy a song from him through DMZ's own purchase packet, and
+     * open DMZ's master skill screen for him (his offering: the songs plus his extra skills).
+     */
+    private void buildTapion()
+    {
+        String sc = "tapion";
+        waitForNoOverlay();
+        step(10, () -> onServer(sp ->
+        {
+            DmzCharacterSetup.ensureCharacter(sp);
+            ServerLevel lvl = sp.server.overworld();
+            net.minecraft.world.level.ChunkPos ship = null;
+            try
+            {
+                ship = com.dragonminez.server.world.structure.placement.StructureSpawnPlanner.publishedPositions(lvl)
+                        .get(66332211);
+            }
+            catch (Throwable t) { LOGGER.warn("[VisualTest] tapion: no structure plan.", t); }
+            index.add(sc + " | (plan) | trunks_ship planned chunk " + ship);
+            if (ship != null)
+            {
+                sp.teleportTo(lvl, ship.getMiddleBlockX() + 0.5D, 140.0D, ship.getMiddleBlockZ() + 20.5D, 180.0F, 30.0F);
+                tapionFromShip = true;
+            }
+        }));
+        // Let the chunks generate and StructureNpcs place him (it scans loaded chunks a few per tick).
+        for (int i = 0; i < 30; i++)
+            step(20, this::findTapion);
+        step(5, () ->
+        {
+            if (tapionId >= 0)
+                return;
+            tapionFromShip = false;
+            onServer(sp ->
+            {
+                try
+                {
+                    EntityType<?> type = ForgeRegistries.ENTITY_TYPES.getValue(new ResourceLocation("dragonminez", "quest_npc"));
+                    Entity e = type.create(sp.serverLevel());
+                    if (e instanceof com.dragonminez.common.init.entities.questnpc.QuestNPCEntity q)
+                    {
+                        q.setNpcId("tapion");
+                        q.setNpcModel("dmz_ragnarok:geo/entity/sdu_wide.geo.json");
+                        q.setNpcTexture("dmz_ragnarok:textures/entity/npc/tapion.png");
+                        q.moveTo(sp.getX() + 3.0D, sp.serverLevel().getHeight(
+                                net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING,
+                                sp.getBlockX() + 3, sp.getBlockZ()), sp.getZ(), 90.0F, 0.0F);
+                        sp.serverLevel().addFreshEntity(q);
+                        index.add(sc + " | (spawn) | NO ship in this world: Tapion summoned beside the player (fallback)");
+                    }
+                }
+                catch (Throwable t) { LOGGER.warn("[VisualTest] tapion: summon failed.", t); }
+            });
+        });
+        step(20, this::findTapion);
+        for (Object[] a : new Object[][] { { "front", 0.0D }, { "three_quarter", 45.0D }, { "side", 90.0D } })
+        {
+            double deg = (Double) a[1];
+            step(4, () -> aimAtTapion(deg, 3.5D, 1.5D));
+            step(2, () -> { aimAtTapion(deg, 3.5D, 1.5D); Minecraft.getInstance().getToasts().clear(); });
+            step(1, () -> grab(sc, "tapion_" + a[0], "Tapion (Konatsian hero skin) " + a[0]
+                    + (tapionFromShip ? ", standing outside Trunks' ship" : ", summoned fallback")));
+        }
+        step(4, this::aimFromShip);
+        step(2, this::aimFromShip);
+        step(1, () -> grab(sc, "ship_wide", tapionFromShip ? "Wide: Trunks' ship with Tapion on the ground beside it"
+                : "Wide: fallback Tapion (no ship in this world)"));
+        // Buy a song the real way: DMZ's purchase packet, judged by DMZ against Tapion's offering within 10 blocks.
+        step(4, () -> aimAtTapion(0.0D, 4.0D, 1.6D));
+        step(10, () -> onServer(sp ->
+        {
+            com.dragonminez.common.stats.StatsData d = sp.getCapability(
+                    com.dragonminez.common.stats.StatsCapability.INSTANCE).resolve().orElse(null);
+            if (d != null)
+            {
+                d.getSkills().removeSkill("ocarina_seal");
+                d.getResources().setTrainingPoints(100000.0F);
+            }
+            try { com.dragonminez.common.network.NetworkHandler.sendToTrackingEntityAndSelf(
+                    new com.dragonminez.common.network.S2C.StatsSyncS2C(sp), sp); }
+            catch (Throwable ignored) { }
+        }));
+        step(20, () -> com.dragonminez.common.network.NetworkHandler.sendToServer(
+                new com.dragonminez.common.network.C2S.UpdateSkillC2S(
+                        com.dragonminez.common.network.C2S.UpdateSkillC2S.SkillAction.PURCHASE, "ocarina_seal", 0)));
+        step(10, () -> onServer(sp ->
+        {
+            com.dragonminez.common.stats.StatsData d = sp.getCapability(
+                    com.dragonminez.common.stats.StatsCapability.INSTANCE).resolve().orElse(null);
+            index.add(sc + " | (buy) | after PURCHASE ocarina_seal at Tapion: level="
+                    + (d == null ? "?" : d.getSkills().getSkillLevel("ocarina_seal"))
+                    + " TP left=" + (d == null ? "?" : d.getResources().getTrainingPoints()));
+        }));
+        step(4, () ->
+        {
+            Minecraft mc = Minecraft.getInstance();
+            Entity t = mc.level == null ? null : mc.level.getEntity(tapionId);
+            if (!(t instanceof net.minecraft.world.entity.LivingEntity le))
+            {
+                index.add(sc + " | (shop) | FAILED: no Tapion on the client");
+                return;
+            }
+            keepScreen = true;
+            mc.options.hideGui = false;
+            mc.setScreen(new com.dragonminez.client.gui.MastersSkillsScreen("tapion", le));
+        });
+        step(30, () -> { selectShopSkill("ocarina_drain"); Minecraft.getInstance().getToasts().clear(); });
+        step(10, () -> { });
+        step(2, () -> grab(sc, "shop_skills", "DMZ's master skill shop for Tapion, Skills tab: the six ocarina songs "
+                + "and his generic skills with TP prices"));
+        step(10, () -> pressShopCategory("KI"));
+        step(2, () -> grab(sc, "shop_ki", "Tapion's shop, Ki attacks tab (his ki techniques)"));
+        step(10, () -> pressShopCategory("STRIKE"));
+        step(2, () -> grab(sc, "shop_strike", "Tapion's shop, Strike tab (his sword techniques)"));
+        step(2, () -> { keepScreen = false; Minecraft.getInstance().setScreen(null); Minecraft.getInstance().options.hideGui = true; });
+        // Repair: delete him the way an admin tool would; the key clears DMZ's placement and he is placed again.
+        step(4, () -> onServer(sp ->
+        {
+            Entity t = null;
+            for (Entity e : sp.serverLevel().getAllEntities())
+                if (e instanceof com.dragonminez.common.init.entities.questnpc.QuestNPCEntity q && "tapion".equals(q.getNpcId()))
+                    t = e;
+            if (t == null) { index.add(sc + " | (repair) | no Tapion to remove"); return; }
+            tapionUuid = t.getUUID();
+            index.add(sc + " | (repair) | discarding Tapion " + tapionUuid + " at " + t.blockPosition());
+            t.discard();
+        }));
+        step(100, () -> { });
+        step(4, () -> onServer(sp ->
+        {
+            StringBuilder found = new StringBuilder();
+            for (Entity e : sp.serverLevel().getAllEntities())
+                if (e instanceof com.dragonminez.common.init.entities.questnpc.QuestNPCEntity q && "tapion".equals(q.getNpcId()))
+                    found.append(e.getUUID().equals(tapionUuid) ? "SAME " : "NEW ").append(e.getUUID()).append('@')
+                            .append(e.blockPosition()).append(" master=").append(q.isMasterNpc()).append(' ');
+            index.add(sc + " | (repair) | after removal: " + (found.length() == 0 ? "none" : found)
+                    + (tapionFromShip ? "" : "(fallback Tapion has no placement, so none is expected)"));
+        }));
+        step(20, () -> { });
+    }
+
+    private volatile java.util.UUID tapionUuid;
+
+    private void findTapion()
+    {
+        if (tapionId >= 0)
+            return;
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null) return;
+        for (Entity e : mc.level.entitiesForRendering())
+            if (e instanceof com.dragonminez.common.init.entities.questnpc.QuestNPCEntity q && "tapion".equals(q.getNpcId()))
+            {
+                tapionId = e.getId();
+                final Entity found = e;
+                index.add("tapion | (found) | Tapion at " + e.blockPosition() + (tapionFromShip ? " (placed by StructureNpcs)" : ""));
+                onServer(sp ->
+                {
+                    StringBuilder near = new StringBuilder();
+                    for (Entity o : sp.serverLevel().getEntities(found, found.getBoundingBox().inflate(24.0D), x -> !(x instanceof net.minecraft.world.entity.player.Player)))
+                        near.append(ForgeRegistries.ENTITY_TYPES.getKey(o.getType())).append('@').append(o.blockPosition()).append(' ');
+                    Entity st = sp.serverLevel().getEntity(found.getUUID());
+                    index.add("tapion | (server) | master="
+                            + (st instanceof com.dragonminez.common.init.entities.questnpc.QuestNPCEntity q2 && q2.isMasterNpc())
+                            + " name=" + found.getDisplayName().getString() + " nearby: " + near);
+                });
+                return;
+            }
+    }
+
+    /** Stand past Tapion on the line from the ship's centre (Trunks) and look back at both. */
+    private void aimFromShip()
+    {
+        Minecraft mc = Minecraft.getInstance();
+        LocalPlayer p = mc.player;
+        Entity t = mc.level == null ? null : mc.level.getEntity(tapionId);
+        if (p == null || t == null) return;
+        Entity trunks = null;
+        for (Entity e : mc.level.entitiesForRendering())
+            if (e instanceof com.dragonminez.common.init.entities.AllMastersEntity.MasterTrunks)
+                trunks = e;
+        double sx = trunks != null ? trunks.getX() : t.getX(), sz = trunks != null ? trunks.getZ() : t.getZ() - 8.0D;
+        double dx = t.getX() - sx, dz = t.getZ() - sz, len = Math.max(0.1D, Math.sqrt(dx * dx + dz * dz));
+        // off the line a little, so the ship's legs do not hide him
+        double ox = -dz / len * 5.0D, oz = dx / len * 5.0D;
+        double cx = t.getX() + dx / len * 14.0D + ox, cz = t.getZ() + dz / len * 14.0D + oz, cy = t.getY() + 5.0D;
+        double lx = (t.getX() + sx) / 2.0D - cx, lz = (t.getZ() + sz) / 2.0D - cz, ly = t.getY() + 4.0D - cy;
+        float yaw = (float) (Mth.atan2(lz, lx) * (180D / Math.PI)) - 90.0F;
+        float pitch = (float) (-(Mth.atan2(ly, Math.sqrt(lx * lx + lz * lz)) * (180D / Math.PI)));
+        mc.options.setCameraType(CameraType.FIRST_PERSON);
+        mc.getToasts().clear();
+        p.setPos(cx, cy, cz);
+        p.setDeltaMovement(0, 0, 0);
+        p.setYRot(yaw); p.yRotO = yaw; p.setXRot(pitch); p.xRotO = pitch; p.setYHeadRot(yaw); p.setYBodyRot(yaw);
+        final float fyaw = yaw, fpitch = pitch;
+        onServer(sp ->
+        {
+            sp.getAbilities().flying = true;
+            sp.onUpdateAbilities();
+            sp.teleportTo(sp.serverLevel(), cx, cy, cz, fyaw, fpitch);
+        });
+    }
+
+    private void aimAtTapion(double orbitDeg, double radius, double height)
+    {
+        Minecraft mc = Minecraft.getInstance();
+        LocalPlayer p = mc.player;
+        Entity t = mc.level == null ? null : mc.level.getEntity(tapionId);
+        if (p == null || t == null) return;
+        mc.options.setCameraType(CameraType.FIRST_PERSON);
+        float body = t instanceof net.minecraft.world.entity.LivingEntity le ? le.yBodyRot : t.getYRot();
+        double rad = Math.toRadians(orbitDeg + body);
+        double cx = t.getX() - Math.sin(rad) * radius;
+        double cz = t.getZ() + Math.cos(rad) * radius;
+        double cy = t.getY() + height;
+        double dx = t.getX() - cx, dy = (t.getY() + 1.4D) - cy, dz = t.getZ() - cz;
+        double flat = Math.sqrt(dx * dx + dz * dz);
+        float yaw = (float) (Mth.atan2(dz, dx) * (180D / Math.PI)) - 90.0F;
+        float pitch = (float) (-(Mth.atan2(dy, flat) * (180D / Math.PI)));
+        // the eye sits 1.62 above the feet: place the feet so the eye is at the wanted height
+        cy -= p.getEyeHeight();
+        p.setPos(cx, cy, cz);
+        p.setDeltaMovement(0, 0, 0);
+        p.setYRot(yaw); p.yRotO = yaw; p.setXRot(pitch); p.xRotO = pitch; p.setYHeadRot(yaw); p.setYBodyRot(yaw);
+        final double fx = cx, fy = cy, fz = cz;
+        final float fyaw = yaw, fpitch = pitch;
+        onServer(sp ->
+        {
+            sp.getAbilities().flying = true;
+            sp.onUpdateAbilities();
+            sp.teleportTo(sp.serverLevel(), fx, fy, fz, fyaw, fpitch);
+        });
+    }
+
+    private void selectShopSkill(String id)
+    {
+        try
+        {
+            Screen s = Minecraft.getInstance().screen;
+            setField(s, "selectedSkill", id);
+            Method m = s.getClass().getDeclaredMethod("refreshButtons");
+            m.setAccessible(true);
+            m.invoke(s);
+        }
+        catch (Throwable t)
+        {
+            index.add("tapion | (shop) | could not select " + id + ": " + t);
+        }
+    }
+
+    private void pressShopCategory(String name)
+    {
+        try
+        {
+            Screen s = Minecraft.getInstance().screen;
+            @SuppressWarnings("unchecked")
+            java.util.Map<Object, Object> buttons = (java.util.Map<Object, Object>) getField(s, "categoryButtons");
+            Object hit = null;
+            for (java.util.Map.Entry<Object, Object> e : new java.util.ArrayList<>(buttons.entrySet()))
+                if (e.getKey().toString().equals(name))
+                    hit = e.getValue();
+            if (hit != null)
+                ((net.minecraft.client.gui.components.Button) hit).onPress();
+        }
+        catch (Throwable t)
+        {
+            index.add("tapion | (shop) | could not switch to " + name + ": " + t);
         }
     }
 

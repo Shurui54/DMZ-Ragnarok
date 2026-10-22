@@ -121,6 +121,23 @@ public final class OverShoulderCrosshairOverlay {
     }
 
     /**
+     * Third person: cancel the vanilla crosshair overlay outright. Vanilla never draws a crosshair in third person, so
+     * the only thing this removes is DragonMineZ's own shoulder-camera crosshair (DMZ 2.2 draws it inside that
+     * overlay through its Gui mixin); ours is a separate overlay and is the one players see. HIGHEST so DMZ's own
+     * Pre handler (a tint) never runs for a crosshair that is not drawn.
+     */
+    @SubscribeEvent(priority = net.minecraftforge.eventbus.api.EventPriority.HIGHEST)
+    public static void onPreCrosshairThirdPerson(RenderGuiOverlayEvent.Pre event) {
+        if (!VanillaGuiOverlay.CROSSHAIR.id().equals(event.getOverlay().id())) {
+            return;
+        }
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player != null && !mc.options.getCameraType().isFirstPerson()) {
+            event.setCanceled(true);
+        }
+    }
+
+    /**
      * First person: cancel vanilla's crosshair and draw ours at screen centre (aim projects there, no offset
      * needed). Forge only fires this once vanilla's own gating (hidden HUD, open screen, spectator) has passed.
      */
@@ -168,7 +185,9 @@ public final class OverShoulderCrosshairOverlay {
             smoothValid = false;
             return;
         }
-        if (!OverShoulderCamera.isRunning()) {
+        // DragonMineZ 2.2 draws its own crosshair while its shoulder camera is decoupled; that one is cancelled in
+        // onPreCrosshairThirdPerson, so ours is the only reticle and shows whenever the shoulder camera is on.
+        if (!OverShoulderCamera.isActive(mc.player, false)) {
             smoothValid = false;
             return;
         }

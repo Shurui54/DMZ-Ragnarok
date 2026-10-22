@@ -17,8 +17,8 @@ import net.shurui.shuruisutilities.shard.ShardChat;
 import net.shurui.shuruisutilities.util.output.logger.LoggingHandler;
 
 /**
- * The dormancy mechanic for DragonMineZ ball sets: when a set is spent on a wish its balls turn to stone (grey,
- * translucent, radar hidden and unusable), and after a per set duration they wake, which is announced across the
+ * The dormancy mechanic for DragonMineZ ball sets: when a set is spent on a wish its balls turn to stone (drawn as
+ * solid stone, radar hidden and unusable), and after a per set duration they wake, which is announced across the
  * whole network. This class is the server side hub: it owns the durations, marks a set dormant, sweeps for wakes,
  * and answers "is this set dormant" for the summon gate and the radar strip.
  *
@@ -31,8 +31,8 @@ import net.shurui.shuruisutilities.util.output.logger.LoggingHandler;
  * <p>A dragon summon CONSUMES the seven balls, then DMZ re-scatters the set when the dragon despawns. We do NOT try
  * to stop that scatter: the freshly scattered set is exactly the stone the player is meant to see. Instead the set
  * is marked dormant here, which the three seams honour: the summon is refused ({@link MixinDmzDragonBallBlock}),
- * the balls are stripped from every radar ({@code MixinDmzRadarDormant}), and they draw grey and see through
- * ({@code MixinDmzDragonBallDormantRender}). Suppressing the scatter instead would leave no ball blocks at all,
+ * the balls are stripped from every radar ({@code MixinDmzRadarDormant}), and they draw as solid stone
+ * ({@code SuDragonBallBlockRenderer}). Suppressing the scatter instead would leave no ball blocks at all,
  * which is incompatible with the grey stone the owner asked for, so we neutralise the set's USABILITY rather than
  * its existence. See the report for the full reasoning.
  */
@@ -47,6 +47,9 @@ public final class BallDormancy
     // Super only: one REAL life day of WALL clock time. Deliberately a different clock from the others (see
     // BallDormancyStorage.Clock): a real day passes whether or not the server is running.
     public static final long SUPER_WALL_MILLIS = 24L * 60L * 60L * 1000L;
+
+    /** How far a carried (foreign) wall-clock deadline may sit beyond a week, to absorb clock skew between hosts. */
+    private static final long FOREIGN_SLACK_MILLIS = 2L * 60L * 60L * 1000L;
 
     /** The one set measured on the wall clock. Every other set uses game time. */
     public static final String WALL_CLOCK_SET = "super";
@@ -110,6 +113,7 @@ public final class BallDormancy
                         setId, deadline);
             }
 
+            BallDormancyNetwork.publish(setId, remainingMillis(server, setId));
             BallDormancySync.broadcast(server);
             refreshRadar(server);
         }
@@ -133,6 +137,7 @@ public final class BallDormancy
             boolean cleared = BallDormancyStorage.get(server).clear(setId);
             if (cleared)
             {
+                BallDormancyNetwork.publish(setId, -1L);
                 BallDormancySync.broadcast(server);
                 refreshRadar(server);
             }
@@ -207,8 +212,10 @@ public final class BallDormancy
                 reason = "no live DMZ ball set by that id (stale/migrated record)";
             else if (d.clock() == BallDormancyStorage.Clock.WALL)
             {
-                if (d.deadline() > maxWallDeadline)
-                    reason = "wall-clock deadline " + d.deadline() + " is beyond max " + maxWallDeadline
+                // A record carried from another shard is a wall-clock deadline up to a week (plus clock slack) ahead.
+                long max = d.foreign() ? now + WEEK_TICKS * 50L + FOREIGN_SLACK_MILLIS : maxWallDeadline;
+                if (d.deadline() > max)
+                    reason = "wall-clock deadline " + d.deadline() + " is beyond max " + max
                             + " (record from a clock ahead of this server)";
             }
             else if (d.deadline() > maxGameDeadline)
@@ -310,7 +317,14 @@ public final class BallDormancy
                 continue;
             storage.clear(setId);
             anyWoke = true;
+            if (d.foreign())
+            {
+                // wished on another shard: that shard announces the wake network-wide, so this one wakes quietly
+                LoggingHandler.sulog.info("[dormancy] {} set woke (carried from another server)", setId);
+                continue;
+            }
             announceWake(server, setId);
+            BallDormancyNetwork.publish(setId, -1L);
             LoggingHandler.sulog.info("[dormancy] {} set woke ({} clock)", setId, d.clock());
         }
         if (anyWoke)
@@ -325,6 +339,12 @@ public final class BallDormancy
     {
         ServerLevel overworld = server.getLevel(Level.OVERWORLD);
         return overworld == null ? 0L : overworld.getGameTime();
+    }
+
+    /** Rebuild and resend every radar packet (for {@link BallDormancyNetwork}). */
+    static void refreshRadarPublic(MinecraftServer server)
+    {
+        refreshRadar(server);
     }
 
     // Rebuild and resend every radar packet. syncRadar gathers all sets across all dimensions and sends to all

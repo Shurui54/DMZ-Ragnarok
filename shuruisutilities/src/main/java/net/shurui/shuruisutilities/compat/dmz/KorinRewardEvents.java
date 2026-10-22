@@ -48,12 +48,14 @@ public final class KorinRewardEvents
      * (NPCActionC2S.handleKarin, option 2, redirected here by MixinDmzKorinSenzu). It used to fire on right clicking
      * Korin, alongside DMZ's own gift of DMZ beans; the owner wants ONE handout, of our beans, once a week, through
      * Korin's real dialogue. DMZ's own gift and its tick-based cooldown no longer run.
+     *
+     * @return true when beans were handed over (DMZ 2.2 reports it to the dialogue as the action's success)
      */
-    public static void grantFromDialogue(ServerPlayer player)
+    public static boolean grantFromDialogue(ServerPlayer player)
     {
         MinecraftServer server = player.getServer();
         if (server == null)
-            return;
+            return false;
 
         KorinCooldowns cooldowns = KorinCooldowns.get(server);
         long now = System.currentTimeMillis();
@@ -63,13 +65,13 @@ public final class KorinRewardEvents
             long remaining = cooldowns.remainingMillis(player.getUUID(), now);
             player.displayClientMessage(Component.translatable(
                     "message.dmz_ragnarok.core.korin_senzu.cooldown", formatRemaining(remaining)), false);
-            return;
+            return false;
         }
 
         int count = SenzuModule.korinBeanCount();
         Item bean = SenzuRegistry.beanById("bean_senzu");
         if (bean == null || count <= 0)
-            return; // registry not ready or misconfigured: do nothing rather than stamp a wasted cooldown.
+            return false; // registry not ready or misconfigured: do nothing rather than stamp a wasted cooldown.
 
         giveOrDrop(player, new ItemStack(bean, count));
 
@@ -80,6 +82,7 @@ public final class KorinRewardEvents
 
         player.displayClientMessage(Component.translatable(
                 "message.dmz_ragnarok.core.korin_senzu.granted", count), false);
+        return true;
     }
 
     /**

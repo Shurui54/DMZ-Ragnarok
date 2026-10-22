@@ -13,28 +13,29 @@ import software.bernie.geckolib.core.object.Color;
 import com.dragonminez.common.init.block.entity.DragonBallBlockEntity;
 
 /**
- * Decides how a DORMANT dragon ball should be tinted and typed, so a petrified set reads as dim, greyed stone.
- * {@link net.shurui.shuruisutilities.core.mixin.client.MixinDmzDragonBallDormantRender} calls into this from
- * GeckoLib's own {@code getRenderColor} and {@code getRenderType} seams; nothing here touches the buffer, because
- * GeckoLib bakes the tint into every vertex as explicit floats and never reads colour back from the buffer (the
- * earlier wrapper approach, now gone, learned that the hard way).
+ * Decides how a DORMANT dragon ball is drawn: solid stone, as if the ball had turned to rock. Every ball block is drawn
+ * by the suite's {@link net.shurui.shuruisutilities.client.dball.SuDragonBallBlockRenderer} (it replaces DMZ's
+ * GeckoLib renderer), which draws a dormant ball in its active shape (the same sphere, or the ball geo in cube style)
+ * with {@link #STONE_TEXTURE}; any other GeckoLib path reaches
+ * the same look through {@link net.shurui.shuruisutilities.core.mixin.client.MixinDmzDragonBallDormantRender}, which
+ * calls the two methods below from GeckoLib's {@code getRenderColor} and {@code getRenderType} seams.
  *
  * <h2>What it returns</h2>
  * <ul>
- *   <li>{@link #dormantColour(GeoAnimatable)}: a mid grey with reduced alpha for a dormant ball, otherwise
- *       {@code null} to mean "leave GeckoLib's default {@code Color.WHITE}". The grey is a MULTIPLY tint, so it dims
- *       the ball toward stone rather than fully desaturating it (a multiply cannot lift the texture's near zero blue
- *       channel back up), which reads as dead and petrified.</li>
- *   <li>{@link #dormantType(GeoAnimatable, ResourceLocation)}: a blending {@code entityTranslucent} type reusing the
- *       ball's own texture for a dormant ball, otherwise {@code null} to mean "leave GeckoLib's default". The
- *       default is {@code entityCutoutNoCull}, which only alpha TESTS, so without this the reduced alpha would do
- *       nothing.</li>
+ *   <li>{@link #dormantType(GeoAnimatable, ResourceLocation)}: the ball's own model drawn with VANILLA'S STONE TEXTURE
+ *       in an opaque cutout type, so it reads as grey rock with stone grain and no shine; otherwise {@code null},
+ *       meaning GeckoLib's default (the ball's own texture). The ball model's UVs simply sample the tiling stone
+ *       texture, so no new asset is needed and nothing extra is drawn: the cost is a texture binding.</li>
+ *   <li>{@link #dormantColour(GeoAnimatable)}: plain white (no tint, fully opaque) for a dormant ball, so the stone
+ *       texture shows true; otherwise {@code null} for GeckoLib's default. (Until 1.5.x this was a translucent grey
+ *       multiply over the ball's own texture, which read as a dim, see-through ball rather than stone.)</li>
  * </ul>
  *
  * <h2>Fail safe</h2>
  * The dormant check reads {@link BallDormancyClient}, a client only cache that reports nothing dormant until the
- * server's sync arrives, so a single player world or any moment before the first sync leaves the ball rendering
- * normally. Every path is wrapped, so a fault greys nothing rather than crashing the render thread.
+ * server's sync arrives (it is pushed on every mark and wake, so the look flips live with no relog). A server without
+ * the sync, or any moment before it, leaves the ball rendering normally. Every path is wrapped, so a fault changes
+ * nothing rather than crashing the render thread.
  */
 public final class DormantBallRender
 {
@@ -42,40 +43,45 @@ public final class DormantBallRender
 
     private static final Logger LOG = LogUtils.getLogger();
 
-    /** How visible a dormant ball is, 0 (gone) to 1 (solid). Semi transparent on purpose. */
-    public static final float STONE_ALPHA = 0.6F;
+    /** Vanilla's stone block texture, used as the dormant ball's skin. */
+    public static final ResourceLocation STONE_TEXTURE = new ResourceLocation("minecraft", "textures/block/stone.png");
 
-    /** Overall brightness of the multiply tint, so the ball comes out a dim, low key version of itself. */
-    public static final float STONE_BRIGHTNESS = 0.55F;
+    // No tint: the stone texture carries the colour. Fully opaque.
+    private static final Color SOLID = Color.ofRGBA(255, 255, 255, 255);
 
-    private static final int GREY = clampByte(Math.round(STONE_BRIGHTNESS * 255F));
-    private static final int ALPHA = clampByte(Math.round(STONE_ALPHA * 255F));
+    // One time proof that a dormant ball was ACTUALLY drawn as stone, not merely that a hook is live.
+    private static volatile boolean loggedStone = false;
 
-    // GeckoLib multiplies this into every vertex. Equal channels means a uniform darken toward grey.
-    private static final Color STONE = Color.ofRGBA(GREY, GREY, GREY, ALPHA);
-
-    // One time proof that a dormant ball was ACTUALLY tinted, not merely that a hook is live.
-    private static volatile boolean loggedTinted = false;
-
-    /** Grey tint for a dormant dragon ball, or null to leave GeckoLib's default colour. */
+    /** Untinted, opaque colour for a dormant dragon ball, or null to leave GeckoLib's default colour. */
     public static Color dormantColour(GeoAnimatable animatable)
+    {
+        return isDormantBall(animatable) ? SOLID : null;
+    }
+
+    /** Opaque stone render type for a dormant dragon ball, or null for GeckoLib's default. */
+    public static RenderType dormantType(GeoAnimatable animatable, ResourceLocation texture)
     {
         if (!isDormantBall(animatable))
             return null;
-        if (!loggedTinted)
+        if (!loggedStone)
         {
-            loggedTinted = true;
-            LOG.info("[dormancy] dragon ball tinted grey and translucent (client sees this set as dormant)");
+            loggedStone = true;
+            LOG.info("[dormancy] dragon ball drawn as solid stone (client sees this set as dormant)");
         }
-        return STONE;
+        return RenderType.entityCutoutNoCull(STONE_TEXTURE);
     }
 
-    /** Translucent render type reusing the ball's texture for a dormant dragon ball, or null for GeckoLib's default. */
-    public static RenderType dormantType(GeoAnimatable animatable, ResourceLocation texture)
+    /** True when the client cache marks this ball set dormant. Never throws. */
+    public static boolean isDormantSet(String setId)
     {
-        if (texture == null || !isDormantBall(animatable))
-            return null;
-        return RenderType.entityTranslucent(texture);
+        try
+        {
+            return setId != null && BallDormancyClient.isDormant(setId);
+        }
+        catch (Throwable t)
+        {
+            return false;
+        }
     }
 
     // True only for a DragonBallBlockEntity whose set the client cache marks dormant. Wrapped: a fault greys nothing.
@@ -90,10 +96,5 @@ public final class DormantBallRender
         {
             return false;
         }
-    }
-
-    private static int clampByte(int value)
-    {
-        return value < 0 ? 0 : Math.min(value, 255);
     }
 }

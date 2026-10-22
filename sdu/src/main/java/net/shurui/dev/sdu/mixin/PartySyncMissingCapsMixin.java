@@ -26,21 +26,28 @@ import java.util.UUID;
 // being killed and sent to the Otherworld) makes the event throw out of the network tick. That is "Exception in server
 // tick loop": the shard crashes for everyone.
 //
+// DragonMineZ 2.2 still throws there, and its logout path calls the three-argument overload (server, party, excluded)
+// directly, which the two-argument one also delegates to, so that is the one hooked.
+//
 // This runs DMZ's loop itself, unchanged for every member that has the capability, and skips the one that does not,
 // so leadership still transfers and every other member is still told about it. require = 0 so a DMZ change degrades
 // to DMZ's own behaviour, and any unexpected failure here falls through to DMZ's method rather than hiding it.
 @Mixin(value = PartyManager.class, remap = false)
 public class PartySyncMissingCapsMixin {
 
-    @Inject(method = "syncPartyToOnlineMembers(Lnet/minecraft/server/MinecraftServer;Lcom/dragonminez/server/world/data/PartySavedData$PartyInstance;)V",
+    @Inject(method = "syncPartyToOnlineMembers(Lnet/minecraft/server/MinecraftServer;Lcom/dragonminez/server/world/data/PartySavedData$PartyInstance;Ljava/util/UUID;)V",
             at = @At("HEAD"), cancellable = true, require = 0)
-    private static void sdu$skipMembersWithoutStats(MinecraftServer server, PartySavedData.PartyInstance party, CallbackInfo ci) {
+    private static void sdu$skipMembersWithoutStats(MinecraftServer server, PartySavedData.PartyInstance party, UUID excluded,
+                                                    CallbackInfo ci) {
         try {
             if (server == null || party == null) {
                 return;
             }
             List<UUID> memberIds = party.getMembers();
             for (UUID id : memberIds) {
+                if (excluded != null && excluded.equals(id)) {
+                    continue;
+                }
                 ServerPlayer member = server.getPlayerList().getPlayer(id);
                 if (member == null) {
                     continue;
@@ -51,7 +58,8 @@ public class PartySyncMissingCapsMixin {
                             DmzNpc.MODID, member.getGameProfile().getName());
                     continue;
                 }
-                data.getPlayerQuestData().setPartyState(party.getPartyId(), party.getLeaderId(), memberIds, party.isPvpEnabled());
+                data.getPlayerQuestData().setPartyState(party.getPartyId(), party.getLeaderId(), party.getOwnerId(), memberIds,
+                        party.isPvpEnabled());
                 NetworkHandler.sendToPlayer(new ProgressionSyncS2C(member), member);
             }
             ci.cancel();

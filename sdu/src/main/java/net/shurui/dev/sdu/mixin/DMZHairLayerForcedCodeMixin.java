@@ -1,82 +1,64 @@
 package net.shurui.dev.sdu.mixin;
 
-import com.dragonminez.common.config.ConfigManager;
+import com.dragonminez.client.render.hair.HairStyleResolver;
 import com.dragonminez.common.config.FormConfig;
 import com.dragonminez.common.hair.CustomHair;
+import com.dragonminez.common.hair.HairCodec;
+import com.dragonminez.common.hair.HairStyleSlot;
 import com.dragonminez.common.stats.character.Character;
+import net.minecraft.world.entity.player.Player;
 import net.shurui.dev.sdu.compat.dmz.HairCodeCache;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-// Fixes two client-side bugs in DMZ 2.1's per-form forced-hair-code feature, both in DMZHairLayer's
-// getHairForForm / getHairForStackForm (differ only in getFormGroup vs getStackFormGroup).
+// Per-form forced hair codes that are FULL SETS (Base+SSJ+SSJ2+SSJ3).
 //
-// 1. Base-only bug. Both decode forcedHairCode with HairManager.fromCode. For a full-set code
-//    (Base+SSJ+SSJ2+SSJ3) fromCode decodes all four slots but returns only slot [0] (Base), so a form
-//    forcing a full set always shows Base regardless of transformation. We decode the SET and, when the form
-//    also defines hairType, pick the matching slot, composing forcedHairCode (set) with hairType (slot
-//    selector), which DMZ's if/else-if can't express. No hairType -> slot 0.
-// 2. Per-frame FPS collapse (421->35). renderHair runs every frame per visible player, so DMZ re-decodes the
-//    code every frame uncached. Memoised in HairCodeCache.
+// 2.1 had two client bugs in DMZHairLayer.getHairForForm / getHairForStackForm, both fixed here then: a full-set code
+// always showed its Base slot, and the code was re-decoded every frame (FPS 421 to 35). DragonMineZ 2.2 moved form
+// hair to HairStyleResolver.styleForFormData and fixed the second one itself (it caches decodes), and it now picks the
+// render slot from hairType. It still decodes a full set with HairCodec.fromCode, which returns only Base, so a form
+// forcing a full set plus a hairType still shows Base. We keep only that half: for a full-set code we decode the SET
+// (memoised in HairCodeCache) and, when the form defines hairType, return the matching slot. Single codes, and
+// anything we cannot decode, fall through to DMZ unchanged.
 //
-// @Inject at HEAD, cancellable, handling ONLY the hasHairCodeOverride() branch. A @Redirect on the fromCode
-// call site was rejected: only the code string is in scope there, not hairType, so it can't compose set +
-// slot. No usable override -> don't cancel, DMZ's hairType/fallback runs. Decode failures cache an empty
-// sentinel so a bad code isn't re-decoded per frame.
-//
-// Client-only, remap=false. HairCodeCache.clear() runs on resource reload (ClientModBusEvents) and after
+// Client-only, remap=false, require=0. HairCodeCache.clear() runs on resource reload (ClientModBusEvents) and after
 // config sync (ConfigSyncSeedMixin), so edits apply without relog.
-@Mixin(targets = "com.dragonminez.client.render.layer.DMZHairLayer", remap = false)
+@Mixin(value = HairStyleResolver.class, remap = false)
 public abstract class DMZHairLayerForcedCodeMixin {
 
     @Inject(
-            method = "getHairForForm(Lcom/dragonminez/common/stats/character/Character;Ljava/lang/String;Ljava/lang/String;)Lcom/dragonminez/common/hair/CustomHair;",
+            method = "styleForFormData(Lnet/minecraft/world/entity/player/Player;Lcom/dragonminez/common/stats/character/Character;Lcom/dragonminez/common/config/FormConfig$FormData;Lcom/dragonminez/client/render/hair/HairStyleResolver$StyleChoice;)Lcom/dragonminez/client/render/hair/HairStyleResolver$StyleChoice;",
             at = @At("HEAD"),
             cancellable = true,
+            require = 0,
             remap = false)
-    private void sdu$forcedCodeForForm(Character character, String group, String formName,
-                                       CallbackInfoReturnable<CustomHair> cir) {
-        FormConfig config = ConfigManager.getFormGroup(character.getRaceName(), group);
-        sdu$handleOverride(config, formName, cir);
-    }
-
-    @Inject(
-            method = "getHairForStackForm(Lcom/dragonminez/common/stats/character/Character;Ljava/lang/String;Ljava/lang/String;Lcom/dragonminez/common/hair/CustomHair;)Lcom/dragonminez/common/hair/CustomHair;",
-            at = @At("HEAD"),
-            cancellable = true,
-            remap = false)
-    private void sdu$forcedCodeForStackForm(Character character, String group, String formName, CustomHair fallback,
-                                            CallbackInfoReturnable<CustomHair> cir) {
-        FormConfig config = ConfigManager.getStackFormGroup(group);
-        sdu$handleOverride(config, formName, cir);
-    }
-
-    // cancel with the cached slot-selected hair only when the form has a usable override, else fall through
-    // to DMZ's stock hairType/fallback
-    private static void sdu$handleOverride(FormConfig config, String formName,
-                                           CallbackInfoReturnable<CustomHair> cir) {
-        if (config == null) {
-            return;
+    private static void sdu$fullSetForcedCode(Player player, Character character, FormConfig.FormData formData,
+                                              HairStyleResolver.StyleChoice fallback,
+                                              CallbackInfoReturnable<HairStyleResolver.StyleChoice> cir) {
+        try {
+            if (formData == null || !Boolean.TRUE.equals(formData.hasHairCodeOverride())) {
+                return;
+            }
+            String code = formData.getForcedHairCode();
+            if (!HairCodec.isFullSetCode(code)) {
+                return; // single code: DMZ 2.2 handles it (and caches it) itself
+            }
+            CustomHair[] slots = HairCodeCache.decode(code);
+            if (slots.length < 4) {
+                return; // decode failed (cached sentinel): fall through to DMZ's own behaviour
+            }
+            boolean typed = Boolean.TRUE.equals(formData.hasDefinedHairType());
+            int slot = typed ? HairCodeCache.slotForType(formData.getHairType()) : 0;
+            CustomHair hair = slots[slot];
+            if (hair == null) {
+                return;
+            }
+            HairStyleSlot renderSlot = typed ? HairStyleSlot.byHairType(formData.getHairType()) : null;
+            cir.setReturnValue(new HairStyleResolver.StyleChoice(hair, renderSlot != null ? renderSlot : HairStyleSlot.BASE));
+        } catch (Throwable ignored) {
+            // never break hair rendering; DMZ's own resolution runs
         }
-        FormConfig.FormData formData = config.getForm(formName);
-        if (formData == null || !Boolean.TRUE.equals(formData.hasHairCodeOverride())) {
-            return; // no override -> let DMZ's else-if (hairType / fallback) run unchanged
-        }
-        CustomHair[] slots = HairCodeCache.decode(formData.getForcedHairCode());
-        if (slots.length == 0) {
-            return; // decode failed (cached sentinel) -> fall through to DMZ's own behaviour
-        }
-        // Full-set codes hold [base, ssj, ssj2, ssj3]; single-slot codes hold exactly [hair].
-        int slot = 0;
-        if (slots.length >= 4 && Boolean.TRUE.equals(formData.hasDefinedHairType())) {
-            slot = HairCodeCache.slotForType(formData.getHairType());
-        }
-        CustomHair hair = slots[slot];
-        if (hair != null) {
-            cir.setReturnValue(hair);
-        }
-        // A null slot is unexpected; leaving cir untouched falls through to DMZ (character.getHairBase()).
     }
 }

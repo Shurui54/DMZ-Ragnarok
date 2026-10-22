@@ -174,6 +174,10 @@ public final class ContentTabs {
                         HoverbikeItems.NIMBUS_CHIP.ifPresent(output::accept);
                         // SU's own time machine chip (same shared slot + keybind; a flying vehicle that enables space).
                         HoverbikeItems.TIME_MACHINE_CHIP.ifPresent(output::accept);
+                        // the vehicle upgrade kits, spent at the compact space console
+                        for (var kit : net.shurui.shuruisutilities.vehicleworkbench.VehicleWorkbenchRegistry.KITS) {
+                            kit.ifPresent(output::accept);
+                        }
                         // Ragnarok Gi: three pieces, no helmet (the art covers chest, legs and boots only).
                         net.shurui.shuruisutilities.armor.RagnarokGiItems.CHESTPLATE.ifPresent(output::accept);
                         net.shurui.shuruisutilities.armor.RagnarokGiItems.LEGGINGS.ifPresent(output::accept);

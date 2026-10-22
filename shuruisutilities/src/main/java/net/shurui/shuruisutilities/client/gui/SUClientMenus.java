@@ -29,6 +29,12 @@ public final class SUClientMenus
             net.minecraft.client.gui.screens.MenuScreens.register(
                     net.shurui.shuruisutilities.runes.RuneBenchRegistry.MENU.get(),
                     net.shurui.shuruisutilities.runes.client.RuneBenchScreen::new);
+            net.minecraft.client.gui.screens.MenuScreens.register(
+                    net.shurui.shuruisutilities.vehicleworkbench.VehicleWorkbenchRegistry.MENU.get(),
+                    net.shurui.shuruisutilities.vehicleworkbench.client.VehicleWorkbenchScreen::new);
+            net.minecraft.client.gui.screens.MenuScreens.register(
+                    net.shurui.shuruisutilities.vehicleworkbench.VehicleWorkbenchRegistry.UPGRADE_MENU.get(),
+                    net.shurui.shuruisutilities.vehicleworkbench.client.VehicleUpgradeScreen::new);
             // when sdu is loaded, add SU's admin editors as a section in the shared /rg npc edit hub (guarded compat)
             net.shurui.shuruisutilities.compat.sdu.SduHubCompat.register();
         });
@@ -71,22 +77,29 @@ public final class SUClientMenus
         // player NPC-region HUD (title/difficulty/description panel)
         event.registerAboveAll(net.shurui.shuruisutilities.client.hud.RegionHudOverlay.OVERLAY_ID,
                 net.shurui.shuruisutilities.client.hud.RegionHudOverlay::render);
+        net.shurui.shuruisutilities.client.hud.RegionHudOverlay.registerElement();
         // the floating planet-info panel is registered by the Space module's own client bus (SpaceClientBusEvents) so
         // this core menu class never names the Space client classes.
-        // custom scouter-style stat HUD (orb player preview + health/ki/stamina/transform bars), replaces DMZ's HUD
+        // custom scouter-style stat HUD (orb player preview + health/ki/stamina/transform bars) and the currency pills:
+        // the Ragnarok style of DMZ's HUD editor, placed through DMZ's layout like every element bound below
+        net.shurui.shuruisutilities.client.hud.ScouterStatHudOverlay.registerElements();
         event.registerAboveAll(net.shurui.shuruisutilities.client.hud.ScouterStatHudOverlay.OVERLAY_ID,
                 net.shurui.shuruisutilities.client.hud.ScouterStatHudOverlay::render);
         event.registerAboveAll(net.shurui.shuruisutilities.client.combat.ClashRhythmOverlay.OVERLAY_ID,
                 net.shurui.shuruisutilities.client.combat.ClashRhythmOverlay.HUD);
+        net.shurui.shuruisutilities.client.combat.ClashRhythmOverlay.registerElement();
         // the staff task a clocked-in staff member has accepted, so the job stays readable without the menu
         event.registerAboveAll(net.shurui.shuruisutilities.client.hud.StaffTaskHudOverlay.OVERLAY_ID,
                 net.shurui.shuruisutilities.client.hud.StaffTaskHudOverlay::render);
+        net.shurui.shuruisutilities.client.hud.StaffTaskHudOverlay.registerElement();
         // quest tracker banner (tracked quest name on the commissioned banner, objectives beneath), replaces DMZ's tracker
         event.registerAboveAll(net.shurui.shuruisutilities.client.gui.task.QuestTrackerOverlay.OVERLAY_ID,
                 net.shurui.shuruisutilities.client.gui.task.QuestTrackerOverlay::render);
+        net.shurui.shuruisutilities.client.gui.task.QuestTrackerOverlay.registerElement();
         // race HUD (position, lap, timer, countdown, wrong-way / final-lap banners, results, rescue fade), visible
         // only with an active race session AND the racing feature synced from the server
         event.registerAboveAll(net.shurui.shuruisutilities.client.hud.RaceHudOverlay.OVERLAY_ID,
                 net.shurui.shuruisutilities.client.hud.RaceHudOverlay::render);
+        net.shurui.shuruisutilities.client.hud.RaceHudOverlay.registerElements();
     }
 }

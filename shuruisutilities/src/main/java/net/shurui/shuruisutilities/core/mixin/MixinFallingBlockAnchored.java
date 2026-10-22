@@ -60,6 +60,13 @@ public abstract class MixinFallingBlockAnchored
         if (net.shurui.shuruisutilities.world.FallingBlockGuard.held(level, pos))
         {
             ci.cancel();
+            return;
+        }
+        // Terrain regen owes the block underneath: hold this one until the repair puts its support back, or it falls
+        // into the crater, takes the owed spot, and both positions stay wrong (TerrainRegenService.owesBelow).
+        if (net.shurui.shuruisutilities.regen.TerrainRegenService.owesBelow(level, pos))
+        {
+            ci.cancel();
         }
     }
 }

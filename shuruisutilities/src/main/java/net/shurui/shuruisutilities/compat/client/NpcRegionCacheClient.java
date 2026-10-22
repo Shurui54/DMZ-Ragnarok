@@ -23,6 +23,8 @@ public final class NpcRegionCacheClient
         public final boolean showTitle, showHud;
         // Xaero-packed 0xRRGGBBAA fill (alpha baked in); default faint green
         public int packedFill = DEFAULT_FILL;
+        // freeform selection outline (interleaved x, z), null for a cuboid; min/max are then its bounding box
+        public int[] outline;
 
         public static final int DEFAULT_FILL = 0x33DD3328;
         private static final int FILL_ALPHA = 0x28;
@@ -62,14 +64,31 @@ public final class NpcRegionCacheClient
             packedFill = (rgb << 8) | FILL_ALPHA;
         }
 
+        public boolean isOutline()
+        {
+            return outline != null && outline.length >= 6;
+        }
+
         boolean contains(int bx, int bz)
         {
-            return bx >= minX && bx <= maxX && bz >= minZ && bz <= maxZ;
+            if (!(bx >= minX && bx <= maxX && bz >= minZ && bz <= maxZ))
+                return false;
+            return !isOutline() || net.shurui.shuruisutilities.util.PolygonXZ.containsColumn(outline, bx, bz);
         }
 
         public boolean contains(double x, double y, double z)
         {
-            return x >= minX && x <= maxX + 1 && y >= minY && y <= maxY + 1 && z >= minZ && z <= maxZ + 1;
+            if (!(x >= minX && x <= maxX + 1 && y >= minY && y <= maxY + 1 && z >= minZ && z <= maxZ + 1))
+                return false;
+            return !isOutline() || net.shurui.shuruisutilities.util.PolygonXZ.contains(outline, x, z);
+        }
+
+        // footprint in blocks (the shape's area for an outline), used to pick the smallest covering region
+        public long areaXZ()
+        {
+            if (isOutline())
+                return net.shurui.shuruisutilities.util.PolygonXZ.area(outline);
+            return (long) (maxX - minX + 1) * (maxZ - minZ + 1);
         }
 
         // display title when set, else the region name
@@ -185,7 +204,7 @@ public final class NpcRegionCacheClient
         for (Entry e : list)
             if (e.contains(bx, bz))
             {
-                long area = (long) (e.maxX - e.minX + 1) * (e.maxZ - e.minZ + 1);
+                long area = e.areaXZ();
                 if (best == null || area < bestArea) // smallest covering region wins
                 {
                     best = e;
@@ -206,7 +225,7 @@ public final class NpcRegionCacheClient
         for (Entry e : list)
             if (e.contains(x, y, z))
             {
-                long volume = (long) (e.maxX - e.minX + 1) * (e.maxZ - e.minZ + 1) * (long) (e.maxY - e.minY + 1);
+                long volume = e.areaXZ() * (long) (e.maxY - e.minY + 1);
                 if (best == null || volume < bestVolume)
                 {
                     best = e;

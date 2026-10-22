@@ -168,12 +168,13 @@ public abstract class ZSoulStatsScreenMixin extends Screen {
      * <p>TAIL so DMZ places its widgets first and ours land in the same frame. {@code require = 0} keeps a
      * DMZ rename from breaking the screen: worst case the buttons stop following, a cosmetic fault, not a crash.
      */
-    @Inject(method = "updatePanelWidgetOffsets(II)V", at = @At("TAIL"), require = 0, remap = false)
-    private void zsoul$followPanelSlide(int panelOffsetX, int rightOffsetX, CallbackInfo ci) {
+    // DragonMineZ 2.2 passes the offsets as floats (the slide is sub-pixel); DMZ floors the offset onto the base X.
+    @Inject(method = "updatePanelWidgetOffsets(FF)V", at = @At("TAIL"), require = 0, remap = false)
+    private void zsoul$followPanelSlide(float panelOffsetX, float rightOffsetX, CallbackInfo ci) {
         try {
             for (ZSoulAddButton b : zsoul$buttons) {
                 if (b != null) {
-                    b.setX(STAT_BTN_X + panelOffsetX);
+                    b.setX(STAT_BTN_X + (int) Math.floor(panelOffsetX));
                 }
             }
         } catch (Throwable ignored) {

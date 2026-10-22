@@ -1,5 +1,7 @@
 package net.shurui.shuruisutilities.dragonballbag;
 
+import net.shurui.shuruisutilities.commands.util.SeeablePlayerInventory;
+
 import net.minecraft.world.Container;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.Slot;
@@ -60,6 +62,110 @@ public final class DragonBallConfine
     }
 
     /**
+     * True when {@code stack} is a ball or the bag, OR carries one inside it: a shulker box, bundle or any other item
+     * whose NBT holds item stacks (searched at any depth), or a Sophisticated Backpacks backpack whose stored contents
+     * hold one (nested backpacks followed). The insertion hooks keep balls out of these today, so this is the net for
+     * one that got in before they existed. Read-only and never throws; used by every route that hands an item to
+     * another player (auction, trade, NPC shop sell).
+     */
+    public static boolean carriesConfined(ItemStack stack)
+    {
+        if (stack == null || stack.isEmpty())
+        {
+            return false;
+        }
+        if (isConfined(stack))
+        {
+            return true;
+        }
+        try
+        {
+            net.minecraft.nbt.CompoundTag tag = stack.getTag();
+            if (tag != null && nbtHoldsConfined(tag, 0))
+            {
+                return true;
+            }
+            net.minecraft.nbt.CompoundTag saved = stack.save(new net.minecraft.nbt.CompoundTag());
+            return net.shurui.shuruisutilities.compat.sophisticatedbackpacks.SophisticatedBackpacksCompat
+                    .anyStoredItem(saved, item -> nbtHoldsConfined(item, 0));
+        }
+        catch (Throwable t)
+        {
+            return false;
+        }
+    }
+
+    /**
+     * The red refusal shown when {@link #carriesConfined} stops a hand-over. A literal (not a lang key) so it needs no
+     * client update. {@code what} names the route, for example "listed on the auction house".
+     */
+    public static net.minecraft.network.chat.MutableComponent transferRefusal(ItemStack stack, String what)
+    {
+        String text = isConfined(stack)
+                ? "Dragon balls and dragon ball bags cannot be " + what + "."
+                : "That item holds a dragon ball or a dragon ball bag inside it, so it cannot be " + what
+                        + ". Take the ball out first.";
+        return net.minecraft.network.chat.Component.literal(text).withStyle(net.minecraft.ChatFormatting.RED);
+    }
+
+    // An item stack tag ({id:"ns:path", Count:n, ...}) anywhere in this tree that names a ball or the bag. Depth capped
+    // so a pathological tag cannot recurse forever.
+    private static boolean nbtHoldsConfined(net.minecraft.nbt.Tag node, int depth)
+    {
+        if (depth > 24)
+        {
+            return false;
+        }
+        if (node instanceof net.minecraft.nbt.CompoundTag compound)
+        {
+            if (itemTagIsConfined(compound))
+            {
+                return true;
+            }
+            for (String key : compound.getAllKeys())
+            {
+                if (nbtHoldsConfined(compound.get(key), depth + 1))
+                {
+                    return true;
+                }
+            }
+        }
+        else if (node instanceof net.minecraft.nbt.ListTag list)
+        {
+            for (net.minecraft.nbt.Tag child : list)
+            {
+                if (nbtHoldsConfined(child, depth + 1))
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // Whether one compound is a saved item stack of a ball or the bag. Resolves the item by registry id only, so no
+    // stack is built.
+    private static boolean itemTagIsConfined(net.minecraft.nbt.CompoundTag compound)
+    {
+        if (!compound.contains("id", net.minecraft.nbt.Tag.TAG_STRING) || !compound.contains("Count"))
+        {
+            return false;
+        }
+        net.minecraft.resources.ResourceLocation id =
+                net.minecraft.resources.ResourceLocation.tryParse(compound.getString("id"));
+        if (id == null)
+        {
+            return false;
+        }
+        net.minecraft.world.item.Item item = net.minecraftforge.registries.ForgeRegistries.ITEMS.getValue(id);
+        if (item == null || item == net.minecraft.world.item.Items.AIR)
+        {
+            return false;
+        }
+        return item instanceof DragonBallBagItem || DragonBallSets.setIdOf(item) != null;
+    }
+
+    /**
      * The decision for a GUI {@link Slot}: true means refuse placing {@code stack} into {@code slot}. Non-confined
      * items always return false (let vanilla / the mod decide).
      */
@@ -86,6 +192,12 @@ public final class DragonBallConfine
         {
             return true; // the bag's own GUI: balls belong here
         }
+        if (slot.container instanceof SeeablePlayerInventory)
+        {
+            // /invsee: the viewed player's own inventory rows are that player's inventory, so a ball taken out there
+            // can be put back. The Curios row is not a ball home.
+            return SeeablePlayerInventory.isInventorySection(slot.getContainerSlot());
+        }
         return slot.container instanceof Inventory; // the player's own inventory rows
     }
 
@@ -94,6 +206,10 @@ public final class DragonBallConfine
         if (slot.container instanceof Inventory)
         {
             return true; // the player's own inventory rows
+        }
+        if (slot.container instanceof SeeablePlayerInventory)
+        {
+            return true; // /invsee: the viewed player's inventory rows or their Curios row
         }
         return isCuriosSlot(slot); // the bag's Curios slot
     }

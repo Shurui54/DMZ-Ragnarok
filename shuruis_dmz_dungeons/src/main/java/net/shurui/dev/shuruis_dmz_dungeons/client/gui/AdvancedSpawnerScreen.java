@@ -179,6 +179,12 @@ public class AdvancedSpawnerScreen extends FieldEditScreen {
         tip(I18n.get("gui.dmz_ragnarok.dungeons.spawner.speed_tip"));
         tf(I18n.get("gui.dmz_ragnarok.dungeons.spawner.defense"), fmt(config.defense), v -> config.defense = parseFloat(v, config.defense));
         tip(I18n.get("gui.dmz_ragnarok.dungeons.spawner.defense_tip"));
+        // max-level stats (the switch and the max level are on the Rewards tab)
+        if (config.levelScaling) {
+            anchorFieldF("health_at_max", config.maxHealthAtMax(), v -> config.maxHealthAtMax = v);
+            anchorFieldF("melee_at_max", config.attackDamageAtMax(), v -> config.attackDamageAtMax = v);
+            anchorFieldF("defense_at_max", config.defenseAtMax(), v -> config.defenseAtMax = v);
+        }
         bf(I18n.get("gui.dmz_ragnarok.dungeons.spawner.use_default_transform"), config.mainUseDefaultTransform,
                 () -> config.mainUseDefaultTransform = !config.mainUseDefaultTransform);
         tip(I18n.get("gui.dmz_ragnarok.dungeons.spawner.use_default_transform_tip"));
@@ -208,6 +214,10 @@ public class AdvancedSpawnerScreen extends FieldEditScreen {
         tip(I18n.get("gui.dmz_ragnarok.dungeons.spawner.ki_min_tip"));
         tf(I18n.get("gui.dmz_ragnarok.dungeons.spawner.ki_max"), intStr(config.kiDmgMax), v -> config.kiDmgMax = Math.max(0, parseI(v, config.kiDmgMax)));
         tip(I18n.get("gui.dmz_ragnarok.dungeons.spawner.ki_max_tip"));
+        if (config.levelScaling) {
+            anchorField("ki_min_at_max", config.kiDmgMinAtMax(), v -> config.kiDmgMinAtMax = v);
+            anchorField("ki_max_at_max", config.kiDmgMaxAtMax(), v -> config.kiDmgMaxAtMax = v);
+        }
         label(I18n.get("gui.dmz_ragnarok.dungeons.spawner.ki_blasts"), 14, rowY + 4);
         btn(150, rowY, 132, GuiTheme.BUTTON_HEIGHT, Component.translatable("gui.dmz_ragnarok.dungeons.spawner.edit_ki_blasts", config.kiMoves.size()),
                 () -> { applyFields(); this.minecraft.setScreen(
@@ -311,6 +321,58 @@ public class AdvancedSpawnerScreen extends FieldEditScreen {
         }
         tf(I18n.get("gui.dmz_ragnarok.dungeons.spawner.kill_commands"), config.killCommands, v -> config.killCommands = v);
         tip(I18n.get("gui.dmz_ragnarok.dungeons.spawner.kill_commands_tip"));
+        // level scaling: the fields above are the level 1 values, these the max-level ones (core LevelScale)
+        bf(I18n.get("gui.dmz_ragnarok.dungeons.spawner.level_scaling"), config.levelScaling,
+                () -> config.levelScaling = !config.levelScaling);
+        tip(I18n.get("gui.dmz_ragnarok.dungeons.spawner.level_scaling_tip",
+                net.shurui.shuruisutilities.npcregion.LevelScale.DEFAULT_MULTIPLE));
+        if (!config.levelScaling) {
+            return;
+        }
+        String maxShown = intStr(config.scaleMaxLevel);
+        tf(I18n.get("gui.dmz_ragnarok.dungeons.spawner.scale_max_level"), maxShown, v -> {
+            if (!v.trim().equals(maxShown)) {
+                config.scaleMaxLevel = Math.max(2, parseI(v, config.scaleMaxLevel));
+            }
+        });
+        tip(I18n.get("gui.dmz_ragnarok.dungeons.spawner.scale_max_level_tip"));
+        anchorField("tp_min_at_max", config.tpMinAtMax(), v -> config.tpMinAtMax = v);
+        anchorField("tp_max_at_max", config.tpMaxAtMax(), v -> config.tpMaxAtMax = v);
+        if (net.shurui.dev.sdu.api.ClientGate.key()) {
+            anchorField("balance_min_at_max", config.balMinAtMax(), v -> config.balMinAtMax = v);
+            anchorField("balance_max_at_max", config.balMaxAtMax(), v -> config.balMaxAtMax = v);
+        }
+    }
+
+    // as anchorField, for a float stat
+    private void anchorFieldF(String key, float effective, java.util.function.Consumer<Float> set) {
+        String shown = fmt(effective);
+        tf(I18n.get("gui.dmz_ragnarok.dungeons.spawner." + key), shown, v -> {
+            String t = v.trim();
+            if (t.isEmpty() || t.equalsIgnoreCase("auto")) {
+                set.accept(null);
+            } else if (!t.equals(shown)) {
+                set.accept(Math.max(0f, parseFloat(t, effective)));
+            }
+        });
+        tip(I18n.get("gui.dmz_ragnarok.dungeons.spawner.stat_anchor_tip",
+                net.shurui.shuruisutilities.npcregion.LevelScale.DEFAULT_MULTIPLE));
+    }
+
+    // a max-level anchor field showing its effective value: left as shown an AUTO anchor stays auto (it keeps
+    // following the level 1 value), a typed number pins it, "auto" or blank returns it to auto
+    private void anchorField(String key, int effective, java.util.function.Consumer<Integer> set) {
+        String shown = intStr(effective);
+        tf(I18n.get("gui.dmz_ragnarok.dungeons.spawner." + key), shown, v -> {
+            String t = v.trim();
+            if (t.isEmpty() || t.equalsIgnoreCase("auto")) {
+                set.accept(null);
+            } else if (!t.equals(shown)) {
+                set.accept(Math.max(0, parseI(t, effective)));
+            }
+        });
+        tip(I18n.get("gui.dmz_ragnarok.dungeons.spawner.anchor_tip",
+                net.shurui.shuruisutilities.npcregion.LevelScale.DEFAULT_MULTIPLE));
     }
 
     private void dropsTab() {

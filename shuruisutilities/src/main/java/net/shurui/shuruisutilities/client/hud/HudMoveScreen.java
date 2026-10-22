@@ -8,6 +8,10 @@ import net.minecraft.network.chat.Component;
 /**
  * Drag-to-move screen for the movable HUD panels: the NPC region panel and the staff task reminder.
  *
+ * <p>LEGACY ONLY. On DragonMineZ 2.2 both panels are extras of DMZ's own HUD editor, and the move key and the staff
+ * screen's button open that editor instead ({@link #open()}). This screen is what they open when DMZ's layout system
+ * is unavailable, and its two JSON files are the panels' fallback placement (migrated into DMZ's layout once).
+ *
  * <h2>One screen for both</h2>
  * They are the only two panels a player positions, they occupy the same screen, and the whole reason anybody opens
  * this is that one of them is in the way of something. Two separate movers would mean dragging one, closing,
@@ -40,6 +44,13 @@ public class HudMoveScreen extends Screen
         super(Component.literal("Move HUD"));
     }
 
+    /** Open the right mover: DMZ's HUD editor on its Extras page, or this screen when DMZ's layout is unavailable. */
+    public static void open()
+    {
+        if (!net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHud.openEditor(true))
+            net.minecraft.client.Minecraft.getInstance().setScreen(new HudMoveScreen());
+    }
+
     @Override
     protected void init()
     {
@@ -58,9 +69,9 @@ public class HudMoveScreen extends Screen
         g.drawCenteredString(font, "§eDrag either panel to reposition it.", width / 2, 14, 0xFFFFFF);
 
         regionBounds = RegionHudOverlay.renderPanel(g, sampleRegionTitle(), sampleDifficulty(),
-                sampleDescription(), regionCfg, width, height);
+                sampleDescription(), RegionHudOverlay.screenPlacer(regionCfg, width, height));
         staffBounds = StaffTaskHudOverlay.renderPanel(g, sampleTaskTitle(), sampleTaskDescription(), "",
-                staffCfg, width, height);
+                StaffTaskHudOverlay.screenPlacer(staffCfg, width, height));
 
         super.render(g, mouseX, mouseY, partialTick);
     }

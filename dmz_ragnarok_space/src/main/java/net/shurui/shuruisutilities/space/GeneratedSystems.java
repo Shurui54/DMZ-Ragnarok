@@ -19,7 +19,8 @@ import net.minecraft.world.phys.Vec3;
  * ({@link OrbitClock}). It deliberately does NOT reject a system against the FIXED bodies (which orbit, so their
  * positions change every tick): that keeps the system layout a stable pure function so the client derives byte-identical
  * systems from the two synced numbers alone, exactly as {@link PlanetPositions} keeps the fixed layout per-key stable.
- * It DOES keep systems out of the reserved inner solar system and off any super body's starting spot, both pure checks.
+ * It DOES keep systems out of the reserved inner solar system, a pure check. (The super dragon ball bodies keep clear of
+ * systems on their side, see {@link SuperPlanetPositions#chooseOrbit}.)
  *
  * <h3>How the rest of the code picks them up</h3>
  * The suns are surfaced through {@link StarPositions#starsNear} (which now delegates here), so the space renderer and the
@@ -46,33 +47,31 @@ public final class GeneratedSystems
     public static volatile int sectorSize = 20000;
     public static volatile double density = 0.5;
 
-    // The vertical band a system STAR centre may occupy, and the shape of the distribution across it. A system exists
-    // only in the cy == 0 layer (see systemAt), so the cell walk never sweeps Y; the whole vertical spread comes from
-    // biasing each system's star to a deterministic height in this band.
+    // REAL 3D SYSTEMS (owner, 2026-10-22: "I want planets to be in real 3 dimensional space", after asking for "planets
+    // straight above and below you"). The space column is now the vanilla maximum (SpaceDimension, -2032..2032), and a
+    // system uses it in two ways:
     //
-    // The owner asked for systems at "clearly different Y values: most near the middle, and some noticeably higher or
-    // lower". So the star Y is CENTRE the band offset by a SIGNED-SQUARE of a hashed unit value: most systems land near
-    // the centre while a tail reaches the extremes, and the spread (900 blocks end to end) is large enough to read plainly
-    // both while flying (you climb or descend between systems) and on the star map (the altitude tick).
+    //   1. STEEP ORBITAL PLANES. Each system has a base plane tilted MIN_SYSTEM_INCLINATION..MAX_SYSTEM_INCLINATION about
+    //      a hashed line of nodes, and every planet gets its own plane near it (inclination +- PLANET_INCLINATION_JITTER,
+    //      node +- PLANET_NODE_JITTER), so a system reads as a 3D cluster rather than one tilted disc. Each planet's tilt
+    //      is capped so its vertical swing, ring * sin(inclination), never exceeds MAX_PLANET_LIFT.
+    //   2. THE STAR SPREADS THROUGH THE WHOLE COLUMN. With L the largest swing of this system's planets (every planet
+    //      slot, destroyed or not, so destroying a planet never moves the star), the star Y is uniform in
+    //        [BODY_FLOOR_Y + L + maxBodyRadius, BODY_CEILING_Y - L - maxBodyRadius].
+    //      L <= MAX_PLANET_LIFT 1600 and maxBodyRadius 96 keep that band non-empty (-80..272 at worst, the whole column
+    //      for a gently tilted system).
     //
-    // The band is bounded so a whole system, INCLUDING a planet lifted by the orbital inclination below and its own body
-    // radius, always stays inside the playable space column (min_y -64, ceiling 1984) AND above the descend-out return
-    // altitude (SpaceTravelModule.returnAltitude, 288), so a pod can always fly to and land on every system planet:
-    //   worst low  = MIN_STAR_Y - maxInclLift - maxBodyRadius = 650 - 206 - 96 = 348 > 288, clear of the return floor.
-    //   worst high = MAX_STAR_Y + maxInclLift + maxBodyRadius = 1550 + 206 + 96 = 1852 < 1984, clear of the ceiling.
-    private static final double MIN_STAR_Y = 650.0;
-    private static final double MAX_STAR_Y = 1550.0;
-    private static final double STAR_Y_CENTRE = (MIN_STAR_Y + MAX_STAR_Y) / 2.0;    // 1100
-    private static final double STAR_Y_HALF_RANGE = (MAX_STAR_Y - MIN_STAR_Y) / 2.0; // 450
-
-    // Per-system ORBITAL INCLINATION. Each system's planets share ONE plane tilted from the sun's flat body plane by a
-    // deterministic angle up to MAX_INCLINATION about a deterministic line of nodes, so planets sit above and below the
-    // sun rather than all on one flat disc. Kept small (a few degrees): tasteful, and it bounds the vertical lift a planet
-    // gets so the Y-band maths above stays valid. At the outermost ring (MAX_OUTER_RING 3380) the lift peaks at
-    // 3380 * sin(3.5deg) = ~206 blocks, the maxInclLift the band bound uses; typical inner rings lift far less. The whole
-    // orbit stays a circle of the same 3D radius (Orbits.inclinedPosition is a rotation), so landing and the ring spacing
-    // are unaffected.
-    private static final double MAX_INCLINATION = Math.toRadians(3.5);
+    // The reachability guarantee is unchanged in kind: every planet, swing and body radius included, stays inside
+    // SpaceDimension.BODY_FLOOR_Y..BODY_CEILING_Y (-1776..1968), so it is above the descend-out return altitude (-1840)
+    // and below the top of the column (2032), and a pod can always fly to it and land:
+    //   lowest  = starY - L - 96 >= BODY_FLOOR_Y, highest = starY + L + 96 <= BODY_CEILING_Y.
+    // The orbit is still a rotation of a flat circle, so a planet stays exactly its ring radius from its star in 3D and
+    // two planets on adjacent rings stay at least RING_STEP apart whatever their planes.
+    static final double MIN_SYSTEM_INCLINATION = Math.toRadians(18.0);
+    static final double MAX_SYSTEM_INCLINATION = Math.toRadians(62.0);
+    private static final double PLANET_INCLINATION_JITTER = Math.toRadians(14.0);
+    private static final double PLANET_NODE_JITTER = Math.toRadians(35.0);
+    static final double MAX_PLANET_LIFT = 1600.0;
 
     // Concentric ring layout around the star. INNER_RING is the first planet's orbit radius (blocks from the star), each
     // further planet steps out by RING_STEP. RING_STEP comfortably exceeds twice the largest planet body (96) so two
@@ -89,6 +88,24 @@ public final class GeneratedSystems
     // the farthest a planet's orbit reaches from its star, used to keep a whole system clear of the inner solar system.
     static final double MAX_OUTER_RING = INNER_RING + (MAX_PLANETS - 1) * RING_STEP;
 
+    /** The first planet ring's radius around a system star (blocks). For client visuals that sit between the rings. */
+    public static double innerRing()
+    {
+        return INNER_RING;
+    }
+
+    /** The spacing between a system's planet rings (blocks). */
+    public static double ringStep()
+    {
+        return RING_STEP;
+    }
+
+    /** The farthest a system planet's orbit reaches from its star (blocks). */
+    public static double maxOuterRing()
+    {
+        return MAX_OUTER_RING;
+    }
+
     // The system star's visual half-extent band. Biased to the high end of the fixed-star range so a sun reads as the
     // biggest thing in its system without exceeding the star-radius bound the hazard and super-relocation scans assume.
     private static final float STAR_MIN_RADIUS = 62.0F;
@@ -104,7 +121,8 @@ public final class GeneratedSystems
     // are simply off the atlas; the live derivation (systemsNear) has no such bound and works at any coordinate.
     public static final double UNIVERSE_HALF_EXTENT = 200000.0;
 
-    /** One planet of a system: its stable id, orbit radius around the star, start phase, visual size and tint. */
+    /** One planet of a system: its stable id, orbit radius around the star, start phase, its own orbital plane (tilt
+     *  and line of nodes), visual size and tint. */
     public static final class SystemPlanet
     {
         public final String id;
@@ -113,8 +131,13 @@ public final class GeneratedSystems
         public final int surfaceSize;
         public final float radius;
         public final int tint;
+        /** This planet's orbital-plane tilt from the flat body plane, radians. */
+        public final double inclination;
+        /** This planet's line of nodes, radians. */
+        public final double nodeAngle;
 
-        SystemPlanet(String id, double ringRadius, double phase0, int surfaceSize, float radius, int tint)
+        SystemPlanet(String id, double ringRadius, double phase0, int surfaceSize, float radius, int tint,
+                     double inclination, double nodeAngle)
         {
             this.id = id;
             this.ringRadius = ringRadius;
@@ -122,6 +145,8 @@ public final class GeneratedSystems
             this.surfaceSize = surfaceSize;
             this.radius = radius;
             this.tint = tint;
+            this.inclination = inclination;
+            this.nodeAngle = nodeAngle;
         }
     }
 
@@ -132,14 +157,17 @@ public final class GeneratedSystems
         public final Vec3 starPos;
         public final float starRadius;
         public final int starTint;
-        /** The tilt of this system's shared orbital plane from the flat body plane, radians (0..MAX_INCLINATION). */
+        /** The tilt of this system's BASE orbital plane, radians (MIN..MAX_SYSTEM_INCLINATION). Each planet's own plane
+         *  sits near it ({@link SystemPlanet#inclination}); this one carries the system's dust belt. */
         public final double inclination;
-        /** The azimuth of this system's line of nodes, radians (where the tilted plane crosses the flat one). */
+        /** The azimuth of the base plane's line of nodes, radians (where it crosses the flat one). */
         public final double nodeAngle;
+        /** The largest vertical swing any planet slot of this system gets from its tilt, blocks (at most MAX_PLANET_LIFT). */
+        public final double maxLift;
         public final List<SystemPlanet> planets;
 
         System(String starKey, Vec3 starPos, float starRadius, int starTint, double inclination, double nodeAngle,
-               List<SystemPlanet> planets)
+               double maxLift, List<SystemPlanet> planets)
         {
             this.starKey = starKey;
             this.starPos = starPos;
@@ -147,16 +175,17 @@ public final class GeneratedSystems
             this.starTint = starTint;
             this.inclination = inclination;
             this.nodeAngle = nodeAngle;
+            this.maxLift = maxLift;
             this.planets = planets;
         }
 
-        /** The world position of a planet of this system at the given epoch: it orbits the star on the system's tilted
-         *  plane, so it sits above or below the star's flat body height while staying exactly its ring radius from the
-         *  star in 3D (see {@link Orbits#inclinedPosition}). */
+        /** The world position of a planet of this system at the given epoch: it orbits the star on its own tilted
+         *  plane, so it sits above or below the star while staying exactly its ring radius from it in 3D (see
+         *  {@link Orbits#inclinedPosition}). */
         public Vec3 planetPositionAt(SystemPlanet p, long epochMillis)
         {
             double[] xyz = Orbits.inclinedPosition(starPos.x, starPos.y, starPos.z, p.ringRadius, p.phase0, epochMillis,
-                    inclination, nodeAngle);
+                    p.inclination, p.nodeAngle);
             return new Vec3(xyz[0], xyz[1], xyz[2]);
         }
 
@@ -175,6 +204,10 @@ public final class GeneratedSystems
         z = (z ^ (z >>> 27)) * 0x94D049BB133111EBL;
         return z ^ (z >>> 31);
     }
+
+    // offset folded into mix() for a planet's PLANE, so its tilt is uncorrelated with its id, phase and colour (and the
+    // ids, which existing claims are keyed by, stay exactly what mix(h, i) always gave).
+    private static final int PLANE_SALT = 0x3D00;
 
     // fold a per-planet index into the system hash, so each planet gets an uncorrelated stable id / phase / colour.
     private static long mix(long systemHash, int index)
@@ -205,7 +238,7 @@ public final class GeneratedSystems
 
     /**
      * The system in a grid cell, or null if the cell is empty (density roll failed, not the cy 0 layer, inside the origin
-     * column or inner solar system, on a super body's starting spot, or its star has been destroyed). Pure but for the
+     * column or inner solar system, or its star has been destroyed). Pure but for the
      * destroyed seam. {@code includeDestroyed} true skips the destroyed suppression, for the cascade that needs a
      * destroyed star's planets to destroy them.
      */
@@ -226,11 +259,6 @@ public final class GeneratedSystems
         double oz = (0.3 + unit(h, 8) * 0.4) * sector;
         double sx = (double) cx * sector + ox;
         double sz = (double) cz * sector + oz;
-        // CENTRE-BIASED height: a signed square of a hashed unit in [-1,1] keeps most systems near the band centre while
-        // a tail reaches the extremes, exactly the "most near the middle, some noticeably higher or lower" the owner
-        // asked for. Deterministic per cell, so client and server agree with no extra sync.
-        double sy = STAR_Y_CENTRE + signedSquare(unit(h, 40) * 2.0 - 1.0) * STAR_Y_HALF_RANGE;
-        Vec3 starPos = new Vec3(sx, sy, sz);
 
         // keep the whole system out of the origin column and the reserved inner solar system: reject if any orbit could
         // enter it. Both are pure XZ checks, so client and server agree with no extra sync.
@@ -239,11 +267,9 @@ public final class GeneratedSystems
         {
             return null;
         }
-        // never sit a system on a super body's starting spot (a pure check over the seven initial ring positions).
-        if (SuperPlanetPositions.overlaps(starPos, (float) MAX_OUTER_RING))
-        {
-            return null;
-        }
+        // Systems do NOT yield to the super dragon ball bodies: those orbit the sun, and each body's orbit radius is chosen
+        // to keep it clear of the systems instead (SuperPlanetPositions.chooseOrbit). Yielding here used to blank systems
+        // near seven spots anchored on Earth, which moved with Earth's orbit, so those systems blinked in and out.
 
         String starKey = starKeyFor(cx, cz);
         // a destroyed star takes its whole system with it: suppressed at the source so every consumer inherits it.
@@ -255,9 +281,8 @@ public final class GeneratedSystems
         float starRadius = STAR_MIN_RADIUS + (float) (unit(h, 16) * (STAR_MAX_RADIUS - STAR_MIN_RADIUS));
         int starTint = starTint(h);
 
-        // the system's shared orbital-plane tilt and its line of nodes, both a pure function of the cell hash so the
-        // client derives the identical inclined orbits the server does.
-        double inclination = unit(h, 4) * MAX_INCLINATION;
+        // the system's base orbital plane, a pure function of the cell hash so the client derives the identical orbits.
+        double inclination = MIN_SYSTEM_INCLINATION + unit(h, 4) * (MAX_SYSTEM_INCLINATION - MIN_SYSTEM_INCLINATION);
         double nodeAngle = unit(h, 44) * (Math.PI * 2.0);
 
         int count = MIN_PLANETS + (int) (unit(h, 32) * (MAX_PLANETS - MIN_PLANETS + 1));
@@ -265,6 +290,31 @@ public final class GeneratedSystems
         {
             count = MAX_PLANETS;   // guard the 1.0 edge of unit().
         }
+        // every planet SLOT's plane first (destroyed ones too), so the star height below never depends on what is
+        // destroyed and the system never shifts when a planet goes.
+        double[] incl = new double[count];
+        double[] node = new double[count];
+        double maxLift = 0.0;
+        for (int i = 0; i < count; ++i)
+        {
+            long ph = mix(h, i + PLANE_SALT);
+            double ring = INNER_RING + i * RING_STEP;
+            double pi = inclination + (unit(ph, 0) * 2.0 - 1.0) * PLANET_INCLINATION_JITTER;
+            // cap the swing: ring * sin(pi) <= MAX_PLANET_LIFT, so the star band below is never empty.
+            pi = Math.min(Math.max(pi, 0.0), Math.asin(Math.min(1.0, MAX_PLANET_LIFT / ring)));
+            incl[i] = pi;
+            node[i] = nodeAngle + (unit(ph, 24) * 2.0 - 1.0) * PLANET_NODE_JITTER;
+            maxLift = Math.max(maxLift, ring * Math.sin(pi));
+        }
+
+        // the star anywhere in the column that keeps every planet inside the body band (see the band maths above).
+        // Uniform, so systems sit all the way above and below a player, not only near one height.
+        double bodyReach = maxLift + GeneratedPlanets.maxBodyRadius();
+        double lowY = SpaceDimension.BODY_FLOOR_Y + bodyReach;
+        double highY = SpaceDimension.BODY_CEILING_Y - bodyReach;
+        double sy = lowY + unit(h, 40) * (highY - lowY);
+        Vec3 starPos = new Vec3(sx, sy, sz);
+
         List<SystemPlanet> planets = new ArrayList<>(count);
         for (int i = 0; i < count; ++i)
         {
@@ -280,17 +330,9 @@ public final class GeneratedSystems
             double phase0 = Orbits.phase0(ph);
             int surfaceSize = GeneratedPlanets.surfaceSizeForId(id);
             float radius = GeneratedPlanets.bodyRadiusForSurfaceSize(surfaceSize);
-            planets.add(new SystemPlanet(id, ring, phase0, surfaceSize, radius, planetTint(ph)));
+            planets.add(new SystemPlanet(id, ring, phase0, surfaceSize, radius, planetTint(ph), incl[i], node[i]));
         }
-        return new System(starKey, starPos, starRadius, starTint, inclination, nodeAngle, planets);
-    }
-
-    // signed square: sign(v) * v*v for v in [-1,1], mapping back into [-1,1]. Concentrates values near 0 (a system near
-    // the band centre) while keeping the extremes reachable, which is the "most near the middle, some far out" height
-    // distribution. Pure, so client and server agree.
-    private static double signedSquare(double v)
-    {
-        return v < 0.0 ? -(v * v) : v * v;
+        return new System(starKey, starPos, starRadius, starTint, inclination, nodeAngle, maxLift, planets);
     }
 
     // a warm sun tint (yellow-white through amber), a pure function of the cell hash so it is stable and identical on

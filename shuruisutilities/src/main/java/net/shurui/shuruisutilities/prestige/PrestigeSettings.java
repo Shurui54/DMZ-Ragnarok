@@ -76,6 +76,14 @@ public class PrestigeSettings extends SavedData
      */
     private long minimumPrestigeSetAt;
     /**
+     * Who set the current floor (player name, or "console"), and the shard it was set on. Audit only, so staff can
+     * tell a floor they meant from a stale or foreign one (a test server sharing the database). Optional NBT keys
+     * {@code minPrestigeBy} and {@code minPrestigeFrom}, written only while non-empty, so a save that never had them
+     * stays byte-identical and loads unchanged.
+     */
+    private String minimumPrestigeBy = "";
+    private String minimumPrestigeFrom = "";
+    /**
      * prestige level -&gt; kit name, handed out ONCE when a character crosses that level (the same
      * newly-crossed-level accounting the character-slot reward uses, so a second character reaching an
      * already-rewarded level gets nothing).
@@ -123,6 +131,17 @@ public class PrestigeSettings extends SavedData
                     s.raceRequiredPrestige.put(race.toLowerCase(Locale.ROOT), lvl);
             }
         }
+        // Read the same way loadInto reads it. Without this, operator-only races were forgotten on every restart.
+        if (tag.contains("raceOpOnly"))
+        {
+            net.minecraft.nbt.ListTag list = tag.getList("raceOpOnly", net.minecraft.nbt.Tag.TAG_STRING);
+            for (int i = 0; i < list.size(); i++)
+            {
+                String race = list.getString(i);
+                if (race != null && !race.isBlank())
+                    s.opOnlyRaces.add(race.toLowerCase(Locale.ROOT));
+            }
+        }
         if (tag.contains("questReq"))
         {
             CompoundTag req = tag.getCompound("questReq");
@@ -135,6 +154,8 @@ public class PrestigeSettings extends SavedData
         }
         s.minimumPrestige = Math.max(0, tag.getInt("minPrestige"));
         s.minimumPrestigeSetAt = tag.getLong("minPrestigeAt");
+        s.minimumPrestigeBy = tag.getString("minPrestigeBy");
+        s.minimumPrestigeFrom = tag.getString("minPrestigeFrom");
         readLevelMap(tag, "levelKits", s.levelKits);
         readLevelMap(tag, "levelColours", s.levelColours);
         return s;
@@ -181,6 +202,16 @@ public class PrestigeSettings extends SavedData
      */
     public void loadInto(CompoundTag tag)
     {
+        // A tag with no "max" is not a settings block at all (an empty or foreign payload). Applying it would zero the
+        // max prestige and every gate on this shard, so it is refused and logged instead.
+        if (tag == null || !tag.contains("max"))
+        {
+            net.shurui.shuruisutilities.util.output.logger.LoggingHandler.sulog.warn(
+                    "[Prestige] Ignored a prestige settings payload from the network with no settings in it.");
+            return;
+        }
+        int floorBefore = minimumPrestige;
+        long floorAtBefore = minimumPrestigeSetAt;
         maxPrestige = tag.getInt("max");
         tpBonusPerLevel = tag.getInt("tpPerLevel");
         capBonusPerLevel = tag.contains("capPerLevel") ? tag.getInt("capPerLevel")
@@ -222,6 +253,14 @@ public class PrestigeSettings extends SavedData
         }
         minimumPrestige = Math.max(0, tag.getInt("minPrestige"));
         minimumPrestigeSetAt = tag.getLong("minPrestigeAt");
+        minimumPrestigeBy = tag.getString("minPrestigeBy");
+        minimumPrestigeFrom = tag.getString("minPrestigeFrom");
+        // The floor resets characters at login, so a floor arriving from another shard is always worth a loud line:
+        // it is the only trace of where a floor nobody here set came from.
+        if (minimumPrestige != floorBefore || minimumPrestigeSetAt != floorAtBefore)
+            net.shurui.shuruisutilities.util.output.logger.LoggingHandler.sulog.warn(
+                    "[Prestige] The prestige floor changed through the network sync: {} -> {} ({}).",
+                    floorBefore, minimumPrestige, describeFloor());
         levelKits.clear();
         readLevelMap(tag, "levelKits", levelKits);
         levelColours.clear();
@@ -252,6 +291,10 @@ public class PrestigeSettings extends SavedData
         tag.put("questReq", questReq);
         tag.putInt("minPrestige", minimumPrestige);
         tag.putLong("minPrestigeAt", minimumPrestigeSetAt);
+        if (!minimumPrestigeBy.isEmpty())
+            tag.putString("minPrestigeBy", minimumPrestigeBy);
+        if (!minimumPrestigeFrom.isEmpty())
+            tag.putString("minPrestigeFrom", minimumPrestigeFrom);
         tag.put("levelKits", writeLevelMap(levelKits));
         tag.put("levelColours", writeLevelMap(levelColours));
         return tag;
@@ -281,9 +324,45 @@ public class PrestigeSettings extends SavedData
      */
     public void setMinimumPrestige(int level)
     {
+        setMinimumPrestige(level, "", "");
+    }
+
+    /**
+     * As {@link #setMinimumPrestige(int)}, recording who set it and on which shard. Clearing (0) clears the record
+     * too, like the stamp.
+     */
+    public void setMinimumPrestige(int level, String by, String from)
+    {
         this.minimumPrestige = Math.max(0, level);
         this.minimumPrestigeSetAt = this.minimumPrestige > 0 ? System.currentTimeMillis() : 0L;
+        this.minimumPrestigeBy = this.minimumPrestige > 0 && by != null ? by : "";
+        this.minimumPrestigeFrom = this.minimumPrestige > 0 && from != null ? from : "";
         setDirty();
+    }
+
+    /** Who set the current floor, or "" when unknown (set by an older build) or no floor is set. */
+    public String getMinimumPrestigeBy()
+    {
+        return minimumPrestigeBy;
+    }
+
+    /** The shard the current floor was set on, or "" when unknown or no floor is set. */
+    public String getMinimumPrestigeFrom()
+    {
+        return minimumPrestigeFrom;
+    }
+
+    /** One line naming the floor's level, when, who and where, for logs and {@code /prestige forceall}. */
+    public String describeFloor()
+    {
+        if (minimumPrestige <= 0)
+            return "no floor set";
+        String when = minimumPrestigeSetAt > 0L
+                ? java.time.Instant.ofEpochMilli(minimumPrestigeSetAt).toString()
+                : "an unknown time (set by an older build)";
+        return "prestige " + minimumPrestige + ", set " + when
+                + " by " + (minimumPrestigeBy.isEmpty() ? "an unknown admin" : minimumPrestigeBy)
+                + (minimumPrestigeFrom.isEmpty() ? "" : " on server " + minimumPrestigeFrom);
     }
 
     /** The kit handed out on first reaching {@code level}, or null. */

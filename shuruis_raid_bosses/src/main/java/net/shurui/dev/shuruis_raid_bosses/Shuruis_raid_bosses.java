@@ -59,6 +59,7 @@ public class Shuruis_raid_bosses {
                 net.shurui.dev.shuruis_raid_bosses.api.key.RaidKeyHooks::available);
         // Filename pinned so the single-container merge cannot silently orphan the live config file.
         ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, Config.SPEC, "shuruis_raid_bosses-common.toml");
+        RaidConfigEditorSources.register();
         LOGGER.info("Shurui's Raid Bosses loaded.");
     }
 }

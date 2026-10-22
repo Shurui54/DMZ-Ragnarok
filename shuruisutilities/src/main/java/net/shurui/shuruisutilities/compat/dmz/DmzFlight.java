@@ -1,6 +1,5 @@
 package net.shurui.shuruisutilities.compat.dmz;
 
-import java.lang.reflect.Method;
 
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.fml.ModList;
@@ -40,23 +39,13 @@ public final class DmzFlight
         }
         try
         {
-            // Reached reflectively rather than compiled against. DMZ being present is not proof its API
-            // matches this build, and a teleport is the last place that should throw: a rename here has to
-            // degrade to "safe-land as before", not break the command.
-            Class<?> helper = Class.forName("com.dragonminez.common.stats.StatsHelper");
-            Method get = helper.getMethod("getStats", net.minecraft.world.entity.player.Player.class);
-            Object stats = get.invoke(null, player);
-            if (stats == null)
-            {
-                return false;
-            }
-            Object skills = stats.getClass().getMethod("getSkills").invoke(stats);
-            if (skills == null)
-            {
-                return false;
-            }
-            Object has = skills.getClass().getMethod("hasSkill", String.class).invoke(skills, FLY_SKILL);
-            return Boolean.TRUE.equals(has);
+            // DMZ is a mandatory dependency, so its capability API is compiled against directly. (This used to reach a
+            // reflective com.dragonminez.common.stats.StatsHelper.getStats, which neither 2.1.3 nor 2.2 has, so the
+            // check always fell back to "no flight".) A failure still degrades to "safe-land as before".
+            return com.dragonminez.common.stats.StatsProvider.get(com.dragonminez.common.stats.StatsCapability.INSTANCE, player)
+                    .resolve()
+                    .map(stats -> stats.getSkills() != null && stats.getSkills().hasSkill(FLY_SKILL))
+                    .orElse(false);
         }
         catch (Throwable t)
         {

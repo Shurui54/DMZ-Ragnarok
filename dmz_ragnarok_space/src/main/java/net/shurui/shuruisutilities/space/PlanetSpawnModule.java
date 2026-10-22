@@ -173,6 +173,8 @@ public class PlanetSpawnModule extends ConfigLoaderBase
     private static ForgeConfigSpec.DoubleValue cfgSuperGodBattlePowerMin;
     private static ForgeConfigSpec.DoubleValue cfgSuperGodBattlePowerMax;
     private static ForgeConfigSpec.DoubleValue cfgSuperRenderDistance;
+    private static ForgeConfigSpec.IntValue cfgSpaceSimulationDistance;
+    private static ForgeConfigSpec.BooleanValue cfgSkipEmptySpaceChunkTicks;
 
     static double bodyDrawDistance()
     {
@@ -563,15 +565,13 @@ public class PlanetSpawnModule extends ConfigLoaderBase
         // not persist them, so a later change to the derived formula cannot retroactively resize or re-theme it. Cheap
         // (only planets missing an entry, over the tiny stamped set) and idempotent across restarts.
         GeneratedPlanetClaims.get(event.getServer()).backfillStampedGeometry();
-        // build the coordinated fixed-planet layout now, BEFORE seeding the super bodies below: the super bodies are
-        // anchored on Earth's position (SuperPlanetPositions.earth -> PlanetPositions.position), so the layout snapshot
-        // must exist before ensureInitialized reads it, or the seed would use the per-key fallback instead of the
-        // coordinated Earth. A cheap no-op once built; also emits the '[SpacePlanets] fixed layout' verification line.
+        // build the coordinated fixed-planet layout now, BEFORE seeding the super bodies below: the super orbit bands sit
+        // between the fixed rings, and building it here also emits the '[SpacePlanets] fixed layout' verification line.
         PlanetRegistry.invalidateCache();
         PlanetRegistry.bodies(event.getServer());
-        // seed the seven super bodies at their initial ring positions the first time this world starts (idempotent), so
-        // their positions exist for landing, rendering and the radar before any player lands. The login sync then pushes
-        // them to each client.
+        // give the seven super bodies their orbits the first time this world starts, and migrate an older save's bodies onto
+        // the sun-centred orbits (idempotent, logged per body), so they exist for landing, rendering and the radar before
+        // any player lands. The login sync then pushes the orbit elements to each client.
         SuperPlanetData.get(event.getServer());
         // cheap always-on guard: every rgnpc garrison face id must resolve to a bundled RgNpcModels entry, or a defender
         // would silently render as the default 2stars (Haze Shenron) face (the old "upa" bug). Logs an ERROR per bad id.
@@ -1188,6 +1188,12 @@ public class PlanetSpawnModule extends ConfigLoaderBase
         cfgSuperRenderDistance = BUILDER
                 .comment("How near (in blocks) the CLIENT must be to a SUPER dragon-ball body before it draws at all. This is INDEPENDENT of bodyDrawDistance and small on purpose: super bodies sit 20000..45000 blocks from Earth and at least 15000 apart, so a small cull keeps one from being spotted from across space; the Super radar is what guides you to it. Server-side landing is UNAFFECTED (you can fly into and land on a body you cannot yet see). Default 1000.")
                 .defineInRange("superRenderDistance", 1000.0, 100.0, 45000.0);
+        cfgSpaceSimulationDistance = BUILDER
+                .comment("Simulation distance (in chunks) for the SPACE dimension only: how far from a player chunks tick and entities move. The view distance (what clients see) is unchanged, and so is every other dimension. Never raised above the server's own simulation-distance. 0 = use the server value. Default 4 (64 blocks): space is empty, so this only saves the ticket and chunk-tick work around fast-moving pods.")
+                .defineInRange("spaceSimulationDistance", 4, 0, 32);
+        cfgSkipEmptySpaceChunkTicks = BUILDER
+                .comment("Skip the per-chunk tick work (random ticks, weather, natural spawning) for space chunks that hold no block and no block entity at all. Entities in them still tick normally. Default true.")
+                .define("skipEmptySpaceChunkTicks", true);
         BUILDER.pop();
     }
 
@@ -1332,6 +1338,7 @@ public class PlanetSpawnModule extends ConfigLoaderBase
         superGodBattlePowerMin = cfgSuperGodBattlePowerMin.get();
         superGodBattlePowerMax = cfgSuperGodBattlePowerMax.get();
         superRenderDistance = cfgSuperRenderDistance.get();
+        SpaceChunkTicking.configure(cfgSpaceSimulationDistance.get(), cfgSkipEmptySpaceChunkTicks.get());
         PlanetRegistry.excludeTimeChamber = cfgExcludeTimeChamber.get();
         PlanetRegistry.requireLoadedDimension = cfgRequireLoadedDimension.get();
         // the exclusion toggles just changed what counts as a body, so drop the eligibility cache.

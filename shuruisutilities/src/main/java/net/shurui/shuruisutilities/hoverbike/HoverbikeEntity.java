@@ -75,6 +75,12 @@ public class HoverbikeEntity extends Entity
             SynchedEntityData.defineId(HoverbikeEntity.class, EntityDataSerializers.BYTE);
     private static final EntityDataAccessor<Integer> DATA_RACE_AURA =
             SynchedEntityData.defineId(HoverbikeEntity.class, EntityDataSerializers.INT);
+    // Vehicle tier (vehicleworkbench.VehicleTiers), appended after the race accessors for the same wire-order reason.
+    // The tier's speed is folded into DATA_SPEED; its acceleration needs its own value because the client drives.
+    private static final EntityDataAccessor<Byte> DATA_TIER =
+            SynchedEntityData.defineId(HoverbikeEntity.class, EntityDataSerializers.BYTE);
+    private static final EntityDataAccessor<Float> DATA_ACCEL =
+            SynchedEntityData.defineId(HoverbikeEntity.class, EntityDataSerializers.FLOAT);
 
     /** {@link #DATA_RACE_FLAGS} bit marking a bike the race engine owns (a "race bike"), never a personal deploy. */
     public static final int RACE_FLAG_ACTIVE = 1;
@@ -204,6 +210,22 @@ public class HoverbikeEntity extends Entity
         this.entityData.define(DATA_RACE_FX, 0);
         this.entityData.define(DATA_RACER_SLOT, (byte) 0);
         this.entityData.define(DATA_RACE_AURA, 0);
+        this.entityData.define(DATA_TIER, (byte) 1);
+        this.entityData.define(DATA_ACCEL, (float) ACCEL_LERP);
+    }
+
+    /** The vehicle tier this bike was deployed at (1 for an untiered bike). */
+    public int getTier()
+    {
+        return Math.max(1, this.entityData.get(DATA_TIER));
+    }
+
+    /** Set the tier and re-derive its synced stats. Server side, like setVariant. */
+    public void setTier(int tier)
+    {
+        this.entityData.set(DATA_TIER, (byte) Mth.clamp(tier, 1, net.shurui.shuruisutilities.vehicleworkbench.VehicleTierConfig.TIER_CEILING));
+        if (!this.level().isClientSide)
+            refreshSpeedFromConfig();
     }
 
     // --- racing accessors + guards (PRIVATE feature; a normal personal bike is unaffected) ---
@@ -311,8 +333,12 @@ public class HoverbikeEntity extends Entity
     private void refreshSpeedFromConfig()
     {
         int variant = Mth.clamp(getVariant(), 1, 4);
-        this.entityData.set(DATA_SPEED, (float) ConfigHoverbikes.speed[variant]);
+        int tier = getTier();
+        this.entityData.set(DATA_SPEED, (float) (ConfigHoverbikes.speed[variant]
+                * net.shurui.shuruisutilities.vehicleworkbench.VehicleTiers.speedMult(tier)));
         this.entityData.set(DATA_SPRINT_MULT, (float) ConfigHoverbikes.sprintMultiplier);
+        this.entityData.set(DATA_ACCEL, (float) Math.min(1.0D,
+                ACCEL_LERP * net.shurui.shuruisutilities.vehicleworkbench.VehicleTiers.accelMult(tier)));
     }
 
     private float getSyncedSpeed()
@@ -378,6 +404,8 @@ public class HoverbikeEntity extends Entity
     protected void addAdditionalSaveData(CompoundTag tag)
     {
         tag.putByte("Variant", (byte) getVariant());
+        if (getTier() > 1)
+            tag.putByte("Tier", (byte) getTier());
         if (this.ownerUUID != null)
             tag.putUUID("Owner", this.ownerUUID);
     }
@@ -387,6 +415,8 @@ public class HoverbikeEntity extends Entity
     {
         if (tag.contains("Variant"))
             setVariant(tag.getByte("Variant"));
+        if (tag.contains("Tier"))
+            setTier(tag.getByte("Tier"));
         this.ownerUUID = tag.hasUUID("Owner") ? tag.getUUID("Owner") : null;
     }
 
@@ -547,7 +577,8 @@ public class HoverbikeEntity extends Entity
         this.gameEvent(net.minecraft.world.level.gameevent.GameEvent.ENTITY_DAMAGE, source.getEntity());
 
         boolean creative = source.getEntity() instanceof Player p && p.getAbilities().instabuild;
-        if (creative || this.getDamage() > BREAK_DAMAGE)
+        if (creative || this.getDamage() > BREAK_DAMAGE
+                * net.shurui.shuruisutilities.vehicleworkbench.VehicleTiers.durabilityMult(getTier()))
         {
             // curios-deployed bikes never ground-drop: their item stays in the owner's curios slot the whole time, so
             // a destroy must produce NO item (dropping one would duplicate the chip still in the slot). owner-less
@@ -587,7 +618,7 @@ public class HoverbikeEntity extends Entity
     private ItemStack getDropItem()
     {
         RegistryObject<net.minecraft.world.item.Item> item = HoverbikeItems.BIKES[Mth.clamp(getVariant(), 1, 4)];
-        return new ItemStack(item.get());
+        return net.shurui.shuruisutilities.vehicleworkbench.VehicleTiers.withTier(new ItemStack(item.get()), getTier());
     }
 
     @Override
@@ -744,7 +775,7 @@ public class HoverbikeEntity extends Entity
                 // current -> target so accel ramps rather than snaps.
                 Vec3 target = input.normalize().scale(base).yRot(-this.getYRot() * ((float) Math.PI / 180F));
                 target = applyGlideMemory(target);
-                horiz = horiz.lerp(target, ACCEL_LERP);
+                horiz = horiz.lerp(target, this.entityData.get(DATA_ACCEL));
             }
             else
             {

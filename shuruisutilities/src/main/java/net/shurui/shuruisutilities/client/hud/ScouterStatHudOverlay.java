@@ -14,6 +14,12 @@ import com.dragonminez.common.stats.character.Character;
 import com.dragonminez.common.stats.character.Resources;
 import com.dragonminez.common.stats.character.Status;
 import com.dragonminez.client.render.compat.CosmeticArmorCompat;
+import com.dragonminez.client.gui.hud.HudBar;
+import com.dragonminez.client.gui.hud.HudRender;
+import com.dragonminez.client.gui.hud.HudSmoother;
+import com.dragonminez.client.gui.hud.HudSprites;
+import com.dragonminez.client.gui.hud.HudStatNumberAnimator;
+import com.dragonminez.client.gui.hud.SurgeBarState;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.pipeline.TextureTarget;
 import com.mojang.blaze3d.systems.RenderSystem;
@@ -35,6 +41,7 @@ import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.player.RemotePlayer;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.Attributes;
@@ -43,14 +50,16 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.RenderGuiOverlayEvent;
 import net.minecraftforge.client.gui.overlay.ForgeGui;
-import net.minecraftforge.common.util.LazyOptional;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
 import net.shurui.dev.sdu.api.ClientGate;
+import net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHud;
+import net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHudElement;
+import net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHudFrame;
+import net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHudSlot;
 import net.shurui.shuruisutilities.core.SUConfig;
 import net.shurui.shuruisutilities.core.ShuruisUtilities;
-import net.shurui.shuruisutilities.util.output.logger.LoggingHandler;
 
 /**
  * SU's custom scouter-style stat HUD. It REPLACES DragonMineZ's own xenoverse/alternative stat HUD with an assembled
@@ -59,14 +68,18 @@ import net.shurui.shuruisutilities.util.output.logger.LoggingHandler;
  * bar. It is a registered Forge GUI overlay (see {@link net.shurui.shuruisutilities.client.gui.SUClientMenus}), so it
  * draws in normal HUD space like {@code PlanetInfoOverlay} and {@code RegionHudOverlay}.
  *
- * <h2>Suppressing DMZ's HUD</h2>
- * DMZ's health/ki/stamina/form display lives in exactly two named overlays, {@code dragonminez:xenoversehud} and
- * {@code dragonminez:alternativehud} (only one draws at a time, chosen by a DMZ config). A FORGE-bus handler on
- * {@link RenderGuiOverlayEvent.Pre} cancels BOTH of them while this HUD is enabled, and leaves DMZ's other overlays
- * (scouter item, technique charge, quest tracker, technique hotbar, beam clash) untouched. When the HUD is switched
- * off in the config, nothing is cancelled and nothing is drawn, so players get DMZ's default HUD back. DMZ already
- * cancels the vanilla health bar itself once a character exists, so this HUD becomes the only health display without us
- * touching the vanilla overlay.
+ * <h2>The Ragnarok style</h2>
+ * On DragonMineZ 2.2 this panel is the main element of the "Ragnarok" style in DMZ's own HUD editor
+ * ({@link RagnarokHud}): selecting that style there replaces DMZ's main HUD with this panel, and the panel and its
+ * currency cluster ({@link RagnarokHudSlot#STATS}, {@link RagnarokHudSlot#CURRENCY}) are moved, scaled and hidden in
+ * DMZ's editor and saved in DMZ's {@code hud_layout.json}. DMZ's main HUD classes each draw only for their own style,
+ * so nothing is cancelled. The panel animates with DMZ's own HUD classes (see {@code Animated}).
+ *
+ * <h2>Legacy path</h2>
+ * Without DMZ's layout system the panel draws at its old top-left spot and {@code CustomStatHudScale}, gated by
+ * {@code CustomStatHud}, and a FORGE-bus {@link RenderGuiOverlayEvent.Pre} handler cancels DMZ's main stat overlays
+ * while it is on, leaving DMZ's other overlays (scouter item, technique charge, technique hotbar, beam clash) alone.
+ * DMZ already cancels the vanilla health bar itself once a character exists.
  *
  * <h2>Client-only</h2>
  * The class is {@code Dist.CLIENT} guarded so a dedicated server never classloads it or the DMZ client stats accessors.
@@ -76,7 +89,7 @@ public final class ScouterStatHudOverlay
 {
     public static final String OVERLAY_ID = "scouter_stat_hud";
 
-    // The two DMZ stat-HUD overlays to cancel. Only one draws at a time (a DMZ config picks), so we cancel both.
+    // DMZ's main stat-HUD overlays, cancelled on the legacy path only (see onRenderOverlayPre).
     private static final ResourceLocation DMZ_XENOVERSE_HUD =
             ResourceLocation.fromNamespaceAndPath("dragonminez", "xenoversehud");
     private static final ResourceLocation DMZ_ALTERNATIVE_HUD =
@@ -105,6 +118,9 @@ public final class ScouterStatHudOverlay
     private static final ResourceLocation TEX_RW_HEALTH = rework("health_fill");
     private static final ResourceLocation TEX_RW_HEALTH_AMBER = rework("health_fill_amber");
     private static final ResourceLocation TEX_RW_HEALTH_RED = rework("health_fill_red");
+    // health_fill with its two bands in grey (255 / 171), tinted by DMZ's smooth health ramp so the loss and heal
+    // chips can be drawn pale the way DMZ draws them; the coloured three stay for the static panel.
+    private static final ResourceLocation TEX_RW_HEALTH_GREY = rework("health_fill_grey");
     private static final ResourceLocation TEX_RW_KI_TRACK = rework("ki_track");
     // Greyscale, because the aura tint below is a colour MULTIPLY: tinting the artwork's blue base would drag every
     // aura toward blue and a red aura would come out muddy purple.
@@ -487,8 +503,6 @@ public final class ScouterStatHudOverlay
     private static final float HEALTH_GREEN_ABOVE = 0.5f;   // >= 50% healthy: green fill
     private static final float HEALTH_AMBER_ABOVE = 0.25f;  // 25%..50% wounded: amber fill; below 25% critical: red
 
-    // one-shot warning latch so a persistent draw fault logs ONCE per run, not once per frame.
-    private static boolean warned = false;
 
     // The framebuffer holding the last-captured portrait, the never-ticked stand-in we render into it, and the keys that
     // decide when to re-capture. previewPlayerRef is WEAK so a respawn/relog LocalPlayer can be garbage-collected; identity
@@ -522,126 +536,529 @@ public final class ScouterStatHudOverlay
         return ResourceLocation.fromNamespaceAndPath(ShuruisUtilities.MODID, "textures/gui/hud/rework/" + name + ".png");
     }
 
-    // Cancel DMZ's two stat overlays while SU's HUD is enabled. Forge bus, client dist. Its other overlays are left
-    // alone so the scouter item, technique charge/hotbar, quest tracker and beam clash keep working.
+    // The cancelled DMZ main HUDs on the LEGACY path only (DMZ's layout system unavailable). With DMZ's system the
+    // Ragnarok style is the switch: each DMZ main HUD draws only for its own style, so nothing needs cancelling.
+    private static final ResourceLocation DMZ_MODERN_HUD = ResourceLocation.fromNamespaceAndPath("dragonminez", "modernhud");
+    private static final ResourceLocation DMZ_MINECRAFT_HUD = ResourceLocation.fromNamespaceAndPath("dragonminez", "minecrafthud");
+
     @SubscribeEvent
     public static void onRenderOverlayPre(RenderGuiOverlayEvent.Pre event)
     {
-        if (!SUConfig.customStatHud)
+        if (RagnarokHud.available() || !SUConfig.customStatHud)
             return;
         ResourceLocation id = event.getOverlay().id();
-        if (DMZ_XENOVERSE_HUD.equals(id) || DMZ_ALTERNATIVE_HUD.equals(id))
+        if (DMZ_XENOVERSE_HUD.equals(id) || DMZ_ALTERNATIVE_HUD.equals(id) || DMZ_MODERN_HUD.equals(id)
+                || DMZ_MINECRAFT_HUD.equals(id))
             event.setCanceled(true);
     }
 
-    // Overlay render hook, registered as a Forge GUI overlay in SUClientMenus. All of it is wrapped so a draw fault can
-    // never take down the HUD render pass; it is logged once.
+    /**
+     * Overlay hook, registered in SUClientMenus: the stat panel and the currency cluster, each a separate element of
+     * DMZ's HUD layout (the Ragnarok style), positioned, scaled and animated by {@link RagnarokHud}.
+     */
     public static void render(ForgeGui gui, GuiGraphics g, float partialTick, int screenWidth, int screenHeight)
     {
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null || mc.level == null || mc.options.hideGui || mc.options.renderDebug)
-            return;
-        if (!SUConfig.customStatHud)
-            return;
+        RagnarokHud.draw(RagnarokHudSlot.STATS, g, partialTick, screenWidth, screenHeight);
+        RagnarokHud.draw(RagnarokHudSlot.CURRENCY, g, partialTick, screenWidth, screenHeight);
+    }
 
+    /** Where the currency cluster starts on the assembled panel, in panel pixels (its x offset from the panel). */
+    public static int currencyOffsetX()
+    {
+        return CURRENCY_X0;
+    }
+
+    /** Bind the stat panel and the currency cluster to their Ragnarok HUD slots. */
+    public static void registerElements()
+    {
+        // only consulted when DMZ's layout system is unavailable: the old CustomStatHud switch
+        RagnarokHud.setFallbackMainEnabled(() -> SUConfig.customStatHud);
+        RagnarokHud.register(new StatsElement());
+        RagnarokHud.register(new CurrencyElement());
+    }
+
+    // The stat panel's box: orb at x0 to the frame's right end, orb top to orb bottom.
+    private static final int STATS_W = RW_FRAME_X + RW_FRAME_W;
+    private static final int STATS_H = ORB_Y + ORB_H;
+    // The currency cluster's box, cut out of the panel's coordinates: the shards coin's left edge to the zeni pill's cap.
+    private static final int CURRENCY_X0 = RW_SHARD_ORB_X;
+    private static final int CURRENCY_W = RW_ZENI_BAR_X + RW_ZENI_BAR_DRAW_W - RW_SHARD_ORB_X;
+    private static final int CURRENCY_H = RW_ZENI_ORB_S;
+
+    // Sample figures for DMZ's HUD editor when there is no live value to show.
+    private static final long PREVIEW_ZENI = 1_250_000L;
+    private static final long PREVIEW_SHARDS = 4_200L;
+
+    /**
+     * DMZ 2.2's HUD animation classes (HudBar, HudSmoother, HudStatNumberAnimator), probed once. With them the panel
+     * animates exactly like DMZ's own HUD; without them (a DMZ that moved them) it draws the static panel.
+     */
+    private static final boolean ANIMATED = probeAnimated();
+
+    private static boolean probeAnimated()
+    {
         try
         {
-            LocalPlayer player = mc.player;
-            LazyOptional<StatsData> cap = StatsProvider.get(StatsCapability.INSTANCE, player);
-            StatsData stats = cap.resolve().orElse(null);
-            if (stats == null)
-                return;
-            Status status = stats.getStatus();
-            // gate everything on an actually-created DMZ character: draw nothing before creation.
-            if (status == null || !status.isHasCreatedCharacter())
-                return;
-
-            Resources resources = stats.getResources();
-            if (resources == null)
-                return;
-
-            // HEALTH: vanilla attribute, matching DMZ's own HUD (it reads the vanilla max-health attribute too).
-            float maxHealth = (float) player.getAttributeValue(Attributes.MAX_HEALTH);
-            float healthFrac = maxHealth <= 0.0f ? 0.0f : clamp01(player.getHealth() / maxHealth);
-
-            // KI and STAMINA: DMZ resource values over the computed maxima.
-            float maxEnergy = stats.getMaxEnergy();
-            float kiFrac = maxEnergy <= 0.0f ? 0.0f : clamp01(resources.getCurrentEnergy() / maxEnergy);
-            float maxStamina = stats.getMaxStamina();
-            float stamFrac = maxStamina <= 0.0f ? 0.0f : clamp01(resources.getCurrentStamina() / maxStamina);
-
-            // TRANSFORMATION: the charge-toward-transform meter, 0..100. Idles at 0 and only fills while charging a
-            // transform, so the arc is empty most of the time by design.
-            float transformFrac = clamp01(resources.getActionCharge() / 100.0f);
-
-            double scale = SUConfig.customStatHudScale;
-
-            g.pose().pushPose();
-            g.pose().translate(MARGIN_X, MARGIN_Y, 0.0);
-            g.pose().scale((float) scale, (float) scale, 1.0f);
-
-            // Draw order matches the artist composite: the bars and their fills draw FIRST so the orb laps over their left
-            // ends (the user's read that the bar starts belong BEHIND the orb). glint_b tucks its left end behind the orb, so
-            // it also draws before the orb. Then the orb backdrop, preview and frame draw on top of all those left ends.
-            // drawTransformArc stays AFTER the orb: the crescent's red comes only from transform_arc.png and the orb texture
-            // is opaque with no red baked in, so drawing the arc before the orb would hide it. glint_a laps ONTO the orb's
-            // upper-right edge in the composite, so it draws after the orb+frame. The release % stays last, on the dome cap.
-            // Glints first: the reference shows the bar's top edge cutting across the upper glint, which can only
-            // happen with the glint underneath.
-            drawGlintBelow(g);
-            drawGlintAbove(g);
-            drawFrameAndHealth(g, healthFrac);
-            drawKi(g, kiFrac, auraRgb(stats.getCharacter()));
-            drawStamina(g, stamFrac);
-            drawEnergyBars(g);
-            drawShards(g, mc);
-            drawZeni(g, mc);
-
-            drawOrbAndPreview(g, mc, player);
-            drawTransformArc(g, transformFrac);
-            drawReleasePercent(g, mc, resources.getPowerRelease());
-
-            // Values last, so nothing drawn later can cover a number, and gated on DMZ's own hide-HUD-numbers option.
-            if (!dmzHudNumbersHidden())
-            {
-                int aura = auraRgb(stats.getCharacter());
-                float godFrac = energyFrac();
-                int godRgb = energyFillRgb();
-
-                drawBarValue(g, mc, amount(player.getHealth(), maxHealth),
-                        RW_HEALTH_X, RW_HEALTH_Y, RW_HEALTH_W, RW_HEALTH_H,
-                        Math.round(RW_HEALTH_W * healthFrac), healthFillRgb(healthFrac), scale,
-                        RW_HEALTH_TEXT_BIAS_X);
-                drawBarValue(g, mc, amount(resources.getCurrentEnergy(), maxEnergy),
-                        RW_KI_FILL_X, RW_KI_FILL_Y, RW_KI_FILL_W, RW_KI_FILL_H,
-                        Math.round(RW_KI_FILL_W * kiFrac), tint(FILL_KI_RGB, aura), scale);
-                drawBarValue(g, mc, amount(resources.getCurrentStamina(), maxStamina),
-                        RW_STAM_FILL_X, RW_STAM_FILL_Y, RW_STAM_FILL_W, RW_STAM_FILL_H,
-                        Math.round(RW_STAM_FILL_W * stamFrac), FILL_STAM_RGB, scale);
-                // Role energy reads directly as points out of a flat 100, which IS its real unit (EnergyManager.MAX),
-                // not a share standing in for a missing maximum. Skipped entirely when the player has no role, to
-                // match the track above not being drawn.
-                if (EnergyClientCache.kind() != null)
-                    drawBarValue(g, mc, amount(EnergyClientCache.value(),
-                                    net.shurui.shuruisutilities.energy.EnergyManager.MAX),
-                            RW_ENERGY_X, RW_ENERGY_Y, RW_ENERGY_W, RW_ENERGY_H,
-                            Math.round(RW_ENERGY_W * godFrac), godRgb, scale);
-            }
-
-
-            // The only text on this HUD is the release % in the orb cap. DMZ draws its power-release % unconditionally
-            // (it is not gated by DMZ's hide/always-visible number options), so this readout is always shown too.
-
-
-            g.pose().popPose();
+            ClassLoader cl = ScouterStatHudOverlay.class.getClassLoader();
+            for (String name : new String[] {"HudBar", "HudBarAnimator", "HudSmoother", "HudStatNumberAnimator",
+                    "HudRender", "HudSprites$Sprite", "SurgeBarState"})
+                Class.forName("com.dragonminez.client.gui.hud." + name, false, cl);
+            return true;
         }
         catch (Throwable t)
         {
-            if (!warned)
+            return false;
+        }
+    }
+
+    /** What the panel draws this frame, captured by {@link #snapshot}. */
+    private static final class Snapshot
+    {
+        StatsData data;
+        float health, maxHealth = 1.0f;
+        float energy, maxEnergy = 1.0f;
+        float stamina, maxStamina = 1.0f;
+        float transform;
+        int release;
+        int aura = 0x7FD4FF;
+        boolean chargingKi;
+    }
+
+    private static final Snapshot SNAP = new Snapshot();
+
+    /** Refresh {@link #SNAP} from the live player. Returns false (keep the last snapshot) before a character exists. */
+    private static boolean snapshot(LocalPlayer player, boolean preview)
+    {
+        if (player == null)
+            return false;
+        StatsData stats = StatsProvider.get(StatsCapability.INSTANCE, player).resolve().orElse(null);
+        Status status = stats == null ? null : stats.getStatus();
+        Resources resources = stats == null ? null : stats.getResources();
+        if (status == null || resources == null || !status.isHasCreatedCharacter())
+        {
+            if (!preview)
+                return false;
+            // the editor still needs something to drag before a character exists
+            SNAP.data = null;
+            SNAP.maxHealth = 20.0f;
+            SNAP.health = 14.0f;
+            SNAP.maxEnergy = SNAP.maxStamina = 100.0f;
+            SNAP.energy = 65.0f;
+            SNAP.stamina = 80.0f;
+            SNAP.transform = 0.0f;
+            SNAP.release = 50;
+            SNAP.chargingKi = false;
+            return true;
+        }
+        SNAP.data = stats;
+        // HEALTH: vanilla attribute, matching DMZ's own HUD (it reads the vanilla max-health attribute too).
+        SNAP.maxHealth = Math.max(1.0f, (float) player.getAttributeValue(Attributes.MAX_HEALTH));
+        SNAP.health = player.getHealth();
+        // KI and STAMINA: DMZ resource values over the computed maxima.
+        SNAP.maxEnergy = Math.max(1.0f, stats.getMaxEnergy());
+        SNAP.energy = resources.getCurrentEnergy();
+        SNAP.maxStamina = Math.max(1.0f, stats.getMaxStamina());
+        SNAP.stamina = resources.getCurrentStamina();
+        // TRANSFORMATION: the charge-toward-transform meter, 0..100; idles at 0 and only fills while charging a form.
+        SNAP.transform = clamp01(resources.getActionCharge() / 100.0f);
+        SNAP.release = resources.getPowerRelease();
+        SNAP.aura = auraRgb(stats.getCharacter());
+        SNAP.chargingKi = status.isChargingKi();
+        return true;
+    }
+
+    /** The orb, the bars and the readouts: the Ragnarok style's main element. */
+    private static final class StatsElement extends RagnarokHudElement
+    {
+        StatsElement()
+        {
+            super(RagnarokHudSlot.STATS);
+        }
+
+        @Override
+        public float width()
+        {
+            return STATS_W;
+        }
+
+        @Override
+        public float height()
+        {
+            return STATS_H;
+        }
+
+        @Override
+        public float[] defaultPlacement()
+        {
+            // the panel's old home: top-left, MARGIN in
+            return new float[] {0.0f, 0.0f, MARGIN_X, MARGIN_Y, 1.0f};
+        }
+
+        @Override
+        public float[] fallbackBox(int screenWidth, int screenHeight)
+        {
+            return new float[] {MARGIN_X, MARGIN_Y, (float) SUConfig.customStatHudScale};
+        }
+
+        @Override
+        public Appear appear()
+        {
+            return Appear.FADE;
+        }
+
+        @Override
+        public boolean update(boolean preview, float partialTick)
+        {
+            return snapshot(Minecraft.getInstance().player, preview);
+        }
+
+        @Override
+        public void render(GuiGraphics g, float partialTick, RagnarokHudFrame frame)
+        {
+            Minecraft mc = Minecraft.getInstance();
+            LocalPlayer player = mc.player;
+            if (player == null)
+                return;
+            if (ANIMATED)
+                Animated.drawStats(g, mc, player, SNAP, partialTick, frame.preview);
+            else
+                drawStatsStatic(g, mc, player, SNAP);
+        }
+    }
+
+    /** The shards and zeni pills: their own element, so they can be moved off the panel. */
+    private static final class CurrencyElement extends RagnarokHudElement
+    {
+        CurrencyElement()
+        {
+            super(RagnarokHudSlot.CURRENCY);
+        }
+
+        @Override
+        public float width()
+        {
+            return CURRENCY_W;
+        }
+
+        @Override
+        public float height()
+        {
+            return CURRENCY_H;
+        }
+
+        @Override
+        public float[] defaultPlacement()
+        {
+            // exactly where the cluster sat in the assembled panel
+            return new float[] {0.0f, 0.0f, MARGIN_X + CURRENCY_X0, MARGIN_Y, 1.0f};
+        }
+
+        @Override
+        public float[] fallbackBox(int screenWidth, int screenHeight)
+        {
+            float scale = (float) SUConfig.customStatHudScale;
+            return new float[] {MARGIN_X + CURRENCY_X0 * scale, MARGIN_Y, scale};
+        }
+
+        @Override
+        public boolean listed()
+        {
+            // both currencies are private (economy, cosmetic shards): absent keyless, editor included
+            return ClientGate.key();
+        }
+
+        @Override
+        public Appear appear()
+        {
+            return Appear.FADE;
+        }
+
+        @Override
+        public boolean update(boolean preview, float partialTick)
+        {
+            return preview || ZeniClientCache.known() || ShardClientCache.known();
+        }
+
+        @Override
+        public void render(GuiGraphics g, float partialTick, RagnarokHudFrame frame)
+        {
+            Minecraft mc = Minecraft.getInstance();
+            boolean preview = frame.preview;
+            // a pill draws nothing at all until the server has said what the balance is (see drawZeni / drawShards)
+            Long shards = ShardClientCache.known() ? Long.valueOf(ShardClientCache.get()) : preview ? Long.valueOf(PREVIEW_SHARDS) : null;
+            Long zeni = ZeniClientCache.known() ? Long.valueOf(ZeniClientCache.get()) : preview ? Long.valueOf(PREVIEW_ZENI) : null;
+            g.pose().pushPose();
+            g.pose().translate(-CURRENCY_X0, 0.0f, 0.0f);
+            try
             {
-                warned = true;
-                LoggingHandler.sulog.warn("[ScouterStatHud] Overlay draw failed; hiding the HUD this run.", t);
+                if (ANIMATED)
+                    Animated.drawCurrency(g, mc, zeni, shards, partialTick);
+                else
+                {
+                    if (shards != null)
+                        drawShards(g, mc, grouped(shards), SHARD_TEXT_COLOR, 0.0f, 0.0f);
+                    if (zeni != null)
+                        drawZeni(g, mc, grouped(zeni), ZENI_TEXT_COLOR, 0.0f, 0.0f);
+                }
             }
+            finally
+            {
+                g.pose().popPose();
+            }
+        }
+    }
+
+    /** The panel without DMZ's animation classes: the old static draw, in the element's local space. */
+    private static void drawStatsStatic(GuiGraphics g, Minecraft mc, LocalPlayer player, Snapshot s)
+    {
+        float healthFrac = clamp01(s.health / s.maxHealth);
+        float kiFrac = clamp01(s.energy / s.maxEnergy);
+        float stamFrac = clamp01(s.stamina / s.maxStamina);
+
+        // Draw order matches the artist composite: the bars and their fills draw FIRST so the orb laps over their left
+        // ends, the crescent after the orb (the orb texture is opaque), the release % last on the dome cap. Glints
+        // first: the reference shows the bar's top edge cutting across the upper glint.
+        drawGlintBelow(g);
+        drawGlintAbove(g);
+        drawFrameAndHealth(g, healthFrac);
+        drawKi(g, kiFrac, s.aura);
+        drawStamina(g, stamFrac);
+        drawEnergyBars(g);
+
+        drawOrbAndPreview(g, mc, player);
+        drawTransformArc(g, s.transform);
+        drawReleasePercent(g, mc, s.release);
+
+        // Values last, so nothing drawn later can cover a number, and gated on DMZ's own hide-HUD-numbers option.
+        if (!dmzHudNumbersHidden())
+        {
+            drawBarValue(g, mc, amount(s.health, s.maxHealth), RW_HEALTH_X, RW_HEALTH_Y, RW_HEALTH_W, RW_HEALTH_H,
+                    RW_HEALTH_TEXT_BIAS_X, 0.0f, 0.0f, 0xFFFFFF, 1.0f);
+            drawBarValue(g, mc, amount(s.energy, s.maxEnergy), RW_KI_FILL_X, RW_KI_FILL_Y, RW_KI_FILL_W, RW_KI_FILL_H,
+                    0, 0.0f, 0.0f, 0xFFFFFF, 1.0f);
+            drawBarValue(g, mc, amount(s.stamina, s.maxStamina), RW_STAM_FILL_X, RW_STAM_FILL_Y, RW_STAM_FILL_W, RW_STAM_FILL_H,
+                    0, 0.0f, 0.0f, 0xFFFFFF, 1.0f);
+            // Role energy reads directly as points out of a flat 100, its real unit (EnergyManager.MAX).
+            if (EnergyClientCache.kind() != null)
+                drawBarValue(g, mc, amount(EnergyClientCache.value(), net.shurui.shuruisutilities.energy.EnergyManager.MAX),
+                        RW_ENERGY_X, RW_ENERGY_Y, RW_ENERGY_W, RW_ENERGY_H, 0, 0.0f, 0.0f, 0xFFFFFF, 1.0f);
+        }
+    }
+
+    /**
+     * The panel animated with DragonMineZ 2.2's own HUD machinery, so it moves exactly like DMZ's HUD: bars ease toward
+     * their value (tau 0.55 s), a lost chunk lingers as a pale chip for 1.5 s and then drains (tau 0.32 s), a burst
+     * heal shows a breathing green chip while the bar catches up, a hit flashes the health fill white and shakes the
+     * panel, a glint rides the moving edge, a shine sweeps each bar every 5.5 s (cascaded health, ki, stamina), ki
+     * flows and sweeps while charging, health below 25% beats (and pulses the frame red), and every number counts to
+     * its value, pulses green on a gain and red with a shake on damage, and fades out after 2.5 s unchanged unless
+     * DMZ's "always visible values" option is on.
+     *
+     * <p>A separate class so the static panel never loads DMZ's HUD classes; only touched when {@link #ANIMATED}.
+     */
+    private static final class Animated
+    {
+        private static final HudBar HP = new HudBar(HudStatNumberAnimator.StatKind.HEALTH);
+        private static final HudBar KI = new HudBar(HudStatNumberAnimator.StatKind.KI).flowing();
+        private static final HudBar STM = new HudBar(HudStatNumberAnimator.StatKind.STAMINA);
+        // the role bar continues the shine cascade one step after stamina (DMZ staggers each bar by 0.16 s)
+        private static final HudBar ROLE = new HudBar(HudStatNumberAnimator.StatKind.STAMINA).shineOffset(0.48f);
+
+        // DMZ's HUD smoothing constants (XenoverseHUD / ModernHUD): release 0.10, form charge 0.08, charge glow 0.15,
+        // hit shake 0.12; numbers count with HudBar's 0.11.
+        private static final HudSmoother RELEASE = new HudSmoother(0.10f, 0.05f);
+        private static final HudSmoother FORM = new HudSmoother(0.08f);
+        private static final HudSmoother GLOW = new HudSmoother(0.15f);
+        private static final HudSmoother SHAKE = new HudSmoother(0.12f);
+        private static final HudSmoother HP_NUM = number();
+        private static final HudSmoother KI_NUM = number();
+        private static final HudSmoother STM_NUM = number();
+        private static final HudSmoother ROLE_NUM = number();
+        private static final HudSmoother ZENI_NUM = number();
+        private static final HudSmoother SHARD_NUM = number();
+        private static final HudStatNumberAnimator HP_TEXT = new HudStatNumberAnimator(HudStatNumberAnimator.StatKind.HEALTH);
+        private static final HudStatNumberAnimator KI_TEXT = new HudStatNumberAnimator(HudStatNumberAnimator.StatKind.KI);
+        private static final HudStatNumberAnimator STM_TEXT = new HudStatNumberAnimator(HudStatNumberAnimator.StatKind.STAMINA);
+        private static final HudStatNumberAnimator ROLE_TEXT = new HudStatNumberAnimator(HudStatNumberAnimator.StatKind.KI);
+        // the currencies use DMZ's ki-sense kind: always visible, green on a gain, red with a shake on a loss
+        private static final HudStatNumberAnimator ZENI_TEXT = new HudStatNumberAnimator(HudStatNumberAnimator.StatKind.KISENSE_HEALTH);
+        private static final HudStatNumberAnimator SHARD_TEXT = new HudStatNumberAnimator(HudStatNumberAnimator.StatKind.KISENSE_HEALTH);
+
+        private static final HudSprites.Sprite HEALTH_FILL = sprite(TEX_RW_HEALTH_GREY, RW_HEALTH_W, RW_HEALTH_H);
+        private static final HudSprites.Sprite KI_FILL = sprite(TEX_RW_KI_FILL, RW_KI_FILL_W, RW_KI_FILL_H);
+        private static final HudSprites.Sprite STAM_FILL = sprite(TEX_RW_STAM_FILL, RW_STAM_FILL_W, RW_STAM_FILL_H);
+        private static final HudSprites.Sprite FRAME = sprite(TEX_RW_FRAME, RW_FRAME_W, RW_FRAME_H);
+        private static final HudSprites.Sprite ORB_RING = sprite(TEX_ORB_FRAME, ORB_W, ORB_H);
+
+        // DMZ's low-health alert red (XenoverseHUD.ALERT_COLOR) and surge band (SURGE_TOP)
+        private static final int ALERT_RGB = 0xFF3B3B;
+        private static final float SURGE_TOP = 0.55f;
+
+        private static float lastHealth = -1.0f;
+
+        private static HudSmoother number()
+        {
+            return new HudSmoother(0.11f, 0.45f);
+        }
+
+        private static HudSprites.Sprite sprite(ResourceLocation texture, int w, int h)
+        {
+            // one sprite per PNG, the whole sheet, 1:1 texels (our art is not on DMZ's 2x sheets)
+            return new HudSprites.Sprite(texture, w, h, 0, 0, w, h);
+        }
+
+        static void drawStats(GuiGraphics g, Minecraft mc, LocalPlayer player, Snapshot s, float partialTick, boolean preview)
+        {
+            HP.update(s.health, s.maxHealth);
+            KI.update(s.energy, s.maxEnergy);
+            STM.update(s.stamina, s.maxStamina);
+            boolean role = EnergyClientCache.kind() != null;
+            if (role)
+                ROLE.update(EnergyClientCache.value(), net.shurui.shuruisutilities.energy.EnergyManager.MAX);
+            float release = RELEASE.update(s.release);
+            float form = FORM.update(s.transform);
+            float glow = GLOW.update(s.chargingKi ? 1.0f : 0.0f);
+            float surge = s.data == null ? 0.0f : SurgeBarState.fraction(s.data);
+
+            // DMZ's hit shake: a loss of 2% or more kicks the panel, proportionally to the loss
+            if (lastHealth >= 0.0f && s.health < lastHealth)
+            {
+                float lost = (lastHealth - s.health) / s.maxHealth;
+                if (lost >= 0.02f)
+                    SHAKE.snap(Math.min(1.0f, SHAKE.value() + lost * 6.0f));
+            }
+            lastHealth = s.health;
+            float shake = preview ? 0.0f : SHAKE.update(0.0f);
+
+            float seconds = HudBar.time();
+            float tickTime = player.tickCount + partialTick;
+            float low = HudBar.heartbeat(HP.targetFraction());
+            KI.setFlowBoost(glow);
+
+            HudRender.setAlphaScale(RagnarokHud.alpha());
+            g.pose().pushPose();
+            g.pose().translate(Mth.sin(seconds * 61.0f) * 1.6f * shake, Mth.cos(seconds * 47.0f) * 1.0f * shake, 0.0f);
+            try
+            {
+                drawGlintBelow(g);
+                drawGlintAbove(g);
+
+                // housing, its heartbeat alert, then health
+                RenderSystem.enableBlend();
+                RenderSystem.defaultBlendFunc();
+                g.blit(TEX_RW_FRAME, RW_FRAME_X, RW_FRAME_Y, 0.0f, 0.0f, RW_FRAME_W, RW_FRAME_H, RW_FRAME_W, RW_FRAME_H);
+                if (low > 0.0f)
+                    HudRender.sprite(g, FRAME, RW_FRAME_X, RW_FRAME_Y, RW_FRAME_W, RW_FRAME_H, ALERT_RGB, low * 0.6f);
+                HP.drawFill(g, HEALTH_FILL, null, RW_HEALTH_X, RW_HEALTH_Y, RW_HEALTH_W, RW_HEALTH_H, healthRgb(HP.fraction()), low);
+                RagnarokHud.restoreColor();
+
+                // ki: aura tinted, flowing, swept while charging, the surge band on top
+                g.blit(TEX_RW_KI_TRACK, RW_KI_TRACK_X, RW_KI_TRACK_Y, 0.0f, 0.0f, RW_KI_TRACK_W, RW_KI_TRACK_H, RW_KI_TRACK_W, RW_KI_TRACK_H);
+                KI.drawFill(g, KI_FILL, null, RW_KI_FILL_X, RW_KI_FILL_Y, RW_KI_FILL_W, RW_KI_FILL_H, s.aura, 0.0f);
+                KI.drawFillSweep(g, KI_FILL, RW_KI_FILL_X, RW_KI_FILL_Y, RW_KI_FILL_W, RW_KI_FILL_H, seconds * 1.1f, glow);
+                if (surge > 0.0f)
+                    HudRender.spritePart(g, KI_FILL, RW_KI_FILL_X, RW_KI_FILL_Y, RW_KI_FILL_W, RW_KI_FILL_H,
+                            0.0f, SURGE_TOP, surge, 1.0f, HudRender.mix(s.aura, 0xFFFFFF, 0.75f), 0.95f, false);
+                RagnarokHud.restoreColor();
+
+                g.blit(TEX_RW_STAM_TRACK, RW_STAM_TRACK_X, RW_STAM_TRACK_Y, 0.0f, 0.0f, RW_STAM_TRACK_W, RW_STAM_TRACK_H, RW_STAM_TRACK_W, RW_STAM_TRACK_H);
+                STM.drawFill(g, STAM_FILL, null, RW_STAM_FILL_X, RW_STAM_FILL_Y, RW_STAM_FILL_W, RW_STAM_FILL_H, 0xFFFFFF, 0.0f);
+                RagnarokHud.restoreColor();
+
+                ResourceLocation roleFill = energyFillTexture();
+                if (role && roleFill != null)
+                {
+                    g.blit(TEX_RW_ENERGY_TRACK, RW_ENERGY_TRACK_X, RW_ENERGY_TRACK_Y, 0.0f, 0.0f,
+                            RW_ENERGY_TRACK_W, RW_ENERGY_TRACK_H, RW_ENERGY_TRACK_W, RW_ENERGY_TRACK_H);
+                    ROLE.drawFill(g, sprite(roleFill, RW_ENERGY_W, RW_ENERGY_H), null, RW_ENERGY_X, RW_ENERGY_Y, RW_ENERGY_W, RW_ENERGY_H, 0xFFFFFF, 0.0f);
+                    RagnarokHud.restoreColor();
+                }
+
+                drawOrbAndPreview(g, mc, player);
+                // the orb ring takes the same heartbeat red as DMZ's portrait frame
+                if (low > 0.0f)
+                {
+                    HudRender.sprite(g, ORB_RING, ORB_X, ORB_Y, ORB_W, ORB_H, 0xFF3030, low * 0.5f);
+                    RagnarokHud.restoreColor();
+                }
+                drawTransformArc(g, form);
+                drawReleasePercent(g, mc, Math.round(release));
+
+                drawValue(g, mc, HP_NUM, HP_TEXT, s.health, s.maxHealth, RW_HEALTH_X, RW_HEALTH_Y, RW_HEALTH_W, RW_HEALTH_H,
+                        RW_HEALTH_TEXT_BIAS_X, tickTime);
+                drawValue(g, mc, KI_NUM, KI_TEXT, s.energy, s.maxEnergy, RW_KI_FILL_X, RW_KI_FILL_Y, RW_KI_FILL_W, RW_KI_FILL_H,
+                        0, tickTime);
+                drawValue(g, mc, STM_NUM, STM_TEXT, s.stamina, s.maxStamina, RW_STAM_FILL_X, RW_STAM_FILL_Y, RW_STAM_FILL_W,
+                        RW_STAM_FILL_H, 0, tickTime);
+                if (role)
+                    drawValue(g, mc, ROLE_NUM, ROLE_TEXT, EnergyClientCache.value(), net.shurui.shuruisutilities.energy.EnergyManager.MAX,
+                            RW_ENERGY_X, RW_ENERGY_Y, RW_ENERGY_W, RW_ENERGY_H, 0, tickTime);
+            }
+            finally
+            {
+                g.pose().popPose();
+                HudRender.setAlphaScale(1.0f);
+                RagnarokHud.restoreColor();
+            }
+        }
+
+        // One bar readout: the figure counts toward the value and wears DMZ's change pulse, shake and fade.
+        private static void drawValue(GuiGraphics g, Minecraft mc, HudSmoother number, HudStatNumberAnimator anim,
+                                      float current, float max, int x, int y, int w, int h, int biasX, float tickTime)
+        {
+            float shown = number.update(current);
+            float changeValue = dmzPercentages() ? Math.round(current / Math.max(1.0f, max) * 100.0f) : Math.round(current);
+            HudStatNumberAnimator.RenderState state = anim.update(String.valueOf(changeValue), changeValue, tickTime);
+            if (state.isHidden())
+                return;
+            drawBarValue(g, mc, amount(shown, max), x, y, w, h, biasX, state.offsetX(), state.offsetY(),
+                    state.rgbColor(), state.alpha());
+        }
+
+        static void drawCurrency(GuiGraphics g, Minecraft mc, Long zeni, Long shards, float partialTick)
+        {
+            float tickTime = (mc.player == null ? 0 : mc.player.tickCount) + partialTick;
+            if (shards != null)
+            {
+                float shown = SHARD_NUM.update(shards);
+                HudStatNumberAnimator.RenderState state = SHARD_TEXT.update(Long.toString(shards), shards, tickTime);
+                drawShards(g, mc, grouped(Math.round((double) shown)), pulse(SHARD_TEXT_COLOR, state.rgbColor()),
+                        state.offsetX(), state.offsetY());
+            }
+            if (zeni != null)
+            {
+                float shown = ZENI_NUM.update(zeni);
+                HudStatNumberAnimator.RenderState state = ZENI_TEXT.update(Long.toString(zeni), zeni, tickTime);
+                drawZeni(g, mc, grouped(Math.round((double) shown)), pulse(ZENI_TEXT_COLOR, state.rgbColor()),
+                        state.offsetX(), state.offsetY());
+            }
+        }
+
+        // DMZ pulses from white to green (gain) or red (loss); our figures are gold and blue, so carry the same
+        // pulse strength over onto their own colour.
+        private static int pulse(int argb, int dmzRgb)
+        {
+            int rgb = dmzRgb & 0xFFFFFF;
+            if (rgb == 0xFFFFFF)
+                return argb;
+            boolean gain = ((rgb >> 16) & 0xFF) < 0xFF;
+            float t = gain ? (0xFF - ((rgb >> 16) & 0xFF)) / (float) (0xFF - 0x55)
+                    : (0xFF - ((rgb >> 8) & 0xFF)) / (float) (0xFF - 0x55);
+            return (argb & 0xFF000000) | HudRender.mix(argb & 0xFFFFFF, gain ? 0x55FF55 : 0xFF5555, t);
+        }
+
+        // DMZ's smooth health colour ramp, on our three fills, centred on the old 50% and 25% thresholds
+        private static int healthRgb(float fraction)
+        {
+            float toAmber = smoothStep(HEALTH_AMBER_ABOVE - 0.05f, HEALTH_AMBER_ABOVE + 0.05f, fraction);
+            float toGreen = smoothStep(HEALTH_GREEN_ABOVE - 0.05f, HEALTH_GREEN_ABOVE + 0.05f, fraction);
+            return HudRender.mix(HudRender.mix(FILL_HEALTH_RED_RGB, FILL_HEALTH_AMBER_RGB, toAmber), FILL_HEALTH_RGB, toGreen);
+        }
+
+        private static float smoothStep(float edge0, float edge1, float value)
+        {
+            float t = clamp01((value - edge0) / (edge1 - edge0));
+            return t * t * (3.0f - 2.0f * t);
         }
     }
 
@@ -864,6 +1281,9 @@ public final class ScouterStatHudOverlay
         Quaternionf cameraOrientation = new Quaternionf().rotateX(0.0f);
 
         Matrix4f savedProjection = RenderSystem.getProjectionMatrix();
+        // the capture is drawn opaque whatever the panel's fade is right now; the blit applies the fade
+        float[] savedColor = RenderSystem.getShaderColor().clone();
+        RenderSystem.setShaderColor(1.0f, 1.0f, 1.0f, 1.0f);
         VertexSorting savedSorting = RenderSystem.getVertexSorting();
         RenderTarget previousTarget = mc.getMainRenderTarget();
         PoseStack modelView = RenderSystem.getModelViewStack();
@@ -893,6 +1313,7 @@ public final class ScouterStatHudOverlay
             modelView.popPose();
             RenderSystem.applyModelViewMatrix();
             RenderSystem.setProjectionMatrix(savedProjection, savedSorting);
+            RenderSystem.setShaderColor(savedColor[0], savedColor[1], savedColor[2], savedColor[3]);
         }
     }
 
@@ -903,7 +1324,8 @@ public final class ScouterStatHudOverlay
     {
         RenderSystem.setShader(GameRenderer::getPositionTexShader);
         RenderSystem.setShaderTexture(0, textureId);
-        RenderSystem.setShaderColor(1.0f, 1.0f, 1.0f, 1.0f);
+        // the element's fade alpha, so the portrait fades with the rest of the panel
+        RenderSystem.setShaderColor(1.0f, 1.0f, 1.0f, RagnarokHud.alpha());
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
 
@@ -972,7 +1394,7 @@ public final class ScouterStatHudOverlay
         float r = ((auraRgb >> 16) & 0xFF) / 255.0f;
         float gg = ((auraRgb >> 8) & 0xFF) / 255.0f;
         float b = (auraRgb & 0xFF) / 255.0f;
-        g.setColor(r, gg, b, 1.0f);
+        g.setColor(r, gg, b, RagnarokHud.alpha());
         try
         {
             g.blit(TEX_RW_KI_FILL, RW_KI_FILL_X, RW_KI_FILL_Y, 0.0f, 0.0f,
@@ -980,7 +1402,7 @@ public final class ScouterStatHudOverlay
         }
         finally
         {
-            g.setColor(1.0f, 1.0f, 1.0f, 1.0f);
+            g.setColor(1.0f, 1.0f, 1.0f, RagnarokHud.alpha());
         }
     }
 
@@ -1030,7 +1452,7 @@ public final class ScouterStatHudOverlay
     // The zeni pill: coin, housing, then the amount. The balance comes from ZeniClientCache, which the server pushes to
     // each player for their OWN account only. Draws nothing until the server has said what it is, so a player with money
     // never flashes a 0 on join.
-    private static void drawZeni(GuiGraphics g, Minecraft mc)
+    private static void drawZeni(GuiGraphics g, Minecraft mc, String text, int colour, float dx, float dy)
     {
         // The WHOLE cluster (the pill, the coin, the Z and the figure) stays hidden until BOTH of these hold, so
         // an instance with no economy shows no currency box at all, housing included. This mirrors drawShards.
@@ -1042,8 +1464,7 @@ public final class ScouterStatHudOverlay
         //      there is no separate economy-enabled sync, this is it. It is -1 ("not told") until the first push.
         // Before this the three sprites blitted unconditionally, so a keyless server drew an empty gold pill next
         // to the scouter with no number in it, which is exactly the box the owner did not want without the key.
-        if (!ClientGate.key() || !ZeniClientCache.known())
-            return;
+        // (the gates now sit in CurrencyElement: listed() needs the key, render() passes null until the balance is known)
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
         g.blit(TEX_RW_ZENI_BAR, RW_ZENI_BAR_X, RW_ZENI_BAR_Y, RW_ZENI_BAR_U, 0.0f,
@@ -1052,20 +1473,9 @@ public final class ScouterStatHudOverlay
                 RW_ZENI_ORB_S, RW_ZENI_ORB_S, RW_ZENI_ORB_S, RW_ZENI_ORB_S);
         g.blit(TEX_RW_ZENI_Z, RW_ZENI_Z_X, RW_ZENI_Z_Y, 0.0f, 0.0f,
                 RW_ZENI_Z_W, RW_ZENI_Z_H, RW_ZENI_Z_W, RW_ZENI_Z_H);
-        drawZeniAmount(g, mc, ZeniClientCache.get());
+        drawPillAmount(g, mc, text, ZENI_TEXT_LEFT, ZENI_TEXT_RIGHT, ZENI_TEXT_Y, colour, dx, dy);
     }
 
-    /**
-     * The balance, every digit of it, left aligned from just past the coin.
-     *
-     * <p>No abbreviation and no currency mark: the coin beside it already says what the number is, and abbreviating
-     * hides exactly the digits a player opened their eyes to read. The scale shrinks instead when a number is long
-     * enough to reach the end of the pill, so a large balance gets smaller rather than running out of its housing.
-     */
-    private static void drawZeniAmount(GuiGraphics g, Minecraft mc, long amount)
-    {
-        drawPillAmount(g, mc, grouped(amount), ZENI_TEXT_LEFT, ZENI_TEXT_RIGHT, ZENI_TEXT_Y, ZENI_TEXT_COLOR);
-    }
 
     /**
      * A figure inside one of the currency pills: left aligned, shrinking to fit, black stamped.
@@ -1074,7 +1484,7 @@ public final class ScouterStatHudOverlay
      * band and the colour passed in, which is the same reason {@link ZeniReadout} exists for the screens.
      */
     private static void drawPillAmount(GuiGraphics g, Minecraft mc, String text, int left, int right, float centreY,
-            int colour)
+            int colour, float dx, float dy)
     {
         int available = right - left;
         float scale = ZENI_TEXT_SCALE;
@@ -1084,13 +1494,14 @@ public final class ScouterStatHudOverlay
 
         var pose = g.pose();
         pose.pushPose();
-        pose.translate(left, centreY - mc.font.lineHeight * scale / 2.0f, 0.0f);
+        // dx, dy: DMZ's damage shake on the figure (0 when still)
+        pose.translate(left + dx, centreY - mc.font.lineHeight * scale / 2.0f + dy, 0.0f);
         pose.scale(scale, scale, 1.0f);
         // same 4-way outline DMZ uses for its own HUD numbers, so this reads native beside them
-        for (int dx = -1; dx <= 1; dx++)
-            for (int dy = -1; dy <= 1; dy++)
-                if (dx != 0 || dy != 0)
-                    g.drawString(mc.font, text, dx, dy, 0xFF000000, false);
+        for (int ox = -1; ox <= 1; ox++)
+            for (int oy = -1; oy <= 1; oy++)
+                if (ox != 0 || oy != 0)
+                    g.drawString(mc.font, text, ox, oy, 0xFF000000, false);
         g.drawString(mc.font, text, 0, 0, colour, false);
         pose.popPose();
     }
@@ -1108,14 +1519,12 @@ public final class ScouterStatHudOverlay
      * <p>Drawn from the same three sprites the zeni cluster uses. Only the currency mark and the figure differ,
      * because the housing art is already blue.
      */
-    private static void drawShards(GuiGraphics g, Minecraft mc)
+    private static void drawShards(GuiGraphics g, Minecraft mc, String text, int colour, float dx, float dy)
     {
         // Shards (the CosmeticShards module) is private too (it lives in the Ragnarok Key), so gate on the synced key as well as on the balance being known. known() alone already kept
         // the box off a keyless server (ArgentSync never sends there), but the explicit key() gate matches drawZeni
         // and is defence-in-depth against any future push path.
-        if (!ClientGate.key() || !ShardClientCache.known())
-            return;
-
+        // (the gates now sit in CurrencyElement, as for drawZeni)
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
         g.blit(TEX_RW_ZENI_BAR, RW_SHARD_BAR_X, RW_SHARD_BAR_Y, RW_ZENI_BAR_U, 0.0f,
@@ -1123,8 +1532,7 @@ public final class ScouterStatHudOverlay
         g.blit(TEX_RW_ZENI_ORB, RW_SHARD_ORB_X, RW_SHARD_ORB_Y, 0.0f, 0.0f,
                 RW_ZENI_ORB_S, RW_ZENI_ORB_S, RW_ZENI_ORB_S, RW_ZENI_ORB_S);
         drawShardMark(g, mc);
-        drawPillAmount(g, mc, grouped(ShardClientCache.get()), SHARD_TEXT_LEFT, SHARD_TEXT_RIGHT, SHARD_TEXT_Y,
-                SHARD_TEXT_COLOR);
+        drawPillAmount(g, mc, text, SHARD_TEXT_LEFT, SHARD_TEXT_RIGHT, SHARD_TEXT_Y, colour, dx, dy);
     }
 
     /**
@@ -1296,43 +1704,36 @@ public final class ScouterStatHudOverlay
     }
 
     /**
-     * One bar's value, centred in its channel and drawn white with a black outline, matching the zeni amount and
-     * DMZ's own HUD numbers.
+     * One bar's value, centred in its channel ({@code biasX} panel pixels off centre) and drawn white with a black
+     * outline, matching the zeni amount and DMZ's own HUD numbers. {@code dx}, {@code dy}, {@code rgb} and
+     * {@code alpha} carry DMZ's number animation (damage shake, change pulse, idle fade); 0, 0, white, 1 when still.
      *
-     * <p>{@code fillW} and {@code fillRgb} are vestigial: they were what an earlier inverted-colour readout split
-     * on. They are kept on the signature so the call sites did not all have to change, but the body ignores them.
+     * <p>Not the inverse of the bar behind it any more: an inverted glyph changed hue as the bar filled and drained
+     * and as the ki aura shifted, so the same number never looked the same twice. A fixed white-on-black reads
+     * identically on green, amber, red, blue, purple or grey, which is what a readout should do.
      */
-    private static void drawBarValue(GuiGraphics g, Minecraft mc, String text,
-            int x, int y, int w, int h, int fillW, int fillRgb, double scale)
-    {
-        drawBarValue(g, mc, text, x, y, w, h, fillW, fillRgb, scale, 0);
-    }
-
-    /** As above, with {@code biasX} panel pixels of horizontal offset from centre. */
-    private static void drawBarValue(GuiGraphics g, Minecraft mc, String text,
-            int x, int y, int w, int h, int fillW, int fillRgb, double scale, int biasX)
+    private static void drawBarValue(GuiGraphics g, Minecraft mc, String text, int x, int y, int w, int h, int biasX,
+            float dx, float dy, int rgb, float alpha)
     {
         if (text == null || text.isEmpty())
             return;
+        int a = Math.round(clamp01(alpha) * 255.0f);
+        if (a <= 3)
+            return;
         float tw = mc.font.width(text) * BAR_TEXT_SCALE;
         float th = mc.font.lineHeight * BAR_TEXT_SCALE;
-        float tx = x + (w - tw) / 2.0f + biasX;
-        float ty = y + (h - th) / 2.0f;
+        float tx = x + (w - tw) / 2.0f + biasX + dx;
+        float ty = y + (h - th) / 2.0f + dy;
 
-        // White with a black outline, DMZ's own HUD-number style, the same four-way stamp the zeni amount uses.
-        // NOT the inverse of the bar behind it any more: an inverted glyph changed hue as the bar filled and drained
-        // and as the ki aura shifted, so the same number never looked the same twice. A fixed white-on-black reads
-        // identically on green, amber, red, blue, purple or grey, which is what a readout should do. The fillW and
-        // fillRgb parameters are kept on the signature but unused now; they were what the inversion split on.
         var pose = g.pose();
         pose.pushPose();
         pose.translate(tx, ty, 0.0f);
         pose.scale(BAR_TEXT_SCALE, BAR_TEXT_SCALE, 1.0f);
-        for (int dx = -1; dx <= 1; dx++)
-            for (int dy = -1; dy <= 1; dy++)
-                if (dx != 0 || dy != 0)
-                    g.drawString(mc.font, text, dx, dy, 0xFF000000, false);
-        g.drawString(mc.font, text, 0, 0, 0xFFFFFFFF, false);
+        for (int ox = -1; ox <= 1; ox++)
+            for (int oy = -1; oy <= 1; oy++)
+                if (ox != 0 || oy != 0)
+                    g.drawString(mc.font, text, ox, oy, a << 24, false);
+        g.drawString(mc.font, text, 0, 0, (a << 24) | (rgb & 0xFFFFFF), false);
         pose.popPose();
     }
 

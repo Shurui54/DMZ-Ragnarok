@@ -25,6 +25,10 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
 import net.shurui.dev.sdu.client.ClientWaypoints;
+import net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHud;
+import net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHudElement;
+import net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHudFrame;
+import net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHudSlot;
 import net.shurui.dev.sdu.waypoint.Waypoint;
 import net.shurui.dev.sdu.waypoint.WaypointMark;
 import net.shurui.shuruisutilities.core.SUConfig;
@@ -55,7 +59,11 @@ import net.shurui.shuruisutilities.racing.client.RaceClientState;
  * for a {@code travel} marker. Quest pins themselves are NOT drawn as rows, since their quest is already an entry.
  *
  * <h2>Anchoring</h2>
- * When {@link XaeroMinimapAnchor} holds a fresh under-the-map capture, the banner's right edge aligns to the
+ * On DragonMineZ 2.2 the panel is a Ragnarok HUD extra: placed, scaled and hidden in DMZ's HUD editor. Until the
+ * player moves it, its default placement is the Xaero anchoring below, recomputed every frame. Without DMZ's layout
+ * system the anchoring below is used directly.
+ *
+ * <p>When {@link XaeroMinimapAnchor} holds a fresh under-the-map capture, the banner's right edge aligns to the
  * minimap's right edge and the header top sits just below Xaero's coordinate block. Otherwise (Xaero absent,
  * hidden, toggled off, or the capture expired) a configurable top-right fallback that clears a default minimap is
  * used. The block is variable height (a row per marker), so nothing downstream assumes a fixed size.
@@ -134,177 +142,248 @@ public final class QuestTrackerOverlay
 
     public static void render(ForgeGui gui, GuiGraphics g, float partialTick, int screenWidth, int screenHeight)
     {
-        if (!SUConfig.customQuestTracker)
-            return;
-        if (RaceClientState.isSessionActive())
-            return; // the race HUD owns the screen during a race
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null || mc.level == null || mc.options.hideGui || mc.options.renderDebug)
-            return;
+        RagnarokHud.draw(RagnarokHudSlot.QUEST_TRACKER, g, partialTick, screenWidth, screenHeight);
+    }
 
-        try
+    /** Bind the tracker to its slot in DMZ's HUD layout (a Ragnarok HUD extra). */
+    public static void registerElement()
+    {
+        RagnarokHud.register(new Element());
+    }
+
+    // The editor box: the fallback width, and the banner plus a few rows. The panel itself can run longer; it stops
+    // at the bottom of the screen like it always did.
+    private static final int BOX_W = 160;
+    private static final int BOX_H = 100;
+
+    /** The entries the panel lists this frame, or empty when there is nothing to track. */
+    private static List<Entry> collectEntries(Minecraft mc)
+    {
+        List<Entry> entries = new ArrayList<>();
+        String currentDim = mc.player.level().dimension().location().toString();
+
+        // The active marker set the server already synced. A non-travel marker only shows in its own dimension
+        // (matching CompassOverlay); a travel marker is kept anywhere, since it deliberately points elsewhere.
+        List<Waypoint> markers = new ArrayList<>();
+        for (Waypoint w : ClientWaypoints.all())
         {
-            String currentDim = mc.player.level().dimension().location().toString();
+            // A notice has no dimension at all: it is a task's progress or a raid's sign-up state, which is
+            // true wherever the player is standing, so it is never filtered by dimension.
+            if (w.isNotice() || w.travel || currentDim.equals(w.dim))
+                markers.add(w);
+        }
+        if (markers.isEmpty())
+            return entries;
 
-            // The active marker set the server already synced. A non-travel marker only shows in its own dimension
-            // (matching CompassOverlay); a travel marker is kept anywhere, since it deliberately points elsewhere.
-            List<Waypoint> markers = new ArrayList<>();
-            for (Waypoint w : ClientWaypoints.all())
+        double px = mc.player.getX();
+        double pz = mc.player.getZ();
+        // Nearest first; positionless (travel) markers sort to the end.
+        markers.sort(Comparator.comparingDouble(w -> sortKey(w, px, pz)));
+
+        // The panel is built as ENTRIES, not as one row per marker.
+        //
+        // A quest is one entry: its name, then its outstanding objectives underneath it. That is what a player
+        // actually wants from a tracker, and it is why the quest markers are not drawn as rows of their own any
+        // more: a quest with three objectives used to arrive as three unrelated rows with no indication they
+        // belonged together, or (worse) as three rows all captioned with the quest's own title.
+        //
+        // COORDINATE objectives are deliberately never listed. "Go to x, y, z" is the one objective the marker
+        // and the compass already answer better than a line of text can, and spelling the numbers out is both
+        // noise and a spoiler.
+        LazyOptional<StatsData> cap = StatsProvider.get(StatsCapability.INSTANCE, mc.player);
+        StatsData stats = cap.resolve().orElse(null);
+        PlayerQuestData pqd = stats == null ? null : stats.getPlayerQuestData();
+
+        List<Entry> questEntries = questEntries(pqd);
+        entries.addAll(questEntries);
+        for (Waypoint w : markers)
+        {
+            if (isQuestMarker(w))
             {
-                // A notice has no dimension at all: it is a task's progress or a raid's sign-up state, which is
-                // true wherever the player is standing, so it is never filtered by dimension.
-                if (w.isNotice() || w.travel || currentDim.equals(w.dim))
-                    markers.add(w);
+                // The quest's own marker is folded into its entry above: its distance goes on the header row of
+                // the first quest entry, which is the one the player is tracking. Only a POSITIONED marker has
+                // anything worth folding in; a notice's suffix is its progress count, which is already the
+                // objective line under that same header.
+                if (!w.isNotice() && !questEntries.isEmpty() && questEntries.get(0).suffix == null)
+                    questEntries.get(0).suffix = suffixFor(w, mc, currentDim);
+                continue;
             }
-            if (markers.isEmpty())
-                return;
+            entries.add(new Entry(w.mark, w.name, suffixFor(w, mc, currentDim), List.of()));
+        }
+        return entries;
+    }
 
-            double px = mc.player.getX();
-            double pz = mc.player.getZ();
-            // Nearest first; positionless (travel) markers sort to the end.
-            markers.sort(Comparator.comparingDouble(w -> sortKey(w, px, pz)));
+    /** The tracker as a DMZ layout element: banner at the top of its box, rows beneath. */
+    private static final class Element extends RagnarokHudElement
+    {
+        // the last non-empty entry list, kept so the panel can slide out after the last marker goes
+        private List<Entry> entries = List.of();
 
-            // The panel is built as ENTRIES, not as one row per marker.
-            //
-            // A quest is one entry: its name, then its outstanding objectives underneath it. That is what a player
-            // actually wants from a tracker, and it is why the quest markers are not drawn as rows of their own any
-            // more: a quest with three objectives used to arrive as three unrelated rows with no indication they
-            // belonged together, or (worse) as three rows all captioned with the quest's own title.
-            //
-            // COORDINATE objectives are deliberately never listed. "Go to x, y, z" is the one objective the marker
-            // and the compass already answer better than a line of text can, and spelling the numbers out is both
-            // noise and a spoiler.
-            Font font = mc.font;
-            LazyOptional<StatsData> cap = StatsProvider.get(StatsCapability.INSTANCE, mc.player);
-            StatsData stats = cap.resolve().orElse(null);
-            PlayerQuestData pqd = stats == null ? null : stats.getPlayerQuestData();
+        Element()
+        {
+            super(RagnarokHudSlot.QUEST_TRACKER);
+        }
 
-            List<Entry> entries = new ArrayList<>();
-            List<Entry> questEntries = questEntries(pqd);
-            entries.addAll(questEntries);
-            for (Waypoint w : markers)
+        @Override
+        public float width()
+        {
+            return BOX_W;
+        }
+
+        @Override
+        public float height()
+        {
+            return BOX_H;
+        }
+
+        @Override
+        public float[] defaultPlacement()
+        {
+            // Until it is moved, it follows Xaero's Minimap like it always did: right edge on the map's right edge,
+            // top under the coordinate lines, banner as wide as the map. Without a fresh capture, the configured
+            // top-right fallback. Offsets are in DMZ's layout units (screen height / 360).
+            var window = Minecraft.getInstance().getWindow();
+            int sw = window.getGuiScaledWidth();
+            int sh = window.getGuiScaledHeight();
+            float unit = Math.max(0.25f, sh / 360.0f);
+            if (XaeroMinimapAnchor.valid())
             {
-                if (isQuestMarker(w))
-                {
-                    // The quest's own marker is folded into its entry above: its distance goes on the header row of
-                    // the first quest entry, which is the one the player is tracking. Only a POSITIONED marker has
-                    // anything worth folding in; a notice's suffix is its progress count, which is already the
-                    // objective line under that same header.
-                    if (!w.isNotice() && !questEntries.isEmpty() && questEntries.get(0).suffix == null)
-                        questEntries.get(0).suffix = suffixFor(w, mc, currentDim);
-                    continue;
-                }
-                entries.add(new Entry(w.mark, w.name, suffixFor(w, mc, currentDim), List.of()));
+                float scale = XaeroMinimapAnchor.guiWidth() / (float) BOX_W;
+                int right = XaeroMinimapAnchor.guiLeft() + XaeroMinimapAnchor.guiWidth();
+                int top = XaeroMinimapAnchor.guiCoordBottom(SUConfig.questTrackerCoordLines) + GAP_BELOW_COORDS;
+                return new float[] {1.0f, 0.0f, -(sw - right) / unit, top / unit,
+                        Math.max(0.5f, Math.min(5.0f, scale / unit))};
             }
-            if (entries.isEmpty())
-                return;
+            float scale = SUConfig.questTrackerFallbackWidth / (float) BOX_W;
+            return new float[] {1.0f, 0.0f, -SUConfig.questTrackerFallbackRightMargin / unit,
+                    SUConfig.questTrackerFallbackTopY / unit, Math.max(0.5f, Math.min(5.0f, scale / unit))};
+        }
 
+        @Override
+        public float[] fallbackBox(int screenWidth, int screenHeight)
+        {
             Anchor anchor = resolveAnchor(screenWidth, screenHeight);
-            int bannerX = anchor.x;
-            float scale = anchor.scale;
-            int bannerY = anchor.topY;
+            return new float[] {anchor.x, anchor.topY, QuestArt.scaledW(anchor.scale) / (float) BOX_W};
+        }
 
-            // The bare banner, uniformly scaled, at the anchor's own X. It is the panel's title, so no text header
-            // is drawn over it.
-            //
-            // The banner USED to slide left whenever a row was wider than it, which kept the text on screen but
-            // dragged the art off its alignment with the minimap every time a long quest name appeared. The art
-            // now never moves; a row too wide for the column wraps instead, which is the same information in the
-            // same place.
-            QuestArt.banner(g, bannerX, bannerY, scale);
+        @Override
+        public boolean listed()
+        {
+            return SUConfig.customQuestTracker;
+        }
 
-            int rightLimit = screenWidth - EDGE_MARGIN;
-            int textX = bannerX + ROW_LEFT + ICON_SIZE + ICON_TEXT_GAP;
-            // Wrap to the banner's own width so the block reads as one panel, floored so a small minimap cannot
-            // squeeze the column down to one word a line, and never past the screen edge.
-            int textRoom = Math.max(MIN_TEXT_WIDTH,
-                    bannerX + QuestArt.scaledW(scale) - textX);
-            textRoom = Math.max(16, Math.min(textRoom, rightLimit - textX));
-            int bottomLimit = screenHeight - BOTTOM_MARGIN;
-
-            // Rows: one per marker, [pin] name (distance). No objective sub-rows.
-            int y = bannerY + QuestArt.scaledH(scale) + GAP_BELOW_BANNER;
-            boolean truncated = false;
-
-            for (Entry entry : entries)
+        @Override
+        public boolean update(boolean preview, float partialTick)
+        {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc.player == null || mc.level == null)
+                return false;
+            // the race HUD owns the screen during a race
+            List<Entry> live = RaceClientState.isSessionActive() ? List.of() : collectEntries(mc);
+            if (!live.isEmpty())
             {
-                // The only cap is the screen itself. There used to be a flat eight-line ceiling, which is what hid
-                // a player's later quests behind a "..." even with room to spare below.
+                entries = live;
+                return true;
+            }
+            if (!preview)
+                return false;
+            entries = List.of(new Entry(WaypointMark.MAIN, I18n.get("gui.dragonminez.hud_editor.sample.quest_title"), "(120m)",
+                    List.of(I18n.get("gui.dragonminez.hud_editor.sample.quest_objective"))));
+            return true;
+        }
+
+        @Override
+        public void render(GuiGraphics g, float partialTick, RagnarokHudFrame frame)
+        {
+            drawPanel(g, Minecraft.getInstance().font, entries, frame);
+        }
+    }
+
+    // The banner and the rows, in the element's local space. The banner is the panel's title, so no text header is
+    // drawn over it. It never moves for a long row: a row too wide for the column wraps instead.
+    private static void drawPanel(GuiGraphics g, Font font, List<Entry> entries, RagnarokHudFrame frame)
+    {
+        float scale = clampScale(BOX_W / (float) QuestArt.SHEET_W);
+        int bannerX = 0;
+        int bannerY = 0;
+        QuestArt.banner(g, bannerX, bannerY, scale);
+
+        int textX = bannerX + ROW_LEFT + ICON_SIZE + ICON_TEXT_GAP;
+        // Wrap to the banner's own width so the block reads as one panel, floored so the column never squeezes
+        // down to one word a line.
+        int textRoom = Math.max(16, Math.max(MIN_TEXT_WIDTH, bannerX + QuestArt.scaledW(scale) - textX));
+        // The only cap is the screen itself (in local units), never a fixed row count.
+        int bottomLimit = (int) (frame.screenBottom - BOTTOM_MARGIN);
+
+        int y = bannerY + QuestArt.scaledH(scale) + GAP_BELOW_BANNER;
+        boolean truncated = false;
+
+        for (Entry entry : entries)
+        {
+            if (y + ROW_HEIGHT > bottomLimit) { truncated = true; break; }
+
+            // icon: the entry's own commissioned pin, or the coloured exclamation glyph for a markless one
+            int iconX = bannerX + ROW_LEFT;
+            int iconY = y + (ROW_HEIGHT - ICON_SIZE) / 2;
+            if (entry.mark != null && entry.mark.hasPin())
+            {
+                // Uniform down-blit of the 50x50 pin into the row's icon box: same factor on both axes, no smear.
+                g.blit(entry.mark.texture, iconX, iconY, ICON_SIZE, ICON_SIZE,
+                        0.0F, 0.0F, MARK_TEX_SIZE, MARK_TEX_SIZE, MARK_TEX_SIZE, MARK_TEX_SIZE);
+            }
+            else
+            {
+                int iconColour = entry.mark != null && entry.mark.color != 0 ? entry.mark.color : ICON_NONE_COLOUR;
+                drawExclamation(g, iconX, iconY, ICON_SIZE, iconColour);
+            }
+
+            // The name and its suffix are ONE piece of information, so they are wrapped together as one component:
+            // Font.split breaks on spaces, so a name never gets cut mid-word and the suffix is never orphaned. The
+            // suffix keeps its dimmer colour through the wrap because it is a styled SIBLING, not a separate draw.
+            int textY = y + (ROW_HEIGHT - font.lineHeight) / 2;
+            net.minecraft.network.chat.MutableComponent row = net.minecraft.network.chat.Component
+                    .literal(entry.label)
+                    .withStyle(s2 -> s2.withColor(MARKER_TEXT_RGB));
+            if (entry.suffix != null)
+            {
+                row = row.append(net.minecraft.network.chat.Component.literal(" " + entry.suffix)
+                        .withStyle(s2 -> s2.withColor(SUFFIX_RGB)));
+            }
+
+            for (net.minecraft.util.FormattedCharSequence line : font.split(row, textRoom))
+            {
                 if (y + ROW_HEIGHT > bottomLimit) { truncated = true; break; }
+                g.drawString(font, line, textX, textY, MARKER_TEXT_COLOUR, true);
+                y += ROW_HEIGHT;
+                textY += ROW_HEIGHT;
+            }
+            if (truncated)
+                break;
 
-                // icon: the entry's own commissioned pin, or the coloured exclamation glyph for a markless one
-                int iconX = bannerX + ROW_LEFT;
-                int iconY = y + (ROW_HEIGHT - ICON_SIZE) / 2;
-                if (entry.mark != null && entry.mark.hasPin())
-                {
-                    // Uniform down-blit of the 50x50 pin into the row's icon box: same factor on both axes, no smear.
-                    g.blit(entry.mark.texture, iconX, iconY, ICON_SIZE, ICON_SIZE,
-                            0.0F, 0.0F, MARK_TEX_SIZE, MARK_TEX_SIZE, MARK_TEX_SIZE, MARK_TEX_SIZE);
-                }
-                else
-                {
-                    int iconColour = entry.mark != null && entry.mark.color != 0 ? entry.mark.color : ICON_NONE_COLOUR;
-                    drawExclamation(g, iconX, iconY, ICON_SIZE, iconColour);
-                }
-
-                // The name and its suffix are ONE piece of information, so they are wrapped together as one
-                // component rather than laid out separately. Font.split breaks on spaces, so a name never gets
-                // cut mid-word and the suffix is never orphaned from the row it belongs to. Nothing is dropped:
-                // whatever a row needs, it takes in extra lines, in the same text column, which still reads as a
-                // single entry.
-                //
-                // The suffix keeps its dimmer colour through the wrap because it is a styled SIBLING, not a
-                // separate draw: split() carries per-character style into each FormattedCharSequence, so the
-                // colour survives being broken across lines.
-                int textY = y + (ROW_HEIGHT - font.lineHeight) / 2;
-                net.minecraft.network.chat.MutableComponent row = net.minecraft.network.chat.Component
-                        .literal(entry.label)
-                        .withStyle(s2 -> s2.withColor(MARKER_TEXT_RGB));
-                if (entry.suffix != null)
-                {
-                    row = row.append(net.minecraft.network.chat.Component.literal(" " + entry.suffix)
-                            .withStyle(s2 -> s2.withColor(SUFFIX_RGB)));
-                }
-
-                for (net.minecraft.util.FormattedCharSequence line : font.split(row, textRoom))
+            // Objectives sit UNDER their quest, indented past the pin and drawn in the dimmer suffix colour, so
+            // the panel reads as a quest with its work beneath it rather than as a flat list of equal rows.
+            for (String objective : entry.objectives)
+            {
+                net.minecraft.network.chat.MutableComponent line = net.minecraft.network.chat.Component
+                        .literal(objective)
+                        .withStyle(s2 -> s2.withColor(SUFFIX_RGB));
+                for (net.minecraft.util.FormattedCharSequence part
+                        : font.split(line, Math.max(16, textRoom - OBJECTIVE_INDENT)))
                 {
                     if (y + ROW_HEIGHT > bottomLimit) { truncated = true; break; }
-                    g.drawString(font, line, textX, textY, MARKER_TEXT_COLOUR, true);
+                    g.drawString(font, part, textX + OBJECTIVE_INDENT, textY, SUFFIX_COLOUR, true);
                     y += ROW_HEIGHT;
                     textY += ROW_HEIGHT;
                 }
                 if (truncated)
                     break;
-
-                // Objectives sit UNDER their quest, indented past the pin and drawn in the dimmer suffix colour, so
-                // the panel reads as a quest with its work beneath it rather than as a flat list of equal rows.
-                for (String objective : entry.objectives)
-                {
-                    net.minecraft.network.chat.MutableComponent line = net.minecraft.network.chat.Component
-                            .literal(objective)
-                            .withStyle(s2 -> s2.withColor(SUFFIX_RGB));
-                    for (net.minecraft.util.FormattedCharSequence part
-                            : font.split(line, Math.max(16, textRoom - OBJECTIVE_INDENT)))
-                    {
-                        if (y + ROW_HEIGHT > bottomLimit) { truncated = true; break; }
-                        g.drawString(font, part, textX + OBJECTIVE_INDENT, textY, SUFFIX_COLOUR, true);
-                        y += ROW_HEIGHT;
-                        textY += ROW_HEIGHT;
-                    }
-                    if (truncated)
-                        break;
-                }
-                if (truncated)
-                    break;
             }
-
             if (truncated)
-                g.drawString(font, "...", bannerX + ROW_LEFT, y, SUFFIX_COLOUR, true);
+                break;
         }
-        catch (Throwable ignored)
-        {
-            // A draw fault must never take down the HUD pass; DMZ's tracker is already suppressed, so we draw nothing.
-        }
+
+        if (truncated)
+            g.drawString(font, "...", bannerX + ROW_LEFT, y, SUFFIX_COLOUR, true);
     }
 
 

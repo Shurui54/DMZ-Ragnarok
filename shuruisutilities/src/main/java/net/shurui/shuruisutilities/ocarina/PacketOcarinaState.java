@@ -12,8 +12,8 @@ import net.shurui.shuruisutilities.commons.network.ISUPacket;
 /**
  * server -> client: open the ocarina, or start a song on it.
  *
- * <p>The menu carries the songs as a BITMASK of ordinals rather than a list, because which songs a player knows is
- * the server's answer and the client should not be able to invent a fourth one by mishandling a list.
+ * <p>The menu carries each song's skill level by ordinal (0 = not learned) and the seconds left on each song's
+ * cooldown, because which songs a player knows is the server's answer and the client only draws it.
  */
 public class PacketOcarinaState implements ISUPacket
 {
@@ -22,18 +22,23 @@ public class PacketOcarinaState implements ISUPacket
     public static final int PLAY = 1;
 
     public int kind;
-    public int songMask;
-    public int level;
+    /** Per song ordinal: the DMZ skill level, 0 when not learned. */
+    public int[] levels;
+    /** Per song ordinal: seconds until it can be played again. */
+    public int[] cooldowns;
+    /** Per song ordinal, four each: radius, power, secondary, duration at the player's level (the server's config). */
+    public float[] stats;
     public int song;
     public long seed;
 
     public PacketOcarinaState() {}
 
-    public PacketOcarinaState(int kind, int songMask, int level, int song, long seed)
+    public PacketOcarinaState(int kind, int[] levels, int[] cooldowns, float[] stats, int song, long seed)
     {
         this.kind = kind;
-        this.songMask = songMask;
-        this.level = level;
+        this.levels = levels == null ? new int[0] : levels;
+        this.cooldowns = cooldowns == null ? new int[0] : cooldowns;
+        this.stats = stats == null ? new float[0] : stats;
         this.song = song;
         this.seed = seed;
     }
@@ -42,16 +47,24 @@ public class PacketOcarinaState implements ISUPacket
     public void encode(FriendlyByteBuf buf)
     {
         buf.writeVarInt(kind);
-        buf.writeVarInt(songMask);
-        buf.writeVarInt(level);
+        buf.writeVarIntArray(levels);
+        buf.writeVarIntArray(cooldowns);
+        buf.writeVarInt(stats.length);
+        for (float f : stats)
+            buf.writeFloat(f);
         buf.writeVarInt(song);
         buf.writeLong(seed);
     }
 
     public static PacketOcarinaState decode(FriendlyByteBuf buf)
     {
-        return new PacketOcarinaState(buf.readVarInt(), buf.readVarInt(), buf.readVarInt(),
-                buf.readVarInt(), buf.readLong());
+        int kind = buf.readVarInt();
+        int[] levels = buf.readVarIntArray(64);
+        int[] cooldowns = buf.readVarIntArray(64);
+        float[] stats = new float[Math.min(256, Math.max(0, buf.readVarInt()))];
+        for (int i = 0; i < stats.length; i++)
+            stats[i] = buf.readFloat();
+        return new PacketOcarinaState(kind, levels, cooldowns, stats, buf.readVarInt(), buf.readLong());
     }
 
     @Override
@@ -63,7 +76,7 @@ public class PacketOcarinaState implements ISUPacket
     private void applyClient()
     {
         if (kind == MENU)
-            net.shurui.shuruisutilities.client.ocarina.OcarinaScreen.open(songMask, level);
+            net.shurui.shuruisutilities.client.ocarina.OcarinaScreen.open(levels, cooldowns, stats);
         else
             net.shurui.shuruisutilities.client.ocarina.OcarinaScreen.startSong(song, seed);
     }

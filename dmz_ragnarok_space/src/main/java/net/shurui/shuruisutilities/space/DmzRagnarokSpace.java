@@ -93,5 +93,9 @@ public class DmzRagnarokSpace {
         // stream (registerBothWays in ShuruisUtilities), and 151 is the next free SU id on both branches.
         NetworkUtils.registerClientToServer(151, PacketStarMapCourse.class,
                 PacketStarMapCourse::encode, PacketStarMapCourse::decode, PacketStarMapCourse::handler);
+        // the course KEY (S2C), so the in-world target pip follows the body's live orbit. Id 156: free on the SU channel
+        // (150 cosmetic art, 151 star map course; 152..155 left for whoever claims the next ids in order).
+        NetworkUtils.registerServerToClient(156, PacketSpaceCourseSync.class,
+                PacketSpaceCourseSync::encode, PacketSpaceCourseSync::decode, PacketSpaceCourseSync::handler);
     }
 }

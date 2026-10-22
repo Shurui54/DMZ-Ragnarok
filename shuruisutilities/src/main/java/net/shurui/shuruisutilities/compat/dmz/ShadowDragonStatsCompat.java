@@ -6,7 +6,7 @@ import net.minecraftforge.fml.ModList;
 /**
  * Guard entry point for the DMZ-specific shadow dragon boss stats (battle power, ki-blast damage, visual scale,
  * AI tier). Holds no DMZ imports: it only checks that DMZ is present before touching {@link ShadowDragonStats},
- * which is the sole class that references DMZ types. Follows the optional-dependency pattern.
+ * which is the sole class that references DMZ types. Follows docs/compat-pattern.md.
  *
  * <p>The generic vanilla attributes (max health, attack damage, movement speed) and the suite-wide
  * {@code dmz_npc_defense} key are applied by the caller directly, since they need no DMZ classes; only the four

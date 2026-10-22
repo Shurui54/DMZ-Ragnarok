@@ -16,8 +16,8 @@ public final class StaffTaskHudConfig
 {
     // default: LEFT column, below where the region HUD sits. The obvious spot, upper right, is exactly where
     // Xaero's minimap lives, and the panel landed on top of it.
-    private static final double DEFAULT_X_PCT = 0.0573;
-    private static final double DEFAULT_Y_PCT = 0.4200;
+    static final double DEFAULT_X_PCT = 0.0573;
+    static final double DEFAULT_Y_PCT = 0.4200;
 
     public double xPct = DEFAULT_X_PCT; // panel center, fraction of width
     public double yPct = DEFAULT_Y_PCT; // panel top, fraction of height

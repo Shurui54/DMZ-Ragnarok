@@ -33,7 +33,8 @@ import net.shurui.shuruisutilities.saiyan.SaiyanAppearance;
  * <h2>What it draws (mirrors DMZ's SkinGathererProvider + DMZSkinLayer for a saiyan, bodyType != 0)</h2>
  * <ul>
  *   <li>EVERY saiyan, named or generic: the whole model re-rendered with {@code humansaiyan/bodytype_{male|female}_{1,2}
- *       .png} tinted by the skin colour, then the human face overlays on the head bone, then the {@code tail1.png} tail
+ *       _layer1.png} at the skin base tone plus its {@code _shadow} mask (DMZ 2.2; the pre-2.2 un-suffixed skin is the
+ *       fallback), then the human face overlays on the head bone, then the {@code tail1.png} tail
  *       tinted by the tail colour.</li>
  * </ul>
  *
@@ -93,8 +94,21 @@ public class PlanetSaiyanBodyLayer<T extends Mob & GeoEntity & SaiyanAppearance>
         // pinned colours/hair/armor and their nameplate.
         float[] skinColor = ColorUtils.rgbIntToFloat(animatable.getSkinColor());
         ResourceLocation bodyTex = resolveBodyTexture(animatable);
-        reRenderWholeModel(model, poseStack, bufferSource, animatable,
-                RenderType.entityCutoutNoCull(bodyTex), skinColor, partialTick, packedLight, packedOverlay);
+        ResourceLocation shadowTex = shadowFor(bodyTex);
+        if (shadowTex != null)
+        {
+            // DMZ 2.2's shaded skin: the base layer at the base tone, then the shadow mask translucent at the shadow
+            // tone, exactly as SkinGathererProvider.resolveBodyHumanSaiyan paints a player.
+            reRenderWholeModel(model, poseStack, bufferSource, animatable, RenderType.entityCutoutNoCull(bodyTex),
+                    ColorUtils.skinBaseTone(skinColor), partialTick, packedLight, packedOverlay);
+            reRenderWholeModel(model, poseStack, bufferSource, animatable, RenderType.entityTranslucent(shadowTex),
+                    ColorUtils.skinShadowTone(skinColor), partialTick, packedLight, packedOverlay);
+        }
+        else
+        {
+            reRenderWholeModel(model, poseStack, bufferSource, animatable,
+                    RenderType.entityCutoutNoCull(bodyTex), skinColor, partialTick, packedLight, packedOverlay);
+        }
         renderFace(model, poseStack, bufferSource, animatable, partialTick, packedLight, packedOverlay);
 
         // the tail rides tail bones present on both the human and majin_slim geos; drawn for every saiyan.
@@ -102,18 +116,42 @@ public class PlanetSaiyanBodyLayer<T extends Mob & GeoEntity & SaiyanAppearance>
                 tailColor, partialTick, packedLight, packedOverlay);
     }
 
+    // DMZ 2.2 renamed the human/saiyan body skins to bodytype_<gender>_<n>_layer1.png (plus a _shadow mask). The old
+    // un-suffixed names no longer exist, so asking for them fell through to a missing texture and the body drew as the
+    // magenta/black checkerboard. Try the 2.2 names first, then the pre-2.2 names, so either DMZ line resolves. Body
+    // type 1 is the fallback (DMZ always ships it for both genders), never a "_0" that does not exist.
     private static ResourceLocation resolveBodyTexture(SaiyanAppearance animatable)
     {
-        String gender = animatable.isMale() ? "male" : "female";
+        String prefix = BODY_DIR + "bodytype_" + (animatable.isMale() ? "male" : "female") + "_";
         int bodyType = animatable.getBodyType();
-        ResourceLocation primary =
-                ResourceLocation.fromNamespaceAndPath("dragonminez", BODY_DIR + "bodytype_" + gender + "_" + bodyType + ".png");
-        // fall back to body type 1 (which DragonMineZ always ships for both genders), NOT a "_0" that does not exist:
-        // an out-of-range/unshipped body type must land on a real skin texture, never on the blank null.png that would
-        // leave a see-through head reading as blank/white.
-        ResourceLocation fallback =
-                ResourceLocation.fromNamespaceAndPath("dragonminez", BODY_DIR + "bodytype_" + gender + "_1.png");
-        return DMZSkinLayer.getSafeTexture(primary, fallback);
+        for (String file : new String[] {bodyType + "_layer1.png", "1_layer1.png", bodyType + ".png", "1.png"})
+        {
+            ResourceLocation loc = ResourceLocation.fromNamespaceAndPath("dragonminez", prefix + file);
+            if (exists(loc))
+            {
+                return loc;
+            }
+        }
+        return DMZSkinLayer.getSafeTexture(ResourceLocation.fromNamespaceAndPath("dragonminez", prefix + "1_layer1.png"));
+    }
+
+    // the _shadow mask DMZ 2.2 ships beside a layer1 skin, or null (pre-2.2 skins have none).
+    private static ResourceLocation shadowFor(ResourceLocation layer)
+    {
+        String path = layer.getPath();
+        if (!path.endsWith("_layer1.png"))
+        {
+            return null;
+        }
+        ResourceLocation shadow = ResourceLocation.fromNamespaceAndPath(layer.getNamespace(),
+                path.substring(0, path.length() - ".png".length()) + "_shadow.png");
+        return exists(shadow) ? shadow : null;
+    }
+
+    // DMZ's validated-texture cache answers the blank texture for a missing location, so equality means "present".
+    private static boolean exists(ResourceLocation loc)
+    {
+        return DMZSkinLayer.getSafeTexture(loc).equals(loc);
     }
 
     // re-render the entire model with one texture and a flat RGB tint, hiding the armor bones for the duration so the

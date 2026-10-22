@@ -1,0 +1,31 @@
+{
+  "_comment": "Tier 2 straight from the workbench: exactly twice every part of the tier 1 blueprint.",
+  "type": "dmz_ragnarok:vehicle_crafting",
+  "order": 25,
+  "parts": [
+    {
+      "item": "dragonminez:vehicle_engine",
+      "count": 4
+    },
+    {
+      "item": "dragonminez:vehicle_plating",
+      "count": 4
+    },
+    {
+      "item": "dragonminez:vehicle_propeller",
+      "count": 4
+    },
+    {
+      "item": "dragonminez:vehicle_seat",
+      "count": 4
+    },
+    {
+      "item": "minecraft:glass",
+      "count": 2
+    }
+  ],
+  "result": {
+    "item": "dragonminez:cc576"
+  },
+  "tier": 2
+}

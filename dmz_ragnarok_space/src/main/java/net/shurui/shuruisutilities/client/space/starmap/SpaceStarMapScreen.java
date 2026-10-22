@@ -74,12 +74,13 @@ public final class SpaceStarMapScreen extends Screen
     private static final int LABEL_COLOR = 0xFFD8E4F0;
 
     // altitude stem: a faint vertical cue showing a body's height above/below the main solar-system plane on the top-down
-    // map. ALT_REF_Y is that plane (the sun and fixed planets sit here); ALT_SPAN_BLOCKS is the block spread mapped to a
-    // full ALT_MAX_STEM-pixel stem, sized to the generated-system Y band so a high system draws a near-full up-stem.
+    // map. ALT_REF_Y is that plane (the sun's height; the tilted fixed rings swing about it); ALT_SPAN_BLOCKS is the block
+    // spread mapped to a full ALT_MAX_STEM-pixel stem, sized to the column (bodies sit -1776..1968) so a body near the top
+    // or bottom of space draws a near-full stem.
     private static final int ALT_STEM_LINE = 0x559CC4E8;
     private static final int ALT_MAX_STEM = 10;
-    private static final double ALT_REF_Y = 900.0;   // PlanetPositions.PLANET_Y, the main-system plane
-    private static final double ALT_SPAN_BLOCKS = 700.0;
+    private static final double ALT_REF_Y = PlanetPositions.PLANET_Y;
+    private static final double ALT_SPAN_BLOCKS = 1800.0;
 
     private static final float MIN_ZOOM = 0.00008F;
     private static final float MAX_ZOOM = 0.6F;
@@ -604,17 +605,48 @@ public final class SpaceStarMapScreen extends Screen
         }
     }
 
+    // a tilted circular orbit (radius r around a centre, inclination and line of nodes as in Orbits.inclinedPosition)
+    // drawn as its top-down projection, culled to the viewport, segments scaled to its on-screen size.
+    private void addOrbit(BufferBuilder bb, Matrix4f m, double cx, double cz, double r, double incl, double node, int argb)
+    {
+        double rr = r * zoom;
+        double scx = worldToSx(cx);
+        double scy = worldToSy(cz);
+        if (rr < 1.5 || scx + rr < mapX || scx - rr > mapX + mapW || scy + rr < mapY || scy - rr > mapY + mapH)
+        {
+            return;
+        }
+        int seg = (int) Math.max(24.0, Math.min(96.0, rr / 4.0));
+        double ci = Math.cos(incl);
+        double cN = Math.cos(node);
+        double sN = Math.sin(node);
+        double px = 0.0;
+        double py = 0.0;
+        for (int i = 0; i <= seg; ++i)
+        {
+            double u = (i / (double) seg) * Math.PI * 2.0;
+            double k = (1.0 - ci) * Math.cos(u - node);
+            double x = worldToSx(cx + r * (Math.cos(u) * ci + cN * k));
+            double y = worldToSy(cz + r * (Math.sin(u) * ci + sN * k));
+            if (i > 0)
+            {
+                addLineQuad(bb, m, px, py, x, y, 1.0, argb);
+            }
+            px = x;
+            py = y;
+        }
+    }
+
     private void drawRingsBatched(Matrix4f m, StarMapBody sel)
     {
         Tesselator t = Tesselator.getInstance();
         BufferBuilder bb = t.getBuilder();
         beginQuads(bb);
 
-        // main solar-system rings around the central sun (one per distinct fixed-body radius), culled to the viewport.
-        double sunX = PlanetPositions.sunPosition().x;
-        double sunZ = PlanetPositions.sunPosition().z;
-        double cx = worldToSx(sunX);
-        double cy = worldToSy(sunZ);
+        // main solar-system rings around the central sun (one per distinct fixed-body ring), culled to the viewport. Each
+        // ring is tilted (PlanetPositions.orbitInclinationOf), so it is drawn as its top-down projection: an ellipse
+        // through every body on it, not a circle at one body's current distance.
+        Vec3 sun = PlanetPositions.sunPosition();
         List<Double> radii = new ArrayList<>();
         for (StarMapBody b : bodies)
         {
@@ -622,7 +654,7 @@ public final class SpaceStarMapScreen extends Screen
             {
                 continue;
             }
-            double rr = Math.hypot(b.position.x - sunX, b.position.z - sunZ);
+            double rr = PlanetPositions.orbitRadiusOf(b.key);
             boolean dup = false;
             for (double e : radii)
             {
@@ -635,35 +667,31 @@ public final class SpaceStarMapScreen extends Screen
             if (!dup)
             {
                 radii.add(rr);
+                addOrbit(bb, m, sun.x, sun.z, rr, PlanetPositions.orbitInclinationOf(b.key),
+                        PlanetPositions.orbitNodeOf(b.key), RING_LINE);
             }
-        }
-        for (double rr : radii)
-        {
-            addRing(bb, m, cx, cy, rr * zoom, rr * zoom, 1.0, RING_LINE);
         }
 
-        // system orbit rings: for each SHOWN system planet, a ring around ITS sun at the planet's current orbit distance.
-        Map<String, Vec3> starPos = new java.util.HashMap<>();
-        for (StarMapBody b : bodies)
-        {
-            if (b.kind == StarMapBody.Kind.STAR)
-            {
-                starPos.put(b.key, b.position);
-            }
-        }
+        // system orbit rings: for each SHOWN system planet, its own tilted orbit around ITS sun, projected top-down.
         for (StarMapBody b : shownPlanets)
         {
             if (b.systemStarKey.isEmpty())
             {
                 continue;
             }
-            Vec3 star = starPos.get(b.systemStarKey);
-            if (star == null)
+            GeneratedSystems.System sys = systemsByKey.get(b.systemStarKey);
+            if (sys == null)
             {
                 continue;
             }
-            double rr = Math.hypot(b.position.x - star.x, b.position.z - star.z);
-            addRing(bb, m, worldToSx(star.x), worldToSy(star.z), rr * zoom, rr * zoom, 1.0, RING_LINE);
+            for (GeneratedSystems.SystemPlanet p : sys.planets)
+            {
+                if (p.id.equals(b.key))
+                {
+                    addOrbit(bb, m, sys.starPos.x, sys.starPos.z, p.ringRadius, p.inclination, p.nodeAngle, RING_LINE);
+                    break;
+                }
+            }
         }
 
         // ring indicators on ringed bodies (a flattened ellipse around the disc), drawn small on the icon.
@@ -773,27 +801,61 @@ public final class SpaceStarMapScreen extends Screen
     {
         double sx = worldToSx(playerPos.x);
         double sy = worldToSy(playerPos.z);
-        if (!onMap(sx, sy, 4))
+        if (!onMap(sx, sy, 8))
         {
             return;
         }
+        // An arrowhead pointing where the player faces (the pod's heading while piloting), with a dark rim so it reads
+        // over any body or orbit line. Map x is world x and map y is world z, so yaw maps exactly as in-world.
+        Minecraft mc = Minecraft.getInstance();
+        double yaw = 0.0;
+        if (mc.player != null)
+        {
+            net.minecraft.world.entity.Entity heading = mc.player.getVehicle() != null ? mc.player.getVehicle() : mc.player;
+            yaw = Math.toRadians(heading.getYRot());
+        }
+        double fx = -Math.sin(yaw);
+        double fy = Math.cos(yaw);
         Tesselator t = Tesselator.getInstance();
         BufferBuilder bb = t.getBuilder();
         beginTriangles(bb);
-        addDisc(bb, m, (float) sx, (float) sy, 2F, PLAYER_MARK);
+        addArrow(bb, m, sx, sy, fx, fy, 1.45, 0xE0000000);
+        addArrow(bb, m, sx, sy, fx, fy, 1.0, PLAYER_MARK);
         t.end();
+    }
 
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.player != null)
-        {
-            BufferBuilder lb = t.getBuilder();
-            beginQuads(lb);
-            double yaw = Math.toRadians(mc.player.getYRot());
-            double dx = -Math.sin(yaw);
-            double dz = Math.cos(yaw);
-            addLineQuad(lb, m, sx, sy, sx + dx * 11.0, sy + dz * 11.0, 1.0, PLAYER_MARK);
-            t.end();
-        }
+    // A chevron arrowhead centred on (cx, cy) pointing along the unit vector (fx, fy): tip 7 px ahead, wings 5 px back
+    // and 5 px out, notch 2 px back. Two triangles; scale grows it around the centre (used for the outline).
+    private static void addArrow(BufferBuilder bb, Matrix4f m, double cx, double cy, double fx, double fy, double scale,
+                                 int argb)
+    {
+        float a = ((argb >>> 24) & 0xFF) / 255F;
+        float r = ((argb >> 16) & 0xFF) / 255F;
+        float gg = ((argb >> 8) & 0xFF) / 255F;
+        float b = (argb & 0xFF) / 255F;
+        double px = -fy;
+        double py = fx;
+        float tipX = (float) (cx + fx * 7.0 * scale);
+        float tipY = (float) (cy + fy * 7.0 * scale);
+        float lX = (float) (cx + (-fx * 5.0 + px * 5.0) * scale);
+        float lY = (float) (cy + (-fy * 5.0 + py * 5.0) * scale);
+        float rX = (float) (cx + (-fx * 5.0 - px * 5.0) * scale);
+        float rY = (float) (cy + (-fy * 5.0 - py * 5.0) * scale);
+        float nX = (float) (cx - fx * 2.0 * scale);
+        float nY = (float) (cy - fy * 2.0 * scale);
+        bb.vertex(m, tipX, tipY, 0F).color(r, gg, b, a).endVertex();
+        bb.vertex(m, lX, lY, 0F).color(r, gg, b, a).endVertex();
+        bb.vertex(m, nX, nY, 0F).color(r, gg, b, a).endVertex();
+        bb.vertex(m, tipX, tipY, 0F).color(r, gg, b, a).endVertex();
+        bb.vertex(m, nX, nY, 0F).color(r, gg, b, a).endVertex();
+        bb.vertex(m, rX, rY, 0F).color(r, gg, b, a).endVertex();
+        // The same two triangles wound the other way, so the arrow shows whichever way the GUI culls.
+        bb.vertex(m, tipX, tipY, 0F).color(r, gg, b, a).endVertex();
+        bb.vertex(m, nX, nY, 0F).color(r, gg, b, a).endVertex();
+        bb.vertex(m, lX, lY, 0F).color(r, gg, b, a).endVertex();
+        bb.vertex(m, tipX, tipY, 0F).color(r, gg, b, a).endVertex();
+        bb.vertex(m, rX, rY, 0F).color(r, gg, b, a).endVertex();
+        bb.vertex(m, nX, nY, 0F).color(r, gg, b, a).endVertex();
     }
 
     // textured icons, blitted over the disc so a body reads as the real sun/planet art rather than a flat dot. Batched by

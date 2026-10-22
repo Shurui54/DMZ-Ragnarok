@@ -8,9 +8,7 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.ModifyConstant;
 import org.spongepowered.asm.mixin.injection.Redirect;
-import org.spongepowered.asm.mixin.injection.Constant;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import net.minecraft.core.BlockPos;
@@ -55,8 +53,9 @@ import net.shurui.shuruisutilities.world.space.SpaceKeys;
  * here, by redirecting that single {@code supportsDimension} call inside {@code use} to always report true. The
  * rest of {@code use} (all-balls-nearby, the count check, spawning the dragon) is untouched, so a player can only
  * summon a set they have actually gathered; they simply may now do it in any dimension. The other half of the
- * gate, the DRAGON definition's own {@code dimensions}, is separate and safe to widen by data, and we widen it in
- * the pack instead of touching it here.</p>
+ * gate is the DRAGON lookup ({@code getDragonForSetAndDimension}), which only knows each dragon's home dimensions;
+ * {@code su$dragonAnywhere} falls back to the set's own dragon there. Black Star is the one exception: it keeps
+ * DMZ's lookup and its planet-only gate, so it summons only on the random generated planets.</p>
  *
  * <h2>2. Any set SIZE, not a hard-coded seven (so a genuine two-ball set can be summoned)</h2>
  *
@@ -233,22 +232,65 @@ public abstract class MixinDmzDragonBallBlock
         return true;
     }
 
-    // GOAL C: compare the found-ball count against THIS set's declared star count instead of a hard-coded seven, so a
-    // two-ball (or any-size) set can be completed. The captured target args give us the set definition; a two-ball
-    // set returns 2, a seven-ball set returns 7 (identical to before).
-    @ModifyConstant(
-        method = "areAllDragonBallsNearby(Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lcom/dragonminez/common/dragonball/DragonBallSetDefinition;)Z",
-        constant = @Constant(intValue = 7),
-        require = 0
+    // GOAL A, second half: DMZ then asks for the dragon "for this set in this dimension", and each dragon definition
+    // lists only its set's home dimensions, so a set gathered anywhere else found no dragon and use() answered PASS
+    // (an Earth set on Namek did nothing, on 2.1.3 and 2.2 alike). When DMZ finds none, fall back to this set's own
+    // dragon: the one whose dimensions match the set's home, else any dragon of the set. Black Star keeps DMZ's own
+    // answer, so it still summons only where its dragon lives (the random generated planets, also gated above).
+    // DragonBallDefinitions.getDragonForSetAndDimension is DMZ's only caller-facing lookup for this, and use() its
+    // only caller. The dragon then spawns where the balls are; the set is re-scattered at home when it leaves
+    // (MixinDmzDragonBallScatter / BallRescatter).
+    @Redirect(
+        method = "use",
+        at = @At(
+            value = "INVOKE",
+            target = "Lcom/dragonminez/common/dragonball/DragonBallDefinitions;getDragonForSetAndDimension(Ljava/lang/String;Lnet/minecraft/resources/ResourceKey;)Lcom/dragonminez/common/dragonball/DragonDefinition;",
+            remap = false
+        ),
+        require = 0,
+        remap = true
     )
-    private int su$anySetSize(int hardCodedSeven, Level level, BlockPos pos, DragonBallSetDefinition setDefinition)
+    private com.dragonminez.common.dragonball.DragonDefinition su$dragonAnywhere(String setId, ResourceKey<Level> dimension)
     {
-        // getStars() is the set's declared star keys (each within 1..7); its size is the true number of balls in the
-        // set. On any unexpected null, fall back to DMZ's original 7 so seven-ball sets keep working.
-        if (setDefinition == null)
+        com.dragonminez.common.dragonball.DragonDefinition own = DragonBallDefinitions.getDragonForSetAndDimension(setId,
+                dimension);
+        if (own != null || setId == null || "blackstar".equals(setId))
         {
-            return hardCodedSeven;
+            return own;
         }
-        return setDefinition.getStars().size();
+        try
+        {
+            DragonBallSetDefinition set = DragonBallDefinitions.getBallSet(setId);
+            com.dragonminez.common.dragonball.DragonDefinition any = null;
+            for (com.dragonminez.common.dragonball.DragonDefinition d : DragonBallDefinitions.getDragons())
+            {
+                if (!d.supportsBallSet(setId))
+                {
+                    continue;
+                }
+                if (any == null)
+                {
+                    any = d;
+                }
+                if (set != null)
+                {
+                    for (net.minecraft.resources.ResourceLocation home : set.getValidDimensions())
+                    {
+                        if (d.supportsDimension(ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, home)))
+                        {
+                            return d;
+                        }
+                    }
+                }
+            }
+            return any;
+        }
+        catch (Throwable t)
+        {
+            return null;
+        }
     }
+
+    // GOAL C (any-size sets) needs no hook since DragonMineZ 2.2: areAllDragonBallsNearby now checks that every star
+    // the set declares was found (2.1 compared the count against a hard-coded seven, which a ModifyConstant fixed here).
 }

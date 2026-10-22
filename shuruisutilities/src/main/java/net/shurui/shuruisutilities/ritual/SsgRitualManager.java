@@ -18,26 +18,18 @@ import net.minecraftforge.fml.LogicalSide;
 import net.minecraftforge.server.ServerLifecycleHooks;
 
 import net.shurui.shuruisutilities.compat.dmz.RitualFormsCompat;
-import net.shurui.shuruisutilities.core.SUConfig;
 import net.shurui.shuruisutilities.util.output.logger.LoggingHandler;
 
 /**
  * The Super Saiyan God charge ritual: a ring of saiyans charging ki around a centre saiyan for a sustained window. How
  * many chargers the ring needs (besides the centre) is the {@code SsgRitualRequiredChargers} config value, default five.
- * When the ring holds, the centre saiyan turns Super Saiyan God temporarily, and every participant (the centre and the
- * chargers) permanently unlocks the ability to PURCHASE the form for its TP cost (the durable entitlement lives in
- * {@link WishRitualStore}). The centre's temporary form is reverted the moment they leave it, so it costs nothing to
- * keep past the ritual.
+ * When the ring holds, the centre is put into DragonMineZ's OWN base god form ({@code godritual}), the same form,
+ * timer, expiry and cooldown DMZ's own god ritual gives; DMZ ends it. SU's former Super Saiyan God group and the
+ * purchase right the ritual used to hand out are retired.
  *
- * <p>What is reverted is only ever what the ritual GAVE. A centre who already owns Super Saiyan God (bought for its
- * 150000 TP) keeps it: the grant is marked at the moment it is made ({@link WishRitualStore#SSG_TEMP_GRANT}) and the
- * cleanup revokes nothing it did not mark, because in DMZ a purchase and a grant are the same state and there is
- * nothing else to tell them apart by.
- *
- * <p>Every exit is handled: the temporary grant is reverted on detransform, on leaving the world (offline centre), on
- * death (the active form clears, read as a detransform) and never leaks the {@code godforms} skill; the durable
- * entitlement is granted at the moment the ring completes, so a participant who disconnects immediately afterwards keeps
- * what they earned. Registered once on the Forge server bus at mod init. Throttled; the no-ritual case is free.
+ * <p>Legacy cleanup stays: a centre still holding the old {@code godforms} loan from an older build has it unwound
+ * on detransform and at login ({@link WishRitualStore#SSG_TEMP_GRANT}), and nothing a player bought is touched.
+ * Registered once on the Forge server bus at mod init. Throttled; the no-ritual case is free.
  */
 public final class SsgRitualManager
 {
@@ -150,9 +142,10 @@ public final class SsgRitualManager
         // Drop progress for any centre that is no longer a valid, charging saiyan.
         progress.keySet().removeIf(id -> chargers.stream().noneMatch(c -> c.getUUID().equals(id)));
 
-        // How many chargers (besides the centre) the ring needs, read live from the config so a reload applies at once.
-        // Clamped to at least one so a bad value can never make the ritual complete with the centre alone.
-        int requiredChargers = Math.max(1, SUConfig.ssgRitualRequiredChargers);
+        // How many chargers (besides the centre) the ring needs: the admin hub value (Rituals row, synced to every
+        // shard), or the config value when none is set. Read live, so an edit applies at once. At least one, so a bad
+        // value can never make the ritual complete with the centre alone.
+        int requiredChargers = RitualSettings.ssgRequiredChargers(server);
         if (chargers.size() <= requiredChargers)
             return; // need a centre plus at least this many others
 
@@ -204,8 +197,8 @@ public final class SsgRitualManager
         if (!RitualFormsCompat.beginTempSsg(centre))
             return; // centre is not an eligible saiyan (e.g. race changed mid-charge)
 
-        // Everyone who took part unlocks the purchase now, so a disconnect right after does not cost them the reward.
-        WishRitualStore.grantSsgPurchase(centre);
+        // The centre is now in DragonMineZ's own god form, timed and ended by DMZ. There is no SU form left to buy,
+        // so the ritual no longer hands out a purchase right.
         centre.sendSystemMessage(Component.translatable("ritual.dmz_ragnarok.ssg.centre"));
         MinecraftServer server = centre.getServer();
         for (UUID id : ring)
@@ -213,7 +206,6 @@ public final class SsgRitualManager
             ServerPlayer participant = server == null ? null : server.getPlayerList().getPlayer(id);
             if (participant != null)
             {
-                WishRitualStore.grantSsgPurchase(participant);
                 participant.sendSystemMessage(Component.translatable("ritual.dmz_ragnarok.ssg.participant"));
             }
         }

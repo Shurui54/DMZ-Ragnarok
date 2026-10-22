@@ -15,7 +15,7 @@ import net.shurui.shuruisutilities.commons.network.NetworkUtils;
  * Server -&gt; client (fixed id 128): open the event editor. The body is one NBT compound carrying either a single
  * event to edit or the event list, plus the pick lists (region names, raid/rift ids) the editor tabs need. The id
  * is pinned here so the wire never shifts; the client editor that consumes it lands in a later batch (E11), so for
- * now the client sink is an inert no-op and the payload is simply parsed and dropped. See the design notes.
+ * now the client sink is an inert no-op and the payload is simply parsed and dropped. See docs/events-2.0-plan.md.
  */
 public class PacketEventEditorOpen implements ISUPacket
 {

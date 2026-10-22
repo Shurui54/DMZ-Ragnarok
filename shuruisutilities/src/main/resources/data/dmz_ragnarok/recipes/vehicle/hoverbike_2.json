@@ -1,0 +1,30 @@
+{
+  "_comment": "Mk. II: more plating and a second propeller, gold for the faster drive.",
+  "type": "dmz_ragnarok:vehicle_crafting",
+  "order": 12,
+  "parts": [
+    {
+      "item": "dragonminez:vehicle_engine",
+      "count": 1
+    },
+    {
+      "item": "dragonminez:vehicle_plating",
+      "count": 4
+    },
+    {
+      "item": "dragonminez:vehicle_propeller",
+      "count": 2
+    },
+    {
+      "item": "dragonminez:vehicle_seat",
+      "count": 1
+    },
+    {
+      "item": "minecraft:gold_ingot",
+      "count": 4
+    }
+  ],
+  "result": {
+    "item": "dmz_ragnarok:hoverbike_2"
+  }
+}

@@ -53,10 +53,8 @@ public class PacketClearClientHair implements ISUPacket
                 try
                 {
                     var character = sd.getCharacter();
-                    clear(() -> character.getHairBase().clear());
-                    clear(() -> character.getHairSSJ().clear());
-                    clear(() -> character.getHairSSJ2().clear());
-                    clear(() -> character.getHairSSJ3().clear());
+                    // DragonMineZ 2.2 keeps one style per slot and resets them all here.
+                    clear(character::clearHairStyles);
                 }
                 catch (Throwable ignored)
                 {

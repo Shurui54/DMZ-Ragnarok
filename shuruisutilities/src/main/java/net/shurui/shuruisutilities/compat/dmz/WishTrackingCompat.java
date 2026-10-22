@@ -9,7 +9,7 @@ import net.shurui.shuruisutilities.corrupted.ShadowDragonStorage;
 /**
  * Guard entry point for the wish-tracking DMZ integration. This class holds no DMZ imports: it only checks that
  * DMZ is present before touching {@link WishTrackingBridge}, which is the sole class that references DMZ types.
- * Follows the optional-dependency pattern.
+ * Follows docs/compat-pattern.md.
  */
 public final class WishTrackingCompat
 {

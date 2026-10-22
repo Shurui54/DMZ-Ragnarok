@@ -4,9 +4,12 @@ import com.dragonminez.common.stats.StatsData;
 
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.scores.PlayerTeam;
 import net.minecraft.world.scores.Scoreboard;
 
@@ -204,11 +207,45 @@ public final class MiniClone
                     parseHex(character.getHairColor()),
                     parseHex(character.getEye1Color()),
                     parseHex(character.getEye2Color()));
+            // The full look for the client's DMZ renderer path; the fields above stay as the fallback.
+            clone.setLookSnapshot(lookSnapshot(player, character));
         }
         catch (Throwable t)
         {
             // Leave the default appearance; the client render layer falls back to the plain skin.
         }
+    }
+
+    /** Character keys that carry progress, not looks: dropped so the synced snapshot stays small. */
+    private static final String[] LOOK_DROPPED_KEYS = {
+            "InteractedMasters", "KnownMinigames", "MinigameLearnRuns", "LearnedSongs",
+            "FormMasteries", "StackFormMasteries", "FormsUsedBefore", "StackFormsUsedBefore"};
+
+    /** Keys inside a clone's look snapshot, read back by the client puppet. */
+    public static final String LOOK_CHARACTER = "Character";
+    public static final String LOOK_ARMOR = "Armor";
+
+    /**
+     * The caster's DMZ character (race, gender, body, colours, hair, face, current form) plus the armour they wear, as
+     * one tag. The client loads it into a puppet player and draws that with DMZ's own renderer, which is the only
+     * thing that reproduces hair, race parts and forms. The armour is visual only: the clone's own slots stay empty.
+     */
+    static CompoundTag lookSnapshot(ServerPlayer player, com.dragonminez.common.stats.character.Character character)
+    {
+        CompoundTag look = new CompoundTag();
+        CompoundTag saved = character.save();
+        for (String key : LOOK_DROPPED_KEYS)
+        {
+            saved.remove(key);
+        }
+        look.put(LOOK_CHARACTER, saved);
+        ListTag armor = new ListTag();
+        for (ItemStack stack : player.getInventory().armor)
+        {
+            armor.add(stack.save(new CompoundTag()));
+        }
+        look.put(LOOK_ARMOR, armor);
+        return look;
     }
 
     private static int tintFor(ServerPlayer player, Variant variant)

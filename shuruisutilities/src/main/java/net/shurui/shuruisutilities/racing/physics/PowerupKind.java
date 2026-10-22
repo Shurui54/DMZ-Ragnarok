@@ -2,7 +2,7 @@ package net.shurui.shuruisutilities.racing.physics;
 
 /**
  * The sixteen race powerups, each a Dragon Ball recreation of a Mario Kart item (mapping approved by the owner,
- * see the design notes section 3). The ORDINALS are the wire and NBT contract: a synched byte on the roulette
+ * see docs/racing-plan.md section 3). The ORDINALS are the wire and NBT contract: a synched byte on the roulette
  * packet (111), the item slot, and any stored odds table key, so they are PINNED. Never reorder and never insert
  * in the middle, only append (127 is the ceiling the packet block leaves for later kinds).
  *

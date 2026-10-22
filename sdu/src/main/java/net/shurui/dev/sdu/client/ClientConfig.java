@@ -82,12 +82,17 @@ public final class ClientConfig {
     @SubscribeEvent
     static void onLoad(final ModConfigEvent event) {
         if (event.getConfig().getSpec() == SPEC) {
-            overShoulderCrosshair = OVER_SHOULDER_CROSSHAIR.get();
-            firstPersonCrosshair = FIRST_PERSON_CROSSHAIR.get();
-            reskinContainers = RESKIN_CONTAINERS.get();
-            reskinCurios = RESKIN_CURIOS.get();
-            guiSounds = GUI_SOUNDS.get();
-            alwaysShowExtraFormsTab = ALWAYS_SHOW_EXTRA_FORMS_TAB.get();
+            bake();
         }
+    }
+
+    /** Copy the spec into the static fields; run on load and after an edit in the options editor. */
+    public static void bake() {
+        overShoulderCrosshair = OVER_SHOULDER_CROSSHAIR.get();
+        firstPersonCrosshair = FIRST_PERSON_CROSSHAIR.get();
+        reskinContainers = RESKIN_CONTAINERS.get();
+        reskinCurios = RESKIN_CURIOS.get();
+        guiSounds = GUI_SOUNDS.get();
+        alwaysShowExtraFormsTab = ALWAYS_SHOW_EXTRA_FORMS_TAB.get();
     }
 }

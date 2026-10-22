@@ -56,6 +56,8 @@ public final class ClientModBusEvents {
         // Load persisted custom race/form names and overlay them onto the active language.
         // (Custom forms cycle in DMZ's normal top-middle form slot; no extra wheel slot is added.)
         event.enqueueWork(GeneratedLang::init);
+        // The Client tab of the options editor: sdu-client.toml.
+        net.shurui.dev.sdu.config.editor.SduConfigSources.registerClient();
     }
 
     @SubscribeEvent
@@ -88,6 +90,8 @@ public final class ClientModBusEvents {
     public static void registerGuiOverlays(RegisterGuiOverlaysEvent event) {
         // Drawn above the hotbar so the quest/waypoint compass sits at the top of the HUD.
         event.registerAbove(VanillaGuiOverlay.HOTBAR.id(), "sdu_compass", CompassOverlay.COMPASS);
+        // and placed through DMZ's HUD layout (the compass is a Ragnarok HUD extra)
+        CompassOverlay.registerElement();
         // A vanilla-style crosshair for DMZ's over-the-shoulder camera (vanilla only draws it in first
         // person). Placed just above vanilla's own crosshair layer so it shares that HUD position.
         event.registerAbove(VanillaGuiOverlay.CROSSHAIR.id(), "sdu_over_shoulder_crosshair",

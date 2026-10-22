@@ -50,6 +50,8 @@ public final class ModBusEvents {
             // Adds a "Raid Bosses" dropdown into sdu's /rg npc edit hub when sdu is present. SduHubCompat
             // checks isModLoaded before touching sdu types.
             event.enqueueWork(net.shurui.dev.shuruis_raid_bosses.compat.sdu.SduHubCompat::register);
+            // The boss music switch on the SDU options editor's Client tab.
+            net.shurui.dev.shuruis_raid_bosses.RaidConfigEditorSources.registerClient();
         }
 
         @SubscribeEvent
@@ -64,6 +66,8 @@ public final class ModBusEvents {
             // The raid progress bar (DMZ ki-sense style) that replaced the vanilla boss bar.
             event.registerAboveAll(net.shurui.dev.shuruis_raid_bosses.client.RaidHudOverlay.OVERLAY_ID,
                     net.shurui.dev.shuruis_raid_bosses.client.RaidHudOverlay::render);
+            // placed through DMZ's HUD layout as a Ragnarok HUD extra
+            net.shurui.dev.shuruis_raid_bosses.client.RaidHudOverlay.registerElement();
         }
     }
 }

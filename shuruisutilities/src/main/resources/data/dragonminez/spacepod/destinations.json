@@ -97,6 +97,20 @@
       "z": 0.5
     },
     {
+      "dimension": "dragonminez:demon_realm",
+      "icon_index": 6,
+      "id": "demon_realm",
+      "name": "gui.dragonminez.spacepod.demon_realm",
+      "show_when_locked": true,
+      "translate": true,
+      "unlock_rules": {
+        "quest": "daima_saga:3"
+      },
+      "x": 160.5,
+      "y": 745.0,
+      "z": 0.5
+    },
+    {
       "dimension": "dmz_ragnarok:beerus_planet",
       "id": "beerus_planet",
       "name": "gui.dmz_ragnarok.core.spacepod.beerus_planet",

@@ -2,6 +2,10 @@ package net.shurui.shuruisutilities.client.hud;
 
 import java.util.List;
 
+import net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHud;
+import net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHudElement;
+import net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHudFrame;
+import net.shurui.dev.sdu.client.hud.ragnarok.RagnarokHudSlot;
 import net.shurui.shuruisutilities.client.gui.DmzTextures;
 import net.shurui.shuruisutilities.racing.client.RaceClientState;
 
@@ -49,23 +53,105 @@ public final class StaffTaskHudOverlay
             StaffTaskHudState.clear();
     }
 
-    // render hook, registered as a Forge GUI overlay
+    // render hook, registered as a Forge GUI overlay: the panel is a Ragnarok HUD extra placed by DMZ's HUD layout
     public static void render(ForgeGui gui, GuiGraphics g, float partialTick, int screenWidth, int screenHeight)
     {
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null || mc.options.hideGui || mc.options.renderDebug)
-            return;
-        if (RaceClientState.isSessionActive())
-            return; // hidden during a race, restored when it ends
-        if (!StaffTaskHudState.isActive() || !net.shurui.dev.sdu.api.ClientGate.key())
-            return; // staff tasks are private: never drawn unless the server reported the key
-        renderPanel(g, StaffTaskHudState.title(), StaffTaskHudState.description(),
-                StaffTaskHudState.denialReason(), StaffTaskHudConfig.get(), screenWidth, screenHeight);
+        RagnarokHud.draw(RagnarokHudSlot.STAFF_TASK, g, partialTick, screenWidth, screenHeight);
+    }
+
+    /** Bind the panel to its slot in DMZ's HUD layout. */
+    public static void registerElement()
+    {
+        RagnarokHud.register(new Element());
+    }
+
+    /** The legacy placement from StaffTaskHudConfig (centre x and top y as screen fractions), clamped on screen. */
+    static RegionHudOverlay.Placer screenPlacer(StaffTaskHudConfig cfg, int screenWidth, int screenHeight)
+    {
+        return (w, h) -> {
+            int x = (int) Math.round(cfg.xPct * screenWidth) - w / 2;
+            int y = (int) Math.round(cfg.yPct * screenHeight);
+            return new int[] {Math.max(2, Math.min(screenWidth - w - 2, x)), Math.max(2, Math.min(screenHeight - h - 2, y))};
+        };
+    }
+
+    // nominal editor box: the widest panel with a two line title and three body lines
+    private static final int BOX_H = PAD + 2 + 2 * 10 + 2 + 3 * 9 + PAD - 2;
+
+    /** The staff task reminder as a DMZ layout element, hugging the side of the box it is anchored to. */
+    private static final class Element extends RagnarokHudElement
+    {
+        private String title = "", description = "", denial = "";
+
+        Element()
+        {
+            super(RagnarokHudSlot.STAFF_TASK);
+        }
+
+        @Override
+        public float width()
+        {
+            return MAX_W;
+        }
+
+        @Override
+        public float height()
+        {
+            return BOX_H;
+        }
+
+        @Override
+        public float[] defaultPlacement()
+        {
+            // the old default: left column, 42% down, below the region panel
+            return new float[] {0.0f, 0.0f, 2.0f, (float) (StaffTaskHudConfig.DEFAULT_Y_PCT * 360.0), 1.0f};
+        }
+
+        @Override
+        public float[] fallbackBox(int screenWidth, int screenHeight)
+        {
+            StaffTaskHudConfig cfg = StaffTaskHudConfig.get();
+            return new float[] {(float) (cfg.xPct * screenWidth) - MAX_W / 2.0f, (float) (cfg.yPct * screenHeight), 1.0f};
+        }
+
+        @Override
+        public boolean listed()
+        {
+            // staff tasks are private: never drawn unless the server reported the key
+            return net.shurui.dev.sdu.api.ClientGate.key();
+        }
+
+        @Override
+        public boolean update(boolean preview, float partialTick)
+        {
+            if (StaffTaskHudState.isActive() && !RaceClientState.isSessionActive())
+            {
+                // hidden during a race, restored when it ends
+                title = StaffTaskHudState.title();
+                description = StaffTaskHudState.description();
+                denial = StaffTaskHudState.denialReason();
+                return true;
+            }
+            if (!preview)
+                return false;
+            title = "Staff Task";
+            description = "What you accepted appears here.";
+            denial = "";
+            return true;
+        }
+
+        @Override
+        public void render(GuiGraphics g, float partialTick, RagnarokHudFrame frame)
+        {
+            boolean dmz = RagnarokHud.available();
+            renderPanel(g, title, description, denial, (w, h) -> new int[] {
+                    Math.round(dmz ? frame.alignX(w) : (MAX_W - w) / 2.0f), Math.round(frame.alignY(h))});
+        }
     }
 
     /** Draw the panel. Returns {x,y,w,h} so a move screen can hit-test it, matching the region HUD's shape. */
     static int[] renderPanel(GuiGraphics g, String title, String description, String denial,
-                             StaffTaskHudConfig cfg, int screenWidth, int screenHeight)
+                             RegionHudOverlay.Placer placer)
     {
         Minecraft mc = Minecraft.getInstance();
         var font = mc.font;
@@ -95,10 +181,9 @@ public final class StaffTaskHudOverlay
         if (!desc.isEmpty() || !denialLines.isEmpty())
             h += 2;                       // a hair of air between the title block and the body
 
-        int x = (int) Math.round(cfg.xPct * screenWidth) - w / 2;
-        int y = (int) Math.round(cfg.yPct * screenHeight);
-        x = Math.max(2, Math.min(screenWidth - w - 2, x));
-        y = Math.max(2, Math.min(screenHeight - h - 2, y));
+        int[] at = placer.place(w, h);
+        int x = at[0];
+        int y = at[1];
 
         // same DMZ menu texture as every other SU GUI, nine-sliced so the crop scales cleanly
         DmzTextures.panel(g, x, y, w, h);

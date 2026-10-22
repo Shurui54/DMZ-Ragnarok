@@ -64,7 +64,7 @@ public final class FormGroupDuplicateCheck
             {
                 LoggingHandler.sulog.warn("[forms] {} duplicate form group finding(s) above. Keep one file per group:"
                         + " move the unwanted file out of config/dragonminez on EVERY shard (the shard config sync copies"
-                        + " files but never deletes them), then restart.", findings);
+                        + " files but never deletes them), then restart. See docs/bugs/README.md.", findings);
             }
         }
         catch (Throwable t)

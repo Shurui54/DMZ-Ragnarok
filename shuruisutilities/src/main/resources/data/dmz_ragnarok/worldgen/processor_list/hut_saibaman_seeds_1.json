@@ -1,5 +1,5 @@
 {
-  "_comment": "Turns 3.58% of this hut's 11 rocky_dirt blocks into a buried saibaman seed. The per-block figure is derived, not guessed: (1-p)^11 = 0.67, so two huts in three hold none and the rest hold 1 to 3. More than 3 is under a fifth of a percent.",
+  "_comment": "Turns 3.58% of this hut's 11 rocky_dirt blocks into a buried saibaman seed. The per-block figure is derived, not guessed: (1-p)^11 = 0.67, so two huts in three hold none and the rest hold 1 to 3. More than 3 is under a fifth of a percent. Then hut_saibaman_crops grows visible crops: a 33% chance of one growing seed at the floor centre and a 33% chance of 1 to 3 more, the same as a hut on a generated planet.",
   "processors": [
     {
       "processor_type": "minecraft:rule",
@@ -18,6 +18,11 @@
           }
         }
       ]
+    },
+    {
+      "processor_type": "dmz_ragnarok:hut_saibaman_crops",
+      "planted_chance": 0.33,
+      "harvest_chance": 0.33
     }
   ]
 }

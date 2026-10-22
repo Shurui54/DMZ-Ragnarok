@@ -1,0 +1,34 @@
+{
+  "_comment": "Mk. IV, the fastest bike: late game, gated on a gete ingot.",
+  "type": "dmz_ragnarok:vehicle_crafting",
+  "order": 16,
+  "parts": [
+    {
+      "item": "dragonminez:vehicle_engine",
+      "count": 2
+    },
+    {
+      "item": "dragonminez:vehicle_plating",
+      "count": 6
+    },
+    {
+      "item": "dragonminez:vehicle_propeller",
+      "count": 2
+    },
+    {
+      "item": "dragonminez:vehicle_seat",
+      "count": 1
+    },
+    {
+      "item": "minecraft:diamond",
+      "count": 4
+    },
+    {
+      "item": "dragonminez:gete_ingot",
+      "count": 1
+    }
+  ],
+  "result": {
+    "item": "dmz_ragnarok:hoverbike_4"
+  }
+}

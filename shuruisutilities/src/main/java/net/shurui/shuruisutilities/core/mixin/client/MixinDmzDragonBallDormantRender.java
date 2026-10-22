@@ -15,7 +15,9 @@ import software.bernie.geckolib.renderer.GeoBlockRenderer;
 import net.shurui.shuruisutilities.client.dormancy.DormantBallRender;
 
 /**
- * Draws a DORMANT dragon ball dim, greyed and translucent, so a set turned to stone by a wish looks petrified.
+ * Draws a DORMANT dragon ball as solid stone on GeckoLib's default block path, so a set turned to stone by a wish
+ * looks petrified. The dragon ball block itself is drawn by {@code SuDragonBallBlockRenderer}, which applies the same
+ * stone look directly; this covers any renderer that still reaches GeckoLib's defaults.
  *
  * <h2>The second design, and why the first was wrong</h2>
  * The first attempt wrapped the {@code MultiBufferSource} handed to {@code GeoBlockRenderer.defaultRender} and tried
@@ -46,28 +48,23 @@ import net.shurui.shuruisutilities.client.dormancy.DormantBallRender;
  * type is passed), so both seams fire every frame.
  *
  * <ul>
- *   <li>{@link #getRenderColor} returns a grey with reduced alpha for a dormant ball, so the tint floats GeckoLib
- *       bakes into every vertex come out dim stone; for anything else it returns {@code Color.WHITE}, byte for byte
- *       the interface default it replaced.</li>
- *   <li>{@link #getRenderType} returns {@code entityTranslucent(texture)} for a dormant ball, a BLENDING type so the
- *       reduced alpha actually shows; for anything else it delegates to {@code getGeoModel().getRenderType(...)},
- *       byte for byte the interface default.</li>
+ *   <li>{@link #getRenderColor} returns an untinted, fully opaque white for a dormant ball, so the stone texture
+ *       shows true; for anything else it returns {@code Color.WHITE}, the interface default it replaced.</li>
+ *   <li>{@link #getRenderType} returns an opaque {@code entityCutoutNoCull} over vanilla's stone texture for a dormant
+ *       ball; for anything else it delegates to {@code getGeoModel().getRenderType(...)}, the interface default.</li>
  * </ul>
  * A GeoBlockRenderer subtype that overrides either method itself is unaffected: its own override is more specific
  * and wins, so the only renderers reaching these are the ones (like the dragon ball) that used the default anyway.
  *
- * <h2>The colour is a multiply, and cannot fully desaturate</h2>
- * {@code getRenderColor} is a per vertex tint that MULTIPLIES the texture, it does not replace it, so a mid grey
- * pulls a bright orange ball down to a dim, low key version of itself rather than to a flat neutral stone: the blue
- * channel of the texture is near zero and a multiply cannot raise it. Combined with the translucency that reads as
- * petrified and clearly dead, which is the intent, but it is a darken toward grey, not a true hue removal. Doing
- * better would need to swap the texture, which is out of scope here.
+ * <h2>Why a texture swap and not a tint</h2>
+ * {@code getRenderColor} MULTIPLIES the texture, so a grey tint only darkens a bright orange ball (its blue channel is
+ * near zero) and, with the translucency this used before, read as a dim see-through ball rather than rock. Drawing the
+ * ball's geo with vanilla's stone texture gives true stone grey and grain at no extra cost.
  *
  * <h2>Observability</h2>
  * The dormant decision, the {@code instanceof} guard and the one time proof line all live in
  * {@link DormantBallRender}, which logs the FIRST time a dormant ball is actually tinted (not merely that a hook is
- * live, the mistake that wasted the first round): look for {@code [dormancy] dragon ball tinted grey and
- * translucent}. If a dormant set's balls are on screen and that line never appears, either the mixin did not apply
+ * live, the mistake that wasted the first round): look for {@code [dormancy] dragon ball drawn as solid stone}. If a dormant set's balls are on screen and that line never appears, either the mixin did not apply
  * or the client never learned the set is dormant; the packet receipt log in {@code BallDormancyClient}
  * ({@code [dormancy] client received dormant set sync}) distinguishes the two. Every path is wrapped in
  * {@link DormantBallRender}, so a fault leaves the ball rendering normally rather than crashing the render thread.
@@ -80,7 +77,7 @@ public abstract class MixinDmzDragonBallDormantRender
     public abstract GeoModel getGeoModel();
 
     /**
-     * Overrides {@code GeoRenderer.getRenderColor}. Grey and semi transparent for a dormant dragon ball, else the
+     * Overrides {@code GeoRenderer.getRenderColor}. Untinted opaque white for a dormant dragon ball, else the
      * {@code Color.WHITE} the default returned.
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
@@ -91,16 +88,16 @@ public abstract class MixinDmzDragonBallDormantRender
     }
 
     /**
-     * Overrides {@code GeoRenderer.getRenderType}. A blending translucent type for a dormant dragon ball, else the
+     * Overrides {@code GeoRenderer.getRenderType}. An opaque stone-textured type for a dormant dragon ball, else the
      * model's own type, exactly what the default returned.
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
     public RenderType getRenderType(GeoAnimatable animatable, ResourceLocation texture,
                                     MultiBufferSource bufferSource, float partialTick)
     {
-        RenderType translucent = DormantBallRender.dormantType(animatable, texture);
-        if (translucent != null)
-            return translucent;
+        RenderType stone = DormantBallRender.dormantType(animatable, texture);
+        if (stone != null)
+            return stone;
         return getGeoModel().getRenderType(animatable, texture);
     }
 }

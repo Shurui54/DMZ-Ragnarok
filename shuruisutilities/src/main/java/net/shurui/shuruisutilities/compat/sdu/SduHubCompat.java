@@ -72,6 +72,8 @@ public final class SduHubCompat {
                             Component.literal("Open the shrine list editor"), open("shrines"))
                     .entry("dmz_ragnarok:hoverbikes", Component.literal("Hoverbikes"),
                             Component.literal("Open the hoverbike speed / tuning editor"), open("hoverbikes"))
+                    .entry("dmz_ragnarok:rituals", Component.literal("Rituals"),
+                            Component.literal("Open the ritual settings (Super Saiyan God chargers)"), open("rituals"))
                     .entry("dmz_ragnarok:sparringsettings", Component.literal("Sparring"),
                             Component.literal("Open the sparring settings editor"), open("sparringsettings"))
                     .register();

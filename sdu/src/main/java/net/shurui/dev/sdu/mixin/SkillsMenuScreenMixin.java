@@ -17,7 +17,6 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.lang.reflect.Field;
@@ -25,8 +24,8 @@ import java.lang.reflect.Method;
 import java.util.List;
 
 // Renders a custom form's description in DMZ's skills GUI. SkillsMenuScreen shows a form's name (via
-// GeneratedLang lang overlays) but reads no description key, so at render TAIL, if the cursor is over a form
-// node, we look up the addon description (GeneratedLang.formDesc) and draw it as a tooltip.
+// GeneratedLang lang overlays) but reads no description key, so the addon description (GeneratedLang.formDesc),
+// the unlock label and the per-form level lock are added to DMZ's own form tooltip in renderFormsTree.
 //
 // DMZ's node/hover internals (toUiX/toUiY/getHoveredFormNode, private FormNode.data) use a scaled/panned coord
 // space, so we call them reflectively by their stable mod names and cache the handles. require=0; any failure
@@ -96,7 +95,7 @@ public abstract class SkillsMenuScreenMixin {
     // FormData of the form under the cursor, or null. Uses DMZ's private toUiX/toUiY/getHoveredFormNode
     // (scaled/panned space) and the private FormNode.data via cached reflection. Sets sdu$failed on the first
     // hard failure so both injectors go quiet together.
-    private FormConfig.FormData sdu$hoveredForm(int mouseX, int mouseY) throws Exception {
+    private FormConfig.FormData sdu$hoveredForm(int mouseX, int mouseY, boolean uiCoords) throws Exception {
         if (!sdu$ready) {
             Class<?> cls = this.getClass();
             sdu$toUiX = findMethod(cls, "toUiX", double.class);
@@ -104,8 +103,9 @@ public abstract class SkillsMenuScreenMixin {
             sdu$hovered = findMethod(cls, "getHoveredFormNode", double.class, double.class);
             sdu$ready = true;
         }
-        double ux = (double) sdu$toUiX.invoke(this, (double) mouseX);
-        double uy = (double) sdu$toUiY.invoke(this, (double) mouseY);
+        // render() gets screen coords; renderFormsTree (DMZ 2.2) is already handed UI coords.
+        double ux = uiCoords ? mouseX : (double) sdu$toUiX.invoke(this, (double) mouseX);
+        double uy = uiCoords ? mouseY : (double) sdu$toUiY.invoke(this, (double) mouseY);
         Object node = sdu$hovered.invoke(this, ux, uy);
         if (node == null) {
             return null;
@@ -120,7 +120,7 @@ public abstract class SkillsMenuScreenMixin {
 
     // DMZ form-skill name (formType) of the node under the cursor, or null. Reads the private FormNode.formType
     // via cached reflection. Used to look up the quest gate for the locked tooltip.
-    private String sdu$hoveredFormType(int mouseX, int mouseY) throws Exception {
+    private String sdu$hoveredFormType(int mouseX, int mouseY, boolean uiCoords) throws Exception {
         if (!sdu$ready) {
             Class<?> cls = this.getClass();
             sdu$toUiX = findMethod(cls, "toUiX", double.class);
@@ -128,8 +128,9 @@ public abstract class SkillsMenuScreenMixin {
             sdu$hovered = findMethod(cls, "getHoveredFormNode", double.class, double.class);
             sdu$ready = true;
         }
-        double ux = (double) sdu$toUiX.invoke(this, (double) mouseX);
-        double uy = (double) sdu$toUiY.invoke(this, (double) mouseY);
+        // render() gets screen coords; renderFormsTree (DMZ 2.2) is already handed UI coords.
+        double ux = uiCoords ? mouseX : (double) sdu$toUiX.invoke(this, (double) mouseX);
+        double uy = uiCoords ? mouseY : (double) sdu$toUiY.invoke(this, (double) mouseY);
         Object node = sdu$hovered.invoke(this, ux, uy);
         if (node == null) {
             return null;
@@ -142,49 +143,8 @@ public abstract class SkillsMenuScreenMixin {
         return type instanceof String s ? s : null;
     }
 
-    @Inject(method = "render", at = @At("TAIL"), require = 0, remap = true)
-    private void sdu$renderFormDescription(GuiGraphics graphics, int mouseX, int mouseY, float partialTick, CallbackInfo ci) {
-        if (sdu$failed) {
-            return;
-        }
-        try {
-            FormConfig.FormData form = sdu$hoveredForm(mouseX, mouseY);
-            if (form == null) {
-                return;
-            }
-            String desc = GeneratedLang.formDesc(form.getName());
-            String unlockDesc = GeneratedLang.formUnlockDesc(form.getName());
-            boolean hasDesc = desc != null && !desc.isBlank();
-            boolean hasUnlock = unlockDesc != null && !unlockDesc.isBlank();
-            // Per-form minimum level to USE the form (synced FormLevelGateConfig). Advisory: shows the lock line
-            // when the local character is below it, matching the server-side transform block. Keyed by form name
-            // here (the tooltip does not always carry the group), which the server-side gate resolves exactly.
-            int minLevel = net.shurui.dev.sdu.form.FormLevelGateConfig.requiredForFormName(form.getName());
-            boolean levelLocked = minLevel >= 1 && this.statsData != null && this.statsData.getLevel() < minLevel;
-            if (!hasDesc && !hasUnlock && !levelLocked) {
-                return;
-            }
-            // description grey; unlock-requirement text on its own gold (§6) line below. only the tooltip line,
-            // not DMZ's "Priceless"/cost label (scaled/panned space, fragile to overwrite).
-            java.util.List<net.minecraft.network.chat.Component> lines = new java.util.ArrayList<>();
-            if (hasDesc) {
-                lines.add(Component.literal("§7" + net.shurui.dev.sdu.util.ColorCodes.translate(desc)));
-            }
-            if (hasUnlock) {
-                lines.add(Component.literal("§6" + net.shurui.dev.sdu.util.ColorCodes.translate(unlockDesc)));
-            }
-            if (levelLocked) {
-                lines.add(Component.translatable("gui.dmz_ragnarok.form.level_locked_tooltip", minLevel)
-                        .withStyle(net.minecraft.ChatFormatting.RED));
-            }
-            graphics.renderComponentTooltip(Minecraft.getInstance().font, lines, mouseX, mouseY);
-        } catch (Throwable t) {
-            sdu$failed = true; // DMZ internals differ; disable, don't spam/crash
-        }
-    }
-
     // Overrides the unlock-requirement label in the hovered form's tooltip. DMZ builds that tooltip in
-    // renderFormsMenu as a List<Component> whose fixed first 3 lines are group title, form name and
+    // renderFormsTree as a List<Component> whose fixed first 3 lines are group title, form name and
     // "skill...: <level>", then a variable unlock block, and hands it to TextUtil.renderAdvancedTooltip. We
     // redirect that call: when the hovered form has a non-empty addon unlockDescription, replace everything
     // from the unlock block onward with one literal line. Forms without a description pass through.
@@ -192,18 +152,16 @@ public abstract class SkillsMenuScreenMixin {
     // This is the ONLY site that renders any unlock-requirement text (the per-node loop draws only
     // icons/borders/exclamation), so it covers every entry.
     @Redirect(
-        method = "render",
+        // DMZ 2.2 moved the form tooltip out of render() into its own private renderFormsTree. Both the
+        // selector and the @At target are DMZ's own names, which the jar keeps, so neither remaps.
+        method = "renderFormsTree(Lnet/minecraft/client/gui/GuiGraphics;II)V",
         at = @At(
             value = "INVOKE",
             target = "Lcom/dragonminez/client/util/TextUtil;renderAdvancedTooltip(Lnet/minecraft/client/gui/GuiGraphics;Lnet/minecraft/client/gui/Font;IIIILnet/minecraft/network/chat/Component;Ljava/util/List;Ljava/util/List;I)V",
-            // the 'render' selector must remap to m_88315_ (remap=true on the @Redirect), but the @At target is
-            // DMZ's own TextUtil.renderAdvancedTooltip whose official-name descriptor the jar keeps, so it must
-            // NOT remap. mirrors SU's MixinDmzTpMultiplierTooltip @ModifyArg; also silences the AP "Unable to
-            // locate method mapping" note.
             remap = false
         ),
         require = 0,
-        remap = true
+        remap = false
     )
     private void sdu$overrideUnlockLabel(GuiGraphics graphics, Font font, int mouseX, int mouseY,
                                          int screenWidth, int screenHeight, Component title,
@@ -211,12 +169,12 @@ public abstract class SkillsMenuScreenMixin {
         List<Component> outDesc = description;
         if (!sdu$failed) {
             try {
-                FormConfig.FormData form = sdu$hoveredForm(mouseX, mouseY);
+                FormConfig.FormData form = sdu$hoveredForm(mouseX, mouseY, true);
                 if (form != null && description != null && description.size() > sdu$UNLOCK_LABEL_INDEX) {
                     // quest-gated buys take precedence: if this form maps to a quest the player hasn't done,
                     // replace the unlock block with DMZ's "unlocked by quest" line + quest title, matching how
                     // DMZ labels native quest-reward forms. server gate is authoritative; this is advisory UX.
-                    String formType = sdu$hoveredFormType(mouseX, mouseY);
+                    String formType = sdu$hoveredFormType(mouseX, mouseY, true);
                     Integer lvlBoxed = form.getUnlockOnSkillLevel();
                     int formLevel = lvlBoxed == null ? 0 : lvlBoxed;
                     Component gateTitle = formLevel >= 1
@@ -238,6 +196,25 @@ public abstract class SkillsMenuScreenMixin {
                             replaced.add(Component.literal(ColorCodes.translate(unlockDesc)));
                             outDesc = replaced;
                         }
+                    }
+                }
+                // The addon description and the per-form level lock go into this same tooltip. They used to be a
+                // second, vanilla tooltip drawn at render TAIL in screen coordinates, so beside DMZ's UI-scaled
+                // tooltip it came out at a different size and position (often half off the top of the screen).
+                if (form != null && description != null && description.size() >= 2) {
+                    String desc = GeneratedLang.formDesc(form.getName());
+                    int minLevel = net.shurui.dev.sdu.form.FormLevelGateConfig.requiredForFormName(form.getName());
+                    boolean levelLocked = minLevel >= 1 && this.statsData != null && this.statsData.getLevel() < minLevel;
+                    if ((desc != null && !desc.isBlank()) || levelLocked) {
+                        List<Component> merged = new java.util.ArrayList<>(outDesc);
+                        if (desc != null && !desc.isBlank()) {
+                            merged.add(2, Component.literal("§7" + ColorCodes.translate(desc)));
+                        }
+                        if (levelLocked) {
+                            merged.add(Component.translatable("gui.dmz_ragnarok.form.level_locked_tooltip", minLevel)
+                                    .withStyle(net.minecraft.ChatFormatting.RED));
+                        }
+                        outDesc = merged;
                     }
                 }
             } catch (Throwable t) {
