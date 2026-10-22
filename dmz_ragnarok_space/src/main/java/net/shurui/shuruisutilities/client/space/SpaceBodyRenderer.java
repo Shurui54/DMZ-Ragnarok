@@ -544,7 +544,8 @@ public final class SpaceBodyRenderer
                 {
                     continue;
                 }
-                if (body.kind == Kind.PLANET && dist > nearRange && !farPlanetVisible(body, dx, dy, dz, dist, look))
+                if ((body.kind == Kind.PLANET || body.kind == Kind.STAR) && dist > nearRange
+                        && !farBodyVisible(body, dx, dy, dz, dist, look))
                 {
                     continue;
                 }
@@ -564,7 +565,8 @@ public final class SpaceBodyRenderer
                 double fdx = frameX[i] - cam.x;
                 double fdy = frameY[i] - cam.y;
                 double fdz = frameZ[i] - cam.z;
-                boolean far = body.kind == Kind.PLANET && fdx * fdx + fdy * fdy + fdz * fdz > nearRange * nearRange;
+                boolean far = (body.kind == Kind.PLANET || body.kind == Kind.STAR)
+                        && fdx * fdx + fdy * fdy + fdz * fdz > nearRange * nearRange;
                 if (!far && farPending)
                 {
                     buffer.endBatch();   // the far planets go down first, in one batch, before any near body.
@@ -1504,7 +1506,9 @@ public final class SpaceBodyRenderer
         {
             for (GeneratedSystems.System sys : farSystems)
             {
-                addImpostorSystem(sys, false);
+                // the sun is a real star body (the same cube model as a near sun); the impostor pass keeps only the belt.
+                addImpostorSystem(sys, true);
+                out.add(new Body(Kind.STAR, sys.starPos, sys.starRadius, sys.starTint, null));
                 // its planets are REAL bodies, drawn by the same planet model and textures as a near planet (owner: "the
                 // distant planets should render the same as any other planets"); only the sun stays a glowing disc.
                 for (GeneratedSystems.SystemPlanet p : sys.planets)
@@ -1566,50 +1570,44 @@ public final class SpaceBodyRenderer
         // its planets are not impostors any more: they are real bodies in the body pass (see the distant systems above).
     }
 
-    // DISTANT LOD hand-over: a star too small on screen for its model goes to the impostor batch as a glowing disc. Returns true when handed over, so the caller skips the model draw. liveX/Y/Z hold
-    // the body's live position (set by liveInto just before). Supers, black holes and anything near never hand over.
-    // FAR PLANETS. Beyond the near draw range a planet is still drawn with its own model and textures, exactly like a near
-    // one. Two things keep a whole universe of them readable and cheap: below FAR_PLANET_MIN_PX on screen the drawn size is
-    // raised toward that floor (by at most FAR_PLANET_MAX_GAIN, so neighbours never merge), and one that would still be
-    // under FAR_PLANET_SKIP_PX, or is outside a wide view cone, is not drawn at all.
-    private static final double FAR_PLANET_MIN_PX = 2.5;
-    private static final double FAR_PLANET_MAX_GAIN = 3.0;
-    private static final double FAR_PLANET_SKIP_PX = 0.6;
-    // cos of the view cone half angle: generous (about 80 degrees) so a planet at the screen edge or corner is never cut.
+    // FAR BODIES keep their true size, so a distant system keeps the same sun-to-planet proportions as a near one and
+    // separate systems never smear into one band. A planet too small to see is skipped. A far sun is floored at
+    // FAR_SUN_MIN_PX only once it is that small, which is already past the point its planets disappear, so the floor
+    // never changes how a sun compares with planets that are still drawn.
+    private static final double FAR_PLANET_SKIP_PX = 0.8;
+    private static final double FAR_SUN_MIN_PX = 2.5;
+    private static final double FAR_SUN_MAX_GAIN = 5.0;
+    // cos of the view cone half angle: generous (about 80 degrees) so a body at the screen edge or corner is never cut.
     private static final double FAR_PLANET_CONE_COS = 0.17;
 
-    private static double farPlanetGain(Body body, double dist)
+    private static double farGain(Body body, double dist)
     {
-        if (body.kind != Kind.PLANET || dist <= SpaceLayout.clientDrawDistance())
+        if (body.kind != Kind.STAR || dist <= SpaceLayout.clientDrawDistance())
         {
             return 1.0;
         }
-        double px = SpaceImpostors.pixels(body.radius, dist);
-        if (px >= FAR_PLANET_MIN_PX || px <= 0.0)
+        double px = SpaceImpostors.pixels(body.radius * STAR_DRAW_SCALE, dist);
+        if (px >= FAR_SUN_MIN_PX || px <= 0.0)
         {
             return 1.0;
         }
-        return Math.min(FAR_PLANET_MAX_GAIN, FAR_PLANET_MIN_PX / px);
+        return Math.min(FAR_SUN_MAX_GAIN, FAR_SUN_MIN_PX / px);
     }
 
-    private static boolean farPlanetVisible(Body body, double dx, double dy, double dz, double dist,
-                                            org.joml.Vector3f look)
+    private static boolean farBodyVisible(Body body, double dx, double dy, double dz, double dist,
+                                          org.joml.Vector3f look)
     {
         if ((dx * look.x() + dy * look.y() + dz * look.z()) / dist < FAR_PLANET_CONE_COS)
         {
             return false;
         }
-        return SpaceImpostors.pixels(body.radius, dist) * FAR_PLANET_MAX_GAIN >= FAR_PLANET_SKIP_PX;
+        return body.kind == Kind.STAR || SpaceImpostors.pixels(body.radius, dist) >= FAR_PLANET_SKIP_PX;
     }
 
+    // Nothing hands over to the disc impostor any more: suns and planets at any distance draw their own models (see
+    // FAR BODIES above). Kept as the single hook in the body loop in case a cheaper far path is ever needed again.
     private static boolean handToImpostor(Body body, double dist, Vec3 sun, double tickCount)
     {
-        // planets never hand over: a planet at any distance is drawn with its own model (see FAR_PLANET_* below).
-        if (body.kind == Kind.STAR && SpaceImpostors.pixels(body.radius * STAR_DRAW_SCALE, dist) < IMPOSTOR_HANDOVER_PX)
-        {
-            SpaceImpostors.addBody(SpaceImpostors.K_SUN, liveX, liveY, liveZ, body.radius, body.tint, 0, 0.0, 0.0, 0.0);
-            return true;
-        }
         return false;
     }
 
@@ -1701,7 +1699,7 @@ public final class SpaceBodyRenderer
         double drawX = dx * drawScale;
         double drawY = dy * drawScale;
         double drawZ = dz * drawScale;
-        float drawRadius = (float) (body.radius * drawScale * farPlanetGain(body, dist));
+        float drawRadius = (float) (body.radius * drawScale * farGain(body, dist));
 
         // gate the nameplate on distance to the body's SURFACE (true centre distance minus its true radius), so a label
         // only shows once the player is genuinely near, and appears at the same visual closeness for a big or small body.
@@ -3868,6 +3866,10 @@ public final class SpaceBodyRenderer
         if (drawPackModel(poseStack, buffer, PACK_SUN_GRAYSCALE, drawR, starSpin, 20.0F, r, g, b,
                 FULL_BRIGHT))
         {
+            if (drawingFar)
+            {
+                return;   // a few pixels across: the rim would not show, and skipping it keeps far suns in one batch.
+            }
             // ORDER (item 3, same as a planet): the sun model is an entityCutout draw that committed depth. Commit it, then
             // lay the SAME reverse-wound rim shell planets get just outside the body silhouette, spun/tilted to match the
             // body so it stays welded to the edge. The rim's far faces LEQUAL-test against the body depth just committed, so

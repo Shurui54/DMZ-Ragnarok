@@ -174,6 +174,7 @@ public class PlanetSpawnModule extends ConfigLoaderBase
     private static ForgeConfigSpec.DoubleValue cfgSuperGodBattlePowerMax;
     private static ForgeConfigSpec.DoubleValue cfgSuperRenderDistance;
     private static ForgeConfigSpec.IntValue cfgSpaceSimulationDistance;
+    private static ForgeConfigSpec.IntValue cfgSpaceViewDistance;
     private static ForgeConfigSpec.BooleanValue cfgSkipEmptySpaceChunkTicks;
 
     static double bodyDrawDistance()
@@ -1191,6 +1192,9 @@ public class PlanetSpawnModule extends ConfigLoaderBase
         cfgSpaceSimulationDistance = BUILDER
                 .comment("Simulation distance (in chunks) for the SPACE dimension only: how far from a player chunks tick and entities move. The view distance (what clients see) is unchanged, and so is every other dimension. Never raised above the server's own simulation-distance. 0 = use the server value. Default 4 (64 blocks): space is empty, so this only saves the ticket and chunk-tick work around fast-moving pods.")
                 .defineInRange("spaceSimulationDistance", 4, 0, 32);
+        cfgSpaceViewDistance = BUILDER
+                .comment("View distance (in chunks) for the SPACE dimension only: how far around a player the server sends chunks. Space is empty, and planets, suns and systems are drawn independently of chunks, so a short radius only limits asteroids and other players' pods to this range while making fast pod flight far smoother (fewer chunks to stream and build each second). Never raised above the server's own view-distance. 0 = use the server value. Default 5.")
+                .defineInRange("spaceViewDistance", 5, 0, 32);
         cfgSkipEmptySpaceChunkTicks = BUILDER
                 .comment("Skip the per-chunk tick work (random ticks, weather, natural spawning) for space chunks that hold no block and no block entity at all. Entities in them still tick normally. Default true.")
                 .define("skipEmptySpaceChunkTicks", true);
@@ -1338,7 +1342,7 @@ public class PlanetSpawnModule extends ConfigLoaderBase
         superGodBattlePowerMin = cfgSuperGodBattlePowerMin.get();
         superGodBattlePowerMax = cfgSuperGodBattlePowerMax.get();
         superRenderDistance = cfgSuperRenderDistance.get();
-        SpaceChunkTicking.configure(cfgSpaceSimulationDistance.get(), cfgSkipEmptySpaceChunkTicks.get());
+        SpaceChunkTicking.configure(cfgSpaceSimulationDistance.get(), cfgSpaceViewDistance.get(), cfgSkipEmptySpaceChunkTicks.get());
         PlanetRegistry.excludeTimeChamber = cfgExcludeTimeChamber.get();
         PlanetRegistry.requireLoadedDimension = cfgRequireLoadedDimension.get();
         // the exclusion toggles just changed what counts as a body, so drop the eligibility cache.

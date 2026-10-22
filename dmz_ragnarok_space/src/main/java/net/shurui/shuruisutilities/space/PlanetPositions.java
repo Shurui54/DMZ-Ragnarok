@@ -60,9 +60,9 @@ public final class PlanetPositions
     // is called repeatedly with an unchanged set. Server-side only.
     private static volatile List<String> layoutKeys = Collections.emptyList();
 
-    // The main system's reference plane: the sun's height, which every fixed ring is tilted about. Space is now the full
-    // vanilla column (SpaceDimension.COLUMN_MIN_Y -2032 to COLUMN_TOP_Y 2032), so the sun sits at its centre, Y 0, and the
-    // tilted rings swing planets up to MAIN_MAX_LIFT above and below it with the same room either way. Was 900 when the
+    // The main system's reference plane: the sun's height, which every fixed ring is tilted about. The space layout band
+    // (SpaceKeys.LAYOUT_MIN_Y -12000 to LAYOUT_MAX_Y 12000) is centred on Y 0, so the sun sits at its centre and the
+    // rings (flat now, see FLAT_ORBITS) have the same room above and below. Was 900 when the
     // column was -64..1984. Nothing persisted depends on it: fixed bodies are re-derived every tick, and the super bodies
     // keep their stored plane heights, which still sit inside SuperPlanetPositions' band.
     public static final double PLANET_Y = 0.0;
@@ -156,19 +156,16 @@ public final class PlanetPositions
     // stored or synced beyond what the anchor already uses. Partner -> anchor. Before this the partners hashed onto outer
     // fallback rings (SMP ring 4, Namek OW and Kai OW both ring 10).
     //
-    // Owner, 2026-10-21 (DMZ 2.2): "demon realm should be on the same ring as beerus planet, a quarter rotation from
-    // kaiow". DMZ 2.2's Demon Realm (dragonminez:demon_realm, a pod destination) rides Beerus's ring a quarter turn
-    // ahead of Beerus, so Beerus, Demon Realm and Kai OW sit at 0, 90 and 180 degrees on ring 5. Before this it hashed
-    // onto its own fallback ring. The phase offset of each partner is in ORBIT_PHASE (half a turn when absent).
+    // 2026-10-22: Kai OW moved to the Sacred World of the Kais' ring (opposite it), and the Demon Realm now sits
+    // opposite Beerus planet on ring 5. The phase offset of each partner is in ORBIT_PHASE (half a turn when absent).
     private static final Map<String, String> ORBIT_PARTNER = Map.of(
             "dmz_ragnarok:smp", "minecraft:overworld",
             "dmz_ragnarok:namekow", "dragonminez:namek",
-            "dmz_ragnarok:kaiow", "dmz_ragnarok:beerus_planet",
+            "dmz_ragnarok:kaiow", "dragonminez:sacredkaiplanet",
             "dragonminez:demon_realm", "dmz_ragnarok:beerus_planet");
 
     // A partner's phase ahead of its anchor, radians. Absent: half a turn (opposite).
-    private static final Map<String, Double> ORBIT_PHASE = Map.of(
-            "dragonminez:demon_realm", Math.PI / 2.0);
+    private static final Map<String, Double> ORBIT_PHASE = Map.of();
 
     private static double partnerPhase(String partnerKey)
     {
@@ -249,18 +246,22 @@ public final class PlanetPositions
     //
     // Owner, 2026-10-22: "I want planets to be in real 3 dimensional space". Each ring has its OWN orbital plane, a pure
     // function of the ring index (never of the body set), so every body on a ring shares it: the shared-orbit pairs stay
-    // exactly opposite (half a turn on one tilted circle is the antipode through the sun) and Demon Realm stays a quarter
-    // turn from Beerus. The tilt is sized by the vertical swing it gives, not by an angle, because the rings are kilometres
+    // exactly opposite (half a turn on one tilted circle is the antipode through the sun) and every partner keeps its phase
+    // offset from its anchor. The tilt is sized by the vertical swing it gives, not by an angle, because the rings are kilometres
     // apart: a ring swings its bodies up to MAIN_MAX_LIFT * (0.55..1) above and below the sun plane, capped so no ring is
     // tilted past MAIN_MAX_INCLINATION. The innermost ring (6000) gets about 11 degrees; outer rings get a fraction of a
     // degree each but the same ~1 km swing. Worst case a body sits PLANET_Y +- (1200 + 92 radius + its moon's orbit,
     // ~330) = +-1622, inside SpaceDimension.BODY_FLOOR_Y..BODY_CEILING_Y (-1776..1968).
     static final double MAIN_MAX_LIFT = 1200.0;
+    static final boolean FLAT_ORBITS = true;
     private static final double MAIN_MAX_INCLINATION = Math.toRadians(12.0);
 
     // the inclination (radians) of fixed ring {@code index}: its vertical swing over its radius.
     private static double ringInclination(int index)
     {
+        // Flat: every planet orbits in its sun's plane. Height variety comes from where each system sits, not from
+        // tilted rings. The tilt maths below is kept so a future per-ring tilt is one line away.
+        if (FLAT_ORBITS) return 0.0;
         double r = orbitRadius(index);
         double fraction = 0.55 + 0.45 * ringUnit(index, 0);
         double lift = Math.min(MAIN_MAX_LIFT, r * Math.sin(MAIN_MAX_INCLINATION)) * fraction;

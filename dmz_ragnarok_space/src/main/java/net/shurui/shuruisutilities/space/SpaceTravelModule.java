@@ -144,10 +144,11 @@ public class SpaceTravelModule extends ConfigLoaderBase
     // descend-out check.
     private static final double SPACE_ARRIVAL_Y = PlanetPositions.PLANET_Y - 580.0;
 
-    // The descend-out floor the old -64..1984 column used as its default. A config file still holding exactly this was
-    // never set by hand (it is the old default), and honouring it would bounce players out of the whole lower half of
-    // the taller column, so bakeConfig reads it as the new default.
+    // Descend-out floors earlier layouts used as their defaults: 288 for the old -64..1984 column and -1840 for the
+    // -2032..2032 one. A config file still holding exactly one of these was never set by hand (it is an old default),
+    // and honouring it would bounce players out of most of the taller layout, so bakeConfig reads it as the new default.
     private static final double LEGACY_RETURN_ALTITUDE = 288.0;
+    private static final double LEGACY_RETURN_ALTITUDE_2032 = -1840.0;
 
     // How far back from a planet body's surface a player materialises when they launch from that body's dimension
     // (phase 1b). Added to the body's radius so the standoff is measured from the surface, not the centre: a
@@ -479,6 +480,14 @@ public class SpaceTravelModule extends ConfigLoaderBase
             // tag is not copied onto the respawn clone, so the drive simply stops and no explicit cancel runs). Leaving a
             // window pinned here would be a live-server chunk leak.
             SpaceRouteChunks.release(player);
+        }
+
+        // Safety net: the void does not kill in space (MixinSpaceNoVoidKill), so a player who ends up far below the layout
+        // while the re-trigger cooldown is running (a fast pod dive, a /tp) is sent out now instead of when it expires.
+        if (inSpace && player.getY() < SpaceDimension.SAFETY_FLOOR_Y)
+        {
+            tickInSpace(player);
+            return;
         }
 
         if (onCooldown(player))
@@ -3541,8 +3550,9 @@ public class SpaceTravelModule extends ConfigLoaderBase
                 .comment("Y height a player must rise above (in an eligible dimension) to be moved into space. Kept above the overworld ceiling so ordinary building never triggers it.")
                 .defineInRange("entryAltitude", 1000.0, 0.0, 4096.0);
         cfgReturnAltitude = BUILDER
-                .comment("Y height a player in space must descend below to be pulled down onto the nearest planet (or, if no landable body is within nearestPlanetRange, returned to where they took off). Space runs from Y -2032 to 2032 and planets sit all through it, so the default sits near the bottom of the column. Kept below the space arrival height so arriving never instantly triggers it. The old default (288, from when space was Y -64 to 1984) is read as the new default.")
-                .defineInRange("returnAltitude", SpaceDimension.DEFAULT_RETURN_ALTITUDE, SpaceDimension.COLUMN_MIN_Y, 4096.0);
+                .comment("Y height a player in space must descend below to be pulled down onto the nearest planet (or, if no landable body is within nearestPlanetRange, returned to where they took off). Space bodies sit all through Y -12000 to 12000 (players fly there; blocks only exist in -64 to 320), so the default sits near the bottom of that band. Kept below the space arrival height so arriving never instantly triggers it. The old defaults (288 and -1840, from earlier space layouts) are read as the new default.")
+                .defineInRange("returnAltitude", SpaceDimension.DEFAULT_RETURN_ALTITUDE, SpaceDimension.LAYOUT_MIN_Y,
+                        SpaceDimension.LAYOUT_MAX_Y);
         cfgNearestPlanetRange = BUILDER
                 .comment("How far, in blocks, to search for a landable body when a player sinks below returnAltitude. Measured to each body's SURFACE. If a planet or moon is within this range the player is landed on the nearest one; only if nothing landable is in range do they fall back to returning to where they took off. The default reaches a few generated sectors out so a body is almost always found, while staying a bounded once-per-trip scan.")
                 .defineInRange("nearestPlanetRange", 6144.0, 0.0, 100000.0);
@@ -3558,7 +3568,7 @@ public class SpaceTravelModule extends ConfigLoaderBase
         enabled = cfgEnabled.get();
         entryAltitude = cfgEntryAltitude.get();
         returnAltitude = cfgReturnAltitude.get();
-        if (returnAltitude == LEGACY_RETURN_ALTITUDE)
+        if (returnAltitude == LEGACY_RETURN_ALTITUDE || returnAltitude == LEGACY_RETURN_ALTITUDE_2032)
         {
             // an untouched config from the shorter column: see LEGACY_RETURN_ALTITUDE.
             returnAltitude = SpaceDimension.DEFAULT_RETURN_ALTITUDE;

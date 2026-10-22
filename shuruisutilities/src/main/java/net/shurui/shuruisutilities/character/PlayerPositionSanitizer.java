@@ -12,6 +12,7 @@ import net.minecraftforge.server.ServerLifecycleHooks;
 
 import net.shurui.shuruisutilities.util.output.ChatOutputHandler;
 import net.shurui.shuruisutilities.util.output.logger.LoggingHandler;
+import net.shurui.shuruisutilities.world.space.SpaceKeys;
 
 /**
  * Rescues a player whose saved position is not somewhere a person can be.
@@ -105,9 +106,11 @@ public final class PlayerPositionSanitizer
             return "coordinate is not a finite number";
         if (Math.abs(x) > MAX_HORIZONTAL || Math.abs(z) > MAX_HORIZONTAL)
             return "outside the world border limit";
-        if (y < level.getMinBuildHeight() - BELOW_WORLD_SLACK)
+        // Space players and pods fly across a layout band far taller than its block column, so there the band is
+        // the world. Logging out at Y 1500 in space is normal and must not send anyone to spawn.
+        if (y < SpaceKeys.entityFloorY(level) - BELOW_WORLD_SLACK)
             return "below the bottom of the world";
-        if (y > level.getMaxBuildHeight() + BELOW_WORLD_SLACK)
+        if (y > SpaceKeys.entityCeilingY(level) + BELOW_WORLD_SLACK)
             return "above the top of the world";
         return null;
     }

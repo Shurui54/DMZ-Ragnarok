@@ -175,8 +175,8 @@ public class VisualTestRunner
         Set<String> all = Set.of("back", "hand", "head", "anim", "duke", "mount", "pet",
                 "senzu", "items", "sagamodels", "boostpad", "halloween", "pilaf", "planetsky",
                 "garrison", "avatar", "starmap", "spaceview", "wrap", "chorus", "skillstree", "skillsgate",
-                "eventdates", "dormantballs", "xaeromap", "rituals", "options", "hud", "vegeta", "podfly",
-                "vehicles", "masters", "ocarina", "tapion", "konatsian");
+                "eventdates", "dormantballs", "xaeromap", "rituals", "options", "hud", "vegeta", "podfly", "podsmooth",
+                "vehicles", "masters", "ocarina", "tapion", "konatsian", "spacecol");
         if (list == null || list.isBlank() || list.equalsIgnoreCase("all"))
             return all;
         java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
@@ -507,6 +507,8 @@ public class VisualTestRunner
         if (scenarios.contains("hud")) buildHud();
         if (scenarios.contains("vegeta")) buildVegeta();
         if (scenarios.contains("podfly")) buildPodFly();
+        if (scenarios.contains("podsmooth")) buildPodSmooth();
+        if (scenarios.contains("spacecol")) buildSpaceColumn();
         if (scenarios.contains("vehicles")) buildVehicles();
         if (scenarios.contains("masters")) buildMasters();
         if (scenarios.contains("ocarina")) buildOcarina();
@@ -3276,9 +3278,16 @@ public class VisualTestRunner
         double minMs = min / 1.0E6;
         double maxMs = max / 1.0E6;
         double avgFps = avgMs > 0 ? 1000.0 / avgMs : 0;
+        List<Long> sorted = new ArrayList<>(ds);
+        java.util.Collections.sort(sorted);
+        double p50 = sorted.get(sorted.size() / 2) / 1.0E6;
+        double p99 = sorted.get(Math.min(sorted.size() - 1, (int) Math.floor(sorted.size() * 0.99))) / 1.0E6;
+        // a hitch: a frame more than twice the median and over 50 ms, the kind a player feels as a stutter.
+        int hitches = 0;
+        for (long d : ds) if (d / 1.0E6 > Math.max(50.0, p50 * 2.0)) hitches++;
         index.add(String.format(Locale.ROOT,
-                "starmap | (frametime) | %s: frames=%d min=%.2fms avg=%.2fms max=%.2fms (~%.0f fps avg)",
-                label, ds.size(), minMs, avgMs, maxMs, avgFps));
+                "starmap | (frametime) | %s: frames=%d min=%.2fms avg=%.2fms p50=%.2fms p99=%.2fms max=%.2fms hitches=%d (~%.0f fps avg)",
+                label, ds.size(), minMs, avgMs, p50, p99, maxMs, hitches, avgFps));
     }
 
     // ---------------------------------------------------------------- SPACEVIEW scenario (open-space suns + pod wake)
@@ -4295,6 +4304,27 @@ public class VisualTestRunner
         }
     }
 
+    // PODSMOOTH: fast hand-flown pod at a normal render distance, frame times sampled through the whole cruise, so chunk
+    // streaming hitches show up as p99, max and a hitch count (the podfly scenario runs at render distance 2).
+    private void buildPodSmooth()
+    {
+        step(2, () -> { Minecraft.getInstance().options.renderDistance().set(10); Minecraft.getInstance().levelRenderer.allChanged(); });
+        step(6, () -> sendCommand(Minecraft.getInstance(), "gamemode creative"));
+        step(60, () -> onServer(this::enterSpace));
+        step(60, () -> { });
+        step(30, () -> onServer(this::spawnPilotPod));
+        step(10, () -> podCam(270.0F));
+        step(20, () -> podThrottle(true));
+        step(20, () -> onServer(sp -> podCruise(sp, 12.0D)));
+        step(40, () -> { });
+        step(2, this::startFrameSampling);
+        step(200, () -> { });
+        step(2, () -> stopFrameSampling("pod cruise 12 b/t, render distance 10"));
+        step(2, () -> grab("podsmooth", "cruise", "Pod at 12 blocks a tick, render distance 10"));
+        step(4, () -> podThrottle(false));
+        step(2, () -> onServer(this::dismountAndRemovePod));
+    }
+
     private void podThrottle(boolean down)
     {
         Minecraft.getInstance().options.keyUp.setDown(down);
@@ -4393,6 +4423,121 @@ public class VisualTestRunner
         step(4, () -> onServer(sp -> DmzCharacterSetup.setForcedAura(sp, false)));
         step(2, () -> onServer(this::dismountAndRemovePod));
         step(2, () -> spaceForceDay(-1.0F));
+    }
+
+    // ---------------------------------------------------------------- SPACECOL scenario (short block column, tall layout)
+
+    /**
+     * SPACECOL: the space dimension's block column is a normal -64..320 one while players and pods fly across the much
+     * taller layout band. Logs the client's render section count and frame times at render distance 12, then checks that
+     * a player at Y 1500 and a piloted pod at Y -1500 stay alive, in space and drawn, and that sinking below the
+     * descend-out return altitude still takes the player out of space.
+     */
+    private void buildSpaceColumn()
+    {
+        step(2, () -> { Minecraft.getInstance().options.renderDistance().set(12); Minecraft.getInstance().levelRenderer.allChanged(); });
+        step(6, () -> sendCommand(Minecraft.getInstance(), "gamemode creative"));
+        step(60, () -> onServer(this::enterSpace));
+        step(200, () -> { });
+        step(1, () -> spaceColRenderStats("y0"));
+        step(2, this::startFrameSampling);
+        step(100, () -> { });
+        step(2, () -> stopFrameSampling("spacecol y 0, render distance 12"));
+        step(1, () -> grab("spacecol", "y0", "Open space at Y 0, render distance 12"));
+
+        step(4, () -> onServer(sp -> spaceColMove(sp, 1500.0D)));
+        for (int i = 0; i < 10; ++i)
+        {
+            final int t = i * 20;
+            step(20, () -> spaceColClientState("y1500 +" + t));
+        }
+        step(1, () -> spaceColRenderStats("y1500"));
+        step(2, this::startFrameSampling);
+        step(100, () -> { });
+        step(2, () -> stopFrameSampling("spacecol y 1500, render distance 12"));
+        step(1, () -> onServer(sp -> spaceColReport(sp, "player at y 1500 after 10s")));
+        step(1, () -> grab("spacecol", "y1500", "Open space at Y 1500, above the block column"));
+
+        step(4, () -> onServer(sp -> spaceColMove(sp, -1500.0D)));
+        step(60, () -> { });
+        step(20, () -> onServer(this::spawnPilotPod));
+        step(10, () -> podCam(270.0F));
+        step(200, () -> { });
+        step(1, () -> onServer(sp -> spaceColReport(sp, "pod pilot at y -1500 after 10s")));
+        step(1, () -> spaceColClientPod("pod at y -1500"));
+        step(2, this::startFrameSampling);
+        step(100, () -> { });
+        step(2, () -> stopFrameSampling("spacecol pod at y -1500, render distance 12"));
+        step(1, () -> grab("spacecol", "pod_low", "Piloted pod at Y -1500, third person: pod and pilot drawn"));
+
+        step(4, () -> onServer(this::dismountAndRemovePod));
+        step(4, () -> onServer(sp -> spaceColMove(sp, -11850.0D)));
+        step(200, () -> { });
+        step(40, () -> onServer(sp -> spaceColReport(sp, "after sinking below the return altitude")));
+        step(2, () -> Minecraft.getInstance().options.setCameraType(CameraType.FIRST_PERSON));
+    }
+
+    private void spaceColMove(ServerPlayer sp, double y)
+    {
+        sp.teleportTo(sp.serverLevel(), sp.getX(), y, sp.getZ(), sp.getYRot(), sp.getXRot());
+        sp.getAbilities().flying = true;
+        sp.onUpdateAbilities();
+        index.add(String.format(Locale.ROOT, "spacecol | (move) | teleported to y %.0f in %s", y,
+                sp.level().dimension().location()));
+    }
+
+    private void spaceColReport(ServerPlayer sp, String label)
+    {
+        Entity v = sp.getVehicle();
+        index.add(String.format(Locale.ROOT,
+                "spacecol | (state) | %s: dim=%s pos=(%.1f, %.1f, %.1f) alive=%s health=%.1f buildColumn=%d..%d vehicle=%s",
+                label, sp.level().dimension().location(), sp.getX(), sp.getY(), sp.getZ(), sp.isAlive(), sp.getHealth(),
+                sp.level().getMinBuildHeight(), sp.level().getMaxBuildHeight(),
+                v == null ? "none" : String.format(Locale.ROOT, "%s alive=%s y=%.1f",
+                        ForgeRegistries.ENTITY_TYPES.getKey(v.getType()), v.isAlive(), v.getY())));
+    }
+
+    private void spaceColClientState(String label)
+    {
+        LocalPlayer p = Minecraft.getInstance().player;
+        if (p == null) return;
+        index.add(String.format(Locale.ROOT,
+                "spacecol | (client) | %s: y=%.2f flying=%s mayfly=%s onGround=%s dy=%.3f noGravity=%s",
+                label, p.getY(), p.getAbilities().flying, p.getAbilities().mayfly, p.onGround(), p.getDeltaMovement().y,
+                p.isNoGravity()));
+    }
+
+    private void spaceColClientPod(String label)
+    {
+        Minecraft mc = Minecraft.getInstance();
+        Entity pod = mc.level == null || podEntityId < 0 ? null : mc.level.getEntity(podEntityId);
+        index.add(String.format(Locale.ROOT, "spacecol | (client) | %s: client pod=%s riding=%s",
+                label, pod == null ? "MISSING" : String.format(Locale.ROOT, "y=%.1f", pod.getY()),
+                mc.player != null && mc.player.getVehicle() != null));
+    }
+
+    // the client's render section storage: one RenderChunk (with a vertex buffer per render layer) per column section.
+    private void spaceColRenderStats(String label)
+    {
+        Minecraft mc = Minecraft.getInstance();
+        try
+        {
+            java.lang.reflect.Field va = net.minecraft.client.renderer.LevelRenderer.class.getDeclaredField("viewArea");
+            va.setAccessible(true);
+            Object viewArea = va.get(mc.levelRenderer);
+            java.lang.reflect.Field ch = net.minecraft.client.renderer.ViewArea.class.getDeclaredField("chunks");
+            ch.setAccessible(true);
+            Object[] chunks = (Object[]) ch.get(viewArea);
+            Runtime rt = Runtime.getRuntime();
+            index.add(String.format(Locale.ROOT,
+                    "spacecol | (render) | %s: renderChunks=%d sections=%d heapUsedMB=%d",
+                    label, chunks.length, mc.level == null ? -1 : mc.level.getSectionsCount(),
+                    (rt.totalMemory() - rt.freeMemory()) >> 20));
+        }
+        catch (Throwable t)
+        {
+            index.add("spacecol | (render) | " + label + ": FAILED " + t);
+        }
     }
 
     // ---------------------------------------------------------------- WRAP + MEMORY scenario (land v4, walk off edge)

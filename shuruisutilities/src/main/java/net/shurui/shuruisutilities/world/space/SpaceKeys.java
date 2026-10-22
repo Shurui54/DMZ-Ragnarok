@@ -59,9 +59,33 @@ public final class SpaceKeys
     // seeded INTO SURFACE. This id is kept for reference only (the resource folder name), it is not a live dimension.
     public static final ResourceLocation BEERUS_PLANET_ID = new ResourceLocation(SURFACE_ID.getNamespace(), "beerus_planet");
 
+    // --- Space vertical extents. -------------------------------------------------------------------------------------
+    // The space dimension's BLOCK column is a normal one (dimension_type/space.json: min_y -64, height 384), because
+    // the client allocates render storage for every section of the column whether anything is in it or not. The space
+    // LAYOUT is much taller: suns, planets, black holes and the super bodies sit at virtual Y values across this band,
+    // and players and pods fly there as entities, above and below the block column. Nothing outside the block column
+    // is a block, so only entity checks should ever use these numbers. SpaceDimension aliases them.
+    public static final double LAYOUT_MIN_Y = -12000.0;
+    public static final double LAYOUT_MAX_Y = 12000.0;
+
     public static boolean isSpace(Level level)
     {
         return level != null && level.dimension().equals(SPACE);
+    }
+
+    /**
+     * The lowest Y an entity can legitimately be at in this level: the layout floor in space, the build floor
+     * anywhere else. For position sanity checks only, never for block access.
+     */
+    public static double entityFloorY(Level level)
+    {
+        return isSpace(level) ? LAYOUT_MIN_Y : level.getMinBuildHeight();
+    }
+
+    /** The matching top: the layout ceiling in space, the build ceiling (exclusive) anywhere else. */
+    public static double entityCeilingY(Level level)
+    {
+        return isSpace(level) ? LAYOUT_MAX_Y : level.getMaxBuildHeight();
     }
 
     public static boolean isSurface(Level level)

@@ -56,10 +56,11 @@ public final class StarPositions
     public static volatile int sectorSize = DEFAULT_SECTOR_SIZE;
     static volatile double density = DEFAULT_DENSITY;
 
-    // Vertical band a (retired, see starsNear) scattered star may occupy: the space body band, so it stays reachable and
-    // inside the column (SpaceDimension, -2032..2032). The live suns are the GeneratedSystems stars.
-    private static final double MIN_Y = SpaceDimension.BODY_FLOOR_Y;
-    private static final double MAX_Y = SpaceDimension.BODY_CEILING_Y;
+    // Vertical band a (retired, see starsNear) scattered star may occupy. Pinned to the body band of the -2032..2032
+    // layout it was last derived from, so nothing that still reads it moves now the layout band is taller. The live suns
+    // are the GeneratedSystems stars.
+    private static final double MIN_Y = -1776.0;
+    private static final double MAX_Y = 1968.0;
 
     // Visual half-extent range of a star, in blocks. Sized at roughly 1.5x a planet so a star is clearly the biggest
     // thing out there and unmistakable, without dominating the whole sky. Planet half-extents are 24..55, so 36..82 keeps

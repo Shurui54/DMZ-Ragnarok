@@ -25,8 +25,10 @@ import net.shurui.shuruisutilities.world.space.SpaceKeys;
  * {@code ServerChunkCache} is given its own, smaller simulation distance ({@link #simulationDistance}, config
  * {@code spaceSimulationDistance}, default 4) through {@code MixinSpaceSimulationDistance}, which clamps whatever the
  * server asks for (at start, and every later change, singleplayer included) for that one level. It is never RAISED above
- * the server's value. The VIEW distance is untouched, so clients load and see exactly the same chunks. Every other
- * dimension, planet surfaces included, is unchanged.
+ * the server's value. The VIEW distance gets the same treatment ({@link #viewDistance}, config {@code spaceViewDistance},
+ * default 5) through the same mixin: at pod speed the full server radius meant hundreds of new chunks a second to send,
+ * light and build, which is what made fast flight hitch. Bodies, suns and systems are drawn without chunks, so only
+ * asteroids and other pods are limited to that radius. Every other dimension, planet surfaces included, is unchanged.
  *
  * <p>What still ticks: the player (always, from its connection), a pod it rides (the root vehicle sits on the player),
  * and every entity inside the radius (4 chunks is a 64 to 80 block square around each player). So that nothing FREEZES
@@ -60,14 +62,16 @@ public final class SpaceChunkTicking
     }
 
     private static volatile int simulationDistance = 4;
+    private static volatile int viewDistance = 5;
     private static volatile boolean skipEmpty = true;
     private static long skipped;
     private static final long RECHECK_TICKS = 200L;
 
     /** Config bake (PlanetSpawnModule). Re-applies to a running server. */
-    public static void configure(int simDistance, boolean skipEmptyChunks)
+    public static void configure(int simDistance, int spaceViewDistance, boolean skipEmptyChunks)
     {
         simulationDistance = simDistance;
+        viewDistance = spaceViewDistance;
         skipEmpty = skipEmptyChunks;
         MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
         if (server != null)
@@ -85,6 +89,17 @@ public final class SpaceChunkTicking
             return requested;
         }
         return Math.min(requested, cap);
+    }
+
+    /** The view distance the space level may use when the server asks for {@code requested}: never raised. */
+    public static int clampView(ServerLevel level, int requested)
+    {
+        int cap = viewDistance;
+        if (cap <= 0 || level == null || level.dimension() != SpaceKeys.SPACE)
+        {
+            return requested;
+        }
+        return Math.min(requested, Math.max(2, cap));
     }
 
     /** Whether the per-chunk tick (random ticks, weather, spawning) is skipped for this chunk of this level. */
@@ -146,9 +161,11 @@ public final class SpaceChunkTicking
         }
         int serverSim = server.getPlayerList().getSimulationDistance();
         space.getChunkSource().setSimulationDistance(serverSim);
-        LoggingHandler.sulog.info("[SpaceTicking] space simulation distance {} chunks (server {}, view distance {} "
-                        + "unchanged); all-air space chunks skip the chunk tick: {}.",
-                clamp(space, serverSim), serverSim, server.getPlayerList().getViewDistance(), skipEmpty);
+        int serverView = server.getPlayerList().getViewDistance();
+        space.getChunkSource().setViewDistance(serverView);
+        LoggingHandler.sulog.info("[SpaceTicking] space simulation distance {} chunks (server {}), view distance {} "
+                        + "chunks (server {}); all-air space chunks skip the chunk tick: {}.",
+                clamp(space, serverSim), serverSim, clampView(space, serverView), serverView, skipEmpty);
     }
 
     // Keep an entity just OUTSIDE the reduced entity-ticking radius moving while a client can still see it: vanilla ticks
@@ -184,7 +201,7 @@ public final class SpaceChunkTicking
         {
             return;   // no reduction in force: vanilla already ticks everything it would.
         }
-        int view = level.getServer().getPlayerList().getViewDistance();
+        int view = clampView(level, level.getServer().getPlayerList().getViewDistance());
         var distance = level.getChunkSource().chunkMap.getDistanceManager();
         for (Entity entity : level.getAllEntities())
         {

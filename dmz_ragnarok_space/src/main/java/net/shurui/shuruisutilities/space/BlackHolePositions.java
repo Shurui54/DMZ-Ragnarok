@@ -63,8 +63,9 @@ public final class BlackHolePositions
     // pull near the floor, so holes sit above and below players like everything else but never drag anyone straight
     // into the descend-out floor (-1840). Was 200..1600 in the old -64..1984 column. Black holes are pure derivation
     // (nothing stored), and a hole in the old band keeps its exact position: only cells outside it are newly added.
-    private static final double MIN_Y = SpaceDimension.BODY_FLOOR_Y + 256.0;   // -1520
-    private static final double MAX_Y = SpaceDimension.BODY_CEILING_Y - 128.0; // 1840
+    // Pinned to the numbers the -2032..2032 layout gave, so no existing hole moves now the layout band is taller.
+    private static final double MIN_Y = -1520.0;
+    private static final double MAX_Y = 1840.0;
 
     // Visual disc half-extent range, in blocks. Smaller than a star (a black hole reads as a compact dark void, not a
     // huge glowing ball), but its pull reaches far past the disc. 40..80 half-extent = 80..160 blocks across.

@@ -18,6 +18,7 @@ import net.shurui.shuruisutilities.util.events.entity.EntityPortalEvent;
 import net.shurui.shuruisutilities.util.events.player.PlayerChangedZone;
 import net.shurui.shuruisutilities.util.output.ChatOutputHandler;
 import net.shurui.shuruisutilities.util.output.logger.LoggingHandler;
+import net.shurui.shuruisutilities.world.space.SpaceKeys;
 
 import net.minecraft.world.level.block.Block;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
@@ -420,8 +421,9 @@ public class TeleportHelper extends ServerEventHandler
         if (point.getWorld() != null)
         {
             ServerLevel world = point.getWorld();
-            boolean withinColumn = point.getY() >= world.getMinBuildHeight()
-                    && point.getY() < world.getMaxBuildHeight();
+            // In space the column an entity can be in is the whole layout band, not just the block column.
+            boolean withinColumn = point.getY() >= SpaceKeys.entityFloorY(world)
+                    && point.getY() < SpaceKeys.entityCeilingY(world);
             // Entitled players (the su.teleport.exact perm, or anyone who can already fly) land EXACTLY where asked.
             // If that spot is not a safe standing position they are put into flight rather than relocated, so a
             // moderator arrives at the requested coordinate or mid-air instead of being dumped nearby. A destination

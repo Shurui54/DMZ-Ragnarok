@@ -79,8 +79,20 @@ public final class SafeSpotResolver
     {
         int bx = Mth.floor(reqX);
         int bz = Mth.floor(reqZ);
+        // SPACE above or below its block column: players and pods fly across a layout band far taller than the column,
+        // and out there there are no blocks at all, so the requested spot is the answer. Scanning down from it would
+        // drop a player who teleports to a friend at Y 1500 onto whatever asteroid sits in the column below.
+        if (SpaceKeys.isSpace(level) && (reqY < level.getMinBuildHeight() || reqY >= level.getMaxBuildHeight()))
+        {
+            return new Result(reqX, reqY, reqZ, false, false);
+        }
         // force-load the requested column's chunk to FULL so every read below is real, not unloaded-air.
         level.getChunk(SectionPos.blockToSectionCoord(bx), SectionPos.blockToSectionCoord(bz));
+        // SPACE inside the block column: open void unless an asteroid is in the way, so a clear spot is kept as asked.
+        if (SpaceKeys.isSpace(level) && isClear(level, bx, Mth.floor(reqY), bz))
+        {
+            return new Result(reqX, reqY, reqZ, false, false);
+        }
 
         int reqY0 = Mth.floor(reqY);
         boolean ceiling = level.dimensionType().hasCeiling();
@@ -263,6 +275,17 @@ public final class SafeSpotResolver
             return false;
         }
         return true;
+    }
+
+    // feet and head free of collision and fluid, with no requirement for ground below. Assumes the chunk is loaded.
+    private static boolean isClear(ServerLevel level, int bx, int feetY, int bz)
+    {
+        BlockPos feet = new BlockPos(bx, feetY, bz);
+        BlockPos head = feet.above();
+        BlockState feetState = level.getBlockState(feet);
+        BlockState headState = level.getBlockState(head);
+        return feetState.getCollisionShape(level, feet).isEmpty() && headState.getCollisionShape(level, head).isEmpty()
+                && feetState.getFluidState().isEmpty() && headState.getFluidState().isEmpty();
     }
 
     // lava is always dangerous (contact burns); water is dangerous only in the body space (feet/head), where it

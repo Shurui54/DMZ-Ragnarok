@@ -36,6 +36,7 @@ import net.shurui.shuruisutilities.dragonballbag.DragonBallBagItem;
 import net.shurui.shuruisutilities.grave.GraveData;
 import net.shurui.shuruisutilities.grave.GraveStorage;
 import net.shurui.shuruisutilities.util.output.logger.LoggingHandler;
+import net.shurui.shuruisutilities.world.space.SpaceKeys;
 
 /**
  * A6: at most one of each dragon ball (per set and star; a set configured with more copies allows that many) exists
@@ -110,7 +111,7 @@ public final class BallUniqueness
             return;
         Entity.RemovalReason reason = item.getRemovalReason();
         boolean lostForGood = reason == Entity.RemovalReason.KILLED
-                || (reason == Entity.RemovalReason.DISCARDED && item.getY() < level.getMinBuildHeight() - 32);
+                || (reason == Entity.RemovalReason.DISCARDED && item.getY() < SpaceKeys.entityFloorY(level) - 32);
         if (lostForGood)
             lost(level, item, reason == Entity.RemovalReason.KILLED ? "destroyed" : "fell out of the world");
     }

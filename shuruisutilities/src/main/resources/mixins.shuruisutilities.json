@@ -46,6 +46,12 @@
   ],
   "client": [
     "client.AccessorCompositeRenderType",
+    "client.MixinDmzStatsFallbackPlayerRenderer",
+    "client.MixinDmzStatsFallbackRenderHand",
+    "client.MixinDmzStatsFallbackRacePartsLayer",
+    "client.MixinDmzStatsFallbackSkinLayer",
+    "client.MixinDmzStatsFallbackCustomArmorLayer",
+    "client.MixinDmzStatsFallbackThirdPartyLayerForwarder",
     "client.AccessorCompositeState",
     "client.AccessorCreativeModeTabIcon",
     "client.AccessorTextureStateShard",
@@ -99,6 +105,7 @@
   ],
   "mixins": [
     "MixinAngelStaffContainer",
+    "server.MixinPackRepositoryCurrentTop",
     "entity.MixinLivingEntityHealthGuard",
     "entity.MixinEntityHologramPin",
     "MixinLevelDestroyBlock",

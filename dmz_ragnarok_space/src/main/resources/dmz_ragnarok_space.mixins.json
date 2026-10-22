@@ -12,7 +12,9 @@
     "client.MixinSpaceEntityRenderInVoid"
   ],
   "mixins": [
+    "MixinSpaceNoVoidKill",
     "MixinSpacePodAlwaysTicking",
+    "dmz.MixinDmzBallVoidFloorInSpace",
     "dmz.MixinDmzClashParticipant",
     "dmz.MixinDmzSpacePodVerticalSpeed",
     "dmz.MixinDmzTravelToPlanet",

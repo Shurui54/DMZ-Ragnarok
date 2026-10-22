@@ -78,12 +78,12 @@ public final class AsteroidPositions
     // the 384-block spacing is the raised "semi-common" density the user asked for (~2.5 lumps in view, up from ~0.9).
     private static final double DENSITY = 0.6;
 
-    // Vertical band asteroids are allowed to occupy, in blocks: the space body band (SpaceDimension, inside the
-    // -2032..2032 column), so a lump is block-stamped only where it fits in the world and where players fly. A lump is
-    // kept between these plus its own radius. Was 64..1600 in the old -64..1984 column; widening it only ADDS cells
-    // (an asteroid in the old band derives exactly as before, and stamped ones are remembered by AsteroidStampData).
-    private static final double MIN_Y = SpaceDimension.BODY_FLOOR_Y;
-    private static final double MAX_Y = SpaceDimension.BODY_CEILING_Y;
+    // Vertical band asteroids are allowed to occupy, in blocks. Asteroids are REAL BLOCKS, so they must sit inside the
+    // space dimension's block column (SpaceDimension.BUILD_MIN_Y..BUILD_TOP_Y, -64..320), not the much taller layout
+    // band the bodies use; a lump is kept between these plus its own radius, with 64 blocks of margin at each end of
+    // the column. Wreck debris uses the same band, so a destroyed planet far above or below it leaves no lumps.
+    private static final double MIN_Y = SpaceDimension.BUILD_MIN_Y + 64.0;   // 0
+    private static final double MAX_Y = SpaceDimension.BUILD_TOP_Y - 64.0;   // 256
 
     // Half-extent (radius) range for a lump, in blocks. The user asked for small to medium and VARYING, from a few
     // blocks across up to a few tens of blocks. Radius 3..18 means a diameter of roughly 6 up to ~36 blocks, so the

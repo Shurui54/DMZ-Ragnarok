@@ -48,22 +48,22 @@ public final class GeneratedSystems
     public static volatile double density = 0.5;
 
     // REAL 3D SYSTEMS (owner, 2026-10-22: "I want planets to be in real 3 dimensional space", after asking for "planets
-    // straight above and below you"). The space column is now the vanilla maximum (SpaceDimension, -2032..2032), and a
-    // system uses it in two ways:
+    // straight above and below you"). Space bodies live in the layout band (SpaceDimension, -12000..12000, far taller
+    // than the dimension's -64..320 block column; planets are drawn bodies, not blocks), and a system uses it in two ways:
     //
     //   1. STEEP ORBITAL PLANES. Each system has a base plane tilted MIN_SYSTEM_INCLINATION..MAX_SYSTEM_INCLINATION about
     //      a hashed line of nodes, and every planet gets its own plane near it (inclination +- PLANET_INCLINATION_JITTER,
     //      node +- PLANET_NODE_JITTER), so a system reads as a 3D cluster rather than one tilted disc. Each planet's tilt
     //      is capped so its vertical swing, ring * sin(inclination), never exceeds MAX_PLANET_LIFT.
-    //   2. THE STAR SPREADS THROUGH THE WHOLE COLUMN. With L the largest swing of this system's planets (every planet
+    //   2. THE STAR SPREADS THROUGH THE WHOLE BAND. With L the largest swing of this system's planets (every planet
     //      slot, destroyed or not, so destroying a planet never moves the star), the star Y is uniform in
     //        [BODY_FLOOR_Y + L + maxBodyRadius, BODY_CEILING_Y - L - maxBodyRadius].
-    //      L <= MAX_PLANET_LIFT 1600 and maxBodyRadius 96 keep that band non-empty (-80..272 at worst, the whole column
-    //      for a gently tilted system).
+    //      L <= MAX_PLANET_LIFT 1600 and maxBodyRadius 96 keep that band non-empty (about -10048..10240 at worst, and
+    //      L is 0 with flat orbits).
     //
     // The reachability guarantee is unchanged in kind: every planet, swing and body radius included, stays inside
-    // SpaceDimension.BODY_FLOOR_Y..BODY_CEILING_Y (-1776..1968), so it is above the descend-out return altitude (-1840)
-    // and below the top of the column (2032), and a pod can always fly to it and land:
+    // SpaceDimension.BODY_FLOOR_Y..BODY_CEILING_Y (-11744..11936), so it is above the descend-out return altitude
+    // (-11808) and below the top of the band (12000), and a pod can always fly to it and land:
     //   lowest  = starY - L - 96 >= BODY_FLOOR_Y, highest = starY + L + 96 <= BODY_CEILING_Y.
     // The orbit is still a rotation of a flat circle, so a planet stays exactly its ring radius from its star in 3D and
     // two planets on adjacent rings stay at least RING_STEP apart whatever their planes.
@@ -302,12 +302,13 @@ public final class GeneratedSystems
             double pi = inclination + (unit(ph, 0) * 2.0 - 1.0) * PLANET_INCLINATION_JITTER;
             // cap the swing: ring * sin(pi) <= MAX_PLANET_LIFT, so the star band below is never empty.
             pi = Math.min(Math.max(pi, 0.0), Math.asin(Math.min(1.0, MAX_PLANET_LIFT / ring)));
+            if (PlanetPositions.FLAT_ORBITS) pi = 0.0;   // planets orbit in their sun's plane; the system's height varies
             incl[i] = pi;
             node[i] = nodeAngle + (unit(ph, 24) * 2.0 - 1.0) * PLANET_NODE_JITTER;
             maxLift = Math.max(maxLift, ring * Math.sin(pi));
         }
 
-        // the star anywhere in the column that keeps every planet inside the body band (see the band maths above).
+        // the star anywhere in the band that keeps every planet inside the body band (see the band maths above).
         // Uniform, so systems sit all the way above and below a player, not only near one height.
         double bodyReach = maxLift + GeneratedPlanets.maxBodyRadius();
         double lowY = SpaceDimension.BODY_FLOOR_Y + bodyReach;
@@ -332,7 +333,8 @@ public final class GeneratedSystems
             float radius = GeneratedPlanets.bodyRadiusForSurfaceSize(surfaceSize);
             planets.add(new SystemPlanet(id, ring, phase0, surfaceSize, radius, planetTint(ph), incl[i], node[i]));
         }
-        return new System(starKey, starPos, starRadius, starTint, inclination, nodeAngle, maxLift, planets);
+        return new System(starKey, starPos, starRadius, starTint,
+                PlanetPositions.FLAT_ORBITS ? 0.0 : inclination, nodeAngle, maxLift, planets);
     }
 
     // a warm sun tint (yellow-white through amber), a pure function of the cell hash so it is stable and identical on
